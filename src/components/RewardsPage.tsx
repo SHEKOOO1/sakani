@@ -64,16 +64,16 @@ export const RewardsPage: React.FC = () => {
     setLoading(true);
     try {
       const [rewardRes, requestRes] = await Promise.all([
-        request('/api/rewards').catch(() => null),
-        request('/api/rewards/requests').catch(() => null),
+        request('/api/users/rewards-store').catch(() => null),
+        request('/api/users/reward-requests').catch(() => null),
       ]);
       let studentsRes = null;
       if (user?.role !== 'student') {
         studentsRes = await request('/api/behavior/students').catch(() => null);
       }
       if (!mounted.current) return;
-      if (rewardRes) setRewards(rewardRes.data || []);
-      if (requestRes) setRequests(requestRes.data || []);
+      if (rewardRes) setRewards((rewardRes.data || []).map((r: any) => ({ ...r, cost: r.points_cost })));
+      if (requestRes) setRequests((requestRes.data || []).map((r: any) => ({ ...r, cost: r.points_cost })));
       if (studentsRes) setStudents(studentsRes.data || []);
     } catch (err) { console.error(err); }
     finally { if (mounted.current) setLoading(false); }
@@ -235,7 +235,7 @@ export const RewardsPage: React.FC = () => {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setShowAddRewardModal(false)}>
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="rounded-xl bg-white p-6 max-w-md w-full shadow-2xl dark:bg-card-dark border border-slate-100 dark:border-white/10" onClick={e => e.stopPropagation()}>
               <h3 className="font-black text-slate-800 dark:text-white mb-5">إضافة مكافأة جديدة</h3>
-              <form onSubmit={async (e) => { e.preventDefault(); try { await request('/api/rewards', { method: 'POST', body: JSON.stringify(formData) }); showSnackbar('تمت الإضافة', 'success'); setShowAddRewardModal(false); fetchData(); } catch (err: any) { showSnackbar(err.message, 'error'); } }} className="space-y-4">
+              <form onSubmit={async (e) => { e.preventDefault(); try { await request('/api/users/rewards-store', { method: 'POST', body: JSON.stringify(formData) }); showSnackbar('تمت الإضافة', 'success'); setShowAddRewardModal(false); fetchData(); } catch (err: any) { showSnackbar(err.message, 'error'); } }} className="space-y-4">
                 <input placeholder="العنوان" value={formData.title} onChange={e => setFormData(f => ({ ...f, title: e.target.value }))}
                   className="w-full px-5 py-3 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-primary-500 transition-all dark:text-white" />
                 <textarea placeholder="الوصف" value={formData.description} onChange={e => setFormData(f => ({ ...f, description: e.target.value }))} rows={3}
@@ -270,7 +270,7 @@ export const RewardsPage: React.FC = () => {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setShowBadgeModal(false)}>
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="rounded-xl bg-white p-6 max-w-lg w-full shadow-2xl dark:bg-card-dark border border-slate-100 dark:border-white/10" onClick={e => e.stopPropagation()}>
               <h3 className="font-black text-slate-800 dark:text-white mb-5">منح شارة لطالب</h3>
-              <form onSubmit={async (e) => { e.preventDefault(); try { await request('/api/rewards/badges', { method: 'POST', body: JSON.stringify(badgeForm) }); showSnackbar('تم منح الشارة', 'success'); setShowBadgeModal(false); fetchData(); } catch (err: any) { showSnackbar(err.message, 'error'); } }} className="space-y-4">
+              <form onSubmit={async (e) => { e.preventDefault(); try { await request('/api/badges/grant', { method: 'POST', body: JSON.stringify({ studentId: badgeForm.student_id, badgeName: badgeForm.name, pointsBonus: badgeForm.points_bonus }) }); showSnackbar('تم منح الشارة', 'success'); setShowBadgeModal(false); fetchData(); } catch (err: any) { showSnackbar(err.message, 'error'); } }} className="space-y-4">
                 <div className="relative">
                   <input placeholder="ابحث عن طالب..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)}
                     className="w-full px-5 py-3 pr-12 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-vibrant-500 transition-all dark:text-white" />

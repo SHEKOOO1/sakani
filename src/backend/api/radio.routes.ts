@@ -3,12 +3,58 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
+import webpush from "web-push";
+import { kdb } from "../infrastructure/db";
 import { authenticate, authorizePermission } from "./middleware";
 import { AppPermission } from "../../types/permissions";
 import * as ctrl from "../controllers/radio.controller";
 
 
 const router = express.Router();
+
+// إعداد تفاصيل VAPID لدفع الإشعارات الفورية (نفس مفتاح إعدادات notifications.routes)
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(
+      'mailto:support@sakani.com',
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    );
+  } catch (e) {
+    console.warn('⚠️ Invalid VAPID keys. Push notifications disabled.', (e as Error).message);
+  }
+}
+
+// إرسال إشعار فوري للمشتركين عند بدء بث جديد (الراديو)
+router.post("/push-notification", authenticate, authorizePermission(AppPermission.MANAGE_RADIO_BROADCAST), async (req, res) => {
+  const { title, artist } = req.body;
+  if (!title) return res.status(400).json({ success: false, message: "العنوان مطلوب" });
+  try {
+    const payload = JSON.stringify({
+      title,
+      body: artist || '',
+      icon: '/img/pwa-192x192.png',
+      badge: '/img/pwa-192x192.png',
+      data: { url: '/radio' }
+    });
+    const subscriptions = await kdb('user_push_subscriptions').select('id', 'subscription_json');
+    let sent = 0;
+    for (const sub of subscriptions) {
+      try {
+        await webpush.sendNotification(JSON.parse(sub.subscription_json), payload);
+        sent++;
+      } catch (err: any) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await kdb('user_push_subscriptions').where({ id: sub.id }).del().catch(() => {});
+        }
+      }
+    }
+    res.json({ success: true, message: "تم إرسال الإشعار", sent });
+  } catch (error: any) {
+    console.error("Error sending push notification:", error);
+    res.status(500).json({ success: false, message: "Failed to send push notification" });
+  }
+});
 
 // ─── Radiojar API Proxy ───
 router.get("/radiojar/now-playing", ctrl.getRadiojarNowPlaying);

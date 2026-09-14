@@ -143,7 +143,7 @@ export function FinancePage() {
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
-      const resp = await request('/api/payment/methods');
+      const resp = await request('/api/payments/methods');
       const data = resp?.data;
       if (mounted.current && Array.isArray(data)) setPaymentMethods(data.filter((m: any) => m.is_active !== false));
     } catch (err) {

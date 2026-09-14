@@ -126,8 +126,11 @@ router.post("/grant", authenticate, authorizePermission(AppPermission.MANAGE_REW
       }
     }
     await kdb.transaction(async trx => {
-      const badge = await trx('badges').where({ title: badgeName, tenant_id: req.user.tenantId }).first();
-      if (!badge) return res.status(404).json({ success: false, message: "������ ��� �����" });
+      let badge = await trx('badges').where({ title: badgeName, tenant_id: req.user.tenantId }).first();
+      if (!badge) {
+        badge = { id: uuidv4(), tenant_id: req.user.tenantId, title: badgeName, description: null, icon: 'Award', color: 'amber', category: 'housing', created_by: req.user.id };
+        await trx('badges').insert(badge);
+      }
 
       await trx('student_badges').insert({
         id: uuidv4(),

@@ -75,7 +75,7 @@ export function BehaviorDashboard() {
   const handleUndoWarning = async (warningId: string) => {
     if (!await confirm({ message: 'هل أنت متأكد من إلغاء هذا الإنذار؟', type: 'danger' })) return;
     try {
-      await request(`/api/behavior/warnings/${warningId}/undo`, { method: 'POST' });
+      await request(`/api/behavior/warnings/${warningId}/reverse`, { method: 'POST' });
       showSnackbar('تم إلغاء الإنذار بنجاح', 'success');
     } catch (err: any) { showSnackbar(err.message, 'error'); }
   };

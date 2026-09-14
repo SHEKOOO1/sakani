@@ -76,7 +76,7 @@ export function useStudentProfile(user: any, fetchStudents: () => void) {
   const handleArchiveStudent = async () => {
     if (!selectedStudentId) return;
     try {
-      await request(`/api/students/${selectedStudentId}/archive`, {
+      await request(`/api/students/${selectedStudentId}/leave`, {
         method: 'POST', body: JSON.stringify(archiveData)
       });
       setArchiveModalOpen(false);

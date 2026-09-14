@@ -116,7 +116,7 @@ export function StudentsPage() {
       Object.entries(formData.docTypes).forEach(([type, file]) => {
         if (file) { fData.append('docs', file); fData.append('doc_types', type); }
       });
-      await request('/api/students-v2/register-full', { method: 'POST', body: fData });
+      await request('/api/students/register-full', { method: 'POST', body: fData });
       setAddModalOpen(false);
       setFormData(defaultFormData);
       fetchStudents();
