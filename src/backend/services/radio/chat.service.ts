@@ -14,7 +14,7 @@ export async function getChatMessages() {
   const studentIds = [...new Set(messages.filter(m => m.user_role === "student").map(m => m.user_id))];
   const studentGenders: Record<string, string> = {};
   if (studentIds.length > 0) {
-    const students = await kdb("students").whereIn("user_id", studentIds).where({ is_active: true }).select("user_id", "gender");
+    const students = await kdb("students as s").join("users as u", "s.user_id", "u.id").whereIn("s.user_id", studentIds).where("s.status", "active").select("u.id as user_id", "u.gender");
     students.forEach((s: any) => { studentGenders[s.user_id] = s.gender || ""; });
   }
 

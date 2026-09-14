@@ -71,7 +71,8 @@ CREATE TABLE rooms (
     capacity INT DEFAULT 2,
     current_occupancy INT DEFAULT 0,
     gender NVARCHAR(10) DEFAULT 'male',
-    created_at DATETIME2 DEFAULT GETDATE()
+    created_at DATETIME2 DEFAULT GETDATE(),
+    updated_at DATETIME2
 );
 END
 
@@ -94,6 +95,7 @@ CREATE TABLE students (
     is_graduate BIT DEFAULT 0,
     graduation_date DATETIME2,
     created_at DATETIME2 DEFAULT GETDATE(),
+    updated_at DATETIME2,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 END
@@ -373,11 +375,15 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'decisions_log')
 BEGIN
 CREATE TABLE decisions_log (
     id NVARCHAR(128) PRIMARY KEY,
-    tenant_id NVARCHAR(128) NOT NULL,
-    action NVARCHAR(255) NOT NULL,
-    entity_type NVARCHAR(50),
-    entity_id NVARCHAR(128),
+    tenant_id NVARCHAR(128),
+    action_type NVARCHAR(100),
+    target_id NVARCHAR(128),
+    target_table NVARCHAR(100),
     details NVARCHAR(MAX),
+    status NVARCHAR(50) DEFAULT 'active',
+    previous_state NVARCHAR(MAX),
+    reversed_by NVARCHAR(128),
+    reversed_at DATETIME2,
     created_by NVARCHAR(128),
     created_at DATETIME2 DEFAULT GETDATE()
 );
@@ -406,6 +412,19 @@ CREATE TABLE StudentPhones (
     phone_number NVARCHAR(20) NOT NULL,
     CONSTRAINT FK_StudentPhones_Students FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
 );
+END
+
+-- Web-Push subscriptions (used by POST /api/notifications/subscribe)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'user_push_subscriptions')
+BEGIN
+CREATE TABLE user_push_subscriptions (
+    id NVARCHAR(128) PRIMARY KEY,
+    user_id NVARCHAR(128) NOT NULL,
+    endpoint NVARCHAR(1000) NOT NULL,
+    subscription_json NVARCHAR(MAX),
+    created_at DATETIME2 DEFAULT GETDATE()
+);
+CREATE INDEX idx_user_push_subscriptions_endpoint ON user_push_subscriptions (endpoint);
 END
 
 -- Student Documents

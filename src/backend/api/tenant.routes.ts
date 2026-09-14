@@ -402,7 +402,7 @@ router.get("/:id/impact", authenticate, authorize([UserRole.Admin]), async (req,
       competitions: (await kdb('competitions').where({ tenant_id: id }).count('* as count').first())?.count || 0,
       maintenance: (await kdb('maintenance_requests').where({ tenant_id: id }).count('* as count').first())?.count || 0,
       notifications: (await kdb('notifications').where({ tenant_id: id }).count('* as count').first())?.count || 0,
-      broadcasts: (await kdb('broadcasts').where({ tenant_id: id }).count('* as count').first())?.count || 0,
+      broadcasts: (await kdb('broadcasts as b').join('users as u', 'b.sender_id', 'u.id').where('u.tenant_id', id).count('* as count').first())?.count || 0,
       inventory: (await kdb('inventory').where({ tenant_id: id }).count('* as count').first())?.count || 0,
       users: (await kdb('users').where({ tenant_id: id }).count('* as count').first())?.count || 0,
     };
@@ -456,7 +456,12 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
       const compRows = await trx('competitions').where({ tenant_id: id }).select('id');
       const compIds = compRows.map((c: any) => c.id);
       if (compIds.length > 0) {
-        await trx('competition_team_members').whereIn('competition_id', compIds).del();
+        // competition_team_members links to competitions via competition_teams.team_id
+        const teamRows = await trx('competition_teams').whereIn('competition_id', compIds).select('id');
+        const teamIds = teamRows.map((t: any) => t.id);
+        if (teamIds.length > 0) {
+          await trx('competition_team_members').whereIn('team_id', teamIds).del();
+        }
         await trx('competition_participants').whereIn('competition_id', compIds).del();
         await trx('competition_teams').whereIn('competition_id', compIds).del();
       }
@@ -473,14 +478,15 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
       await trx('profile_shares').where({ tenant_id: id }).del();
       await trx('payment_methods').where({ tenant_id: id }).del();
 
-      // Broadcasts cascade
-      const bcRows = await trx('broadcasts').where({ tenant_id: id }).select('id');
+      // Broadcasts cascade — broadcasts themselves have no tenant_id column;
+      // they belong to a tenant through the sender user's tenant_id.
+      const bcRows = await trx('broadcasts as b').join('users as u', 'b.sender_id', 'u.id').where('u.tenant_id', id).select('b.id');
       const bcIds = bcRows.map((b: any) => b.id);
       if (bcIds.length > 0) {
         await trx('broadcast_reads').whereIn('broadcast_id', bcIds).del();
         await trx('broadcast_attachments').whereIn('broadcast_id', bcIds).del();
+        await trx('broadcasts').whereIn('id', bcIds).del();
       }
-      await trx('broadcasts').where({ tenant_id: id }).del();
 
       await trx('audit_logs').where({ tenant_id: id }).del();
       await trx('decisions_log').where({ tenant_id: id }).del();
