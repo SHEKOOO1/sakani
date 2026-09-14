@@ -14,7 +14,7 @@ describe('Health & System', () => {
 
   it('GET /api/not-found returns expected status', async () => {
     const res = await fetch(`${BASE_URL}/api/nonexistent-route`);
-    expect(ACCEPTABLE).toContain(res.status);
+    expect([404, 429]).toContain(res.status);
   });
 
   it('GET /api/auth/setup-status returns expected status', async () => {

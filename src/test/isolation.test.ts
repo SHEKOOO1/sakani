@@ -63,7 +63,7 @@ describe('Tenant Isolation — Auth & JWT', () => {
 
   it('protected routes reject requests without valid token', async () => {
     const endpoints = [
-      '/finance',
+      '/finances',
       '/laundry/queue',
       '/maintenance',
       '/admin/my-tenants',

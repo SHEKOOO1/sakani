@@ -386,6 +386,11 @@ async function startServer() {
   app.use("/api/radio", radioRoutes);
 app.use("/api/items", itemManagersRoutes);
 
+  // روابط /api غير معروفة → 404 JSON موحّد (بدل تسريبات Vite أو رسائل الخطأ)
+  app.use("/api", (req: express.Request, res: express.Response) => {
+    res.status(404).json({ success: false, message: "المسار غير موجود" });
+  });
+
   // Start Radiojar background polling service
   startRadiojarService();
 
@@ -445,7 +450,7 @@ app.use("/api/items", itemManagersRoutes);
   });
 
   // --- Vite / Frontend Serving ---
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
