@@ -25,6 +25,14 @@ export async function up(knex: Knex): Promise<void> {
     await knex.raw('CREATE INDEX idx_event_team_members_team ON [dbo].[event_team_members] (event_team_id)');
   }
 
+  // competition_teams predates created_at; ensure the column exists so the data-move below can run.
+  const hasCtCreatedAt = await knex.schema.hasColumn('competition_teams', 'created_at');
+  if (!hasCtCreatedAt) {
+    await knex.schema.alterTable('competition_teams', (t) => {
+      t.timestamp('created_at').nullable();
+    });
+  }
+
   // Move existing event-competition teams out of the shared competition tables
   const moved = await knex.transaction(async (trx) => {
     await trx.raw(`
