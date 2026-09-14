@@ -87,13 +87,13 @@ describe('Tenant Isolation — Auth & JWT', () => {
 
 describe('Tenant Isolation — Finance', () => {
   it('GET /finance without auth is rejected', async () => {
-    const res = await fetch(`${API_BASE}/finance`);
+    const res = await fetch(`${API_BASE}/finances`);
     expect([401, 429]).toContain(res.status);
   });
 
   it('GET /finance with admin token returns admin finance', async () => {
     if (!adminToken) return;
-    const res = await fetch(`${API_BASE}/finance?type=revenue`, {
+    const res = await fetch(`${API_BASE}/finances?type=revenue`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     expect([200, 429, 500]).toContain(res.status);
@@ -108,7 +108,7 @@ describe('Tenant Isolation — Finance', () => {
     // not ALL tenants they are assigned to.
     if (!supervisorToken) return;
     const tenantId = 'test-tenant-a'; // Must match test data
-    const res = await fetch(`${API_BASE}/finance`, {
+    const res = await fetch(`${API_BASE}/finances`, {
       headers: {
         Authorization: `Bearer ${supervisorToken}`,
         'X-Tenant-Id': tenantId,
@@ -127,7 +127,7 @@ describe('Tenant Isolation — Finance', () => {
 
   it('GET /finance/summary with X-Tenant-Id filters to single tenant', async () => {
     if (!supervisorToken) return;
-    const res = await fetch(`${API_BASE}/finance/summary`, {
+    const res = await fetch(`${API_BASE}/finances/summary`, {
       headers: {
         Authorization: `Bearer ${supervisorToken}`,
         'X-Tenant-Id': 'test-tenant-a',
@@ -351,13 +351,13 @@ describe('Tenant Isolation — Supervisor Multi-Tenant', () => {
 
   it('different X-Tenant-Id yields different finance data per tenant', async () => {
     if (!priestToken) return;
-    const resA = await fetch(`${API_BASE}/finance`, {
+    const resA = await fetch(`${API_BASE}/finances`, {
       headers: {
         Authorization: `Bearer ${priestToken}`,
         'X-Tenant-Id': 'test-tenant-a',
       },
     });
-    const resB = await fetch(`${API_BASE}/finance`, {
+    const resB = await fetch(`${API_BASE}/finances`, {
       headers: {
         Authorization: `Bearer ${priestToken}`,
         'X-Tenant-Id': 'test-tenant-b',
@@ -388,7 +388,7 @@ describe('Tenant Isolation — Cross-Tenant Data Leak Prevention', () => {
     // A supervisor assigned to tenant A cannot access tenant B's data
     // even by sending X-Tenant-Id: tenant-b.
     if (!supervisorToken) return;
-    const res = await fetch(`${API_BASE}/finance`, {
+    const res = await fetch(`${API_BASE}/finances`, {
       headers: {
         Authorization: `Bearer ${supervisorToken}`,
         'X-Tenant-Id': 'tenant-not-assigned-to-user',
