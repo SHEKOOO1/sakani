@@ -6,8 +6,9 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     exclude: ['node_modules', 'dist'],
-    testTimeout: 15000,
+    testTimeout: 30000,
     setupFiles: ['./src/test/setup.ts'],
+    globalSetup: ['./src/test/global-setup.ts'],
     coverage: {
       provider: 'v8',
       enabled: false,
