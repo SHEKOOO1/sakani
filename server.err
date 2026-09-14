@@ -1,0 +1,34 @@
+Radio chat stats error: RequestError: select distinct top (@p0) [user_id], count(*) as [count] from [radio_chat_messages] - Column 'radio_chat_messages.user_id' is invalid in the select list because it is not contained in either an aggregate function or the GROUP BY clause.
+    at RequestTokenHandler.onErrorMessage (H:\sakani\node_modules\tedious\src\token\handler.ts:389:21)
+    at Readable.token (H:\sakani\node_modules\tedious\src\token\token-stream-parser.ts:23:55)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'EREQUEST',
+  number: 8120,
+  state: 1,
+  class: 16,
+  serverName: 'DESKTOP-O1DK904\\SQLEXPRESS',
+  procName: '',
+  lineNumber: 1
+}
+Radio chat stats error: RequestError: select distinct top (@p0) [user_id], count(*) as [count] from [radio_chat_messages] - Column 'radio_chat_messages.user_id' is invalid in the select list because it is not contained in either an aggregate function or the GROUP BY clause.
+    at RequestTokenHandler.onErrorMessage (H:\sakani\node_modules\tedious\src\token\handler.ts:389:21)
+    at Readable.token (H:\sakani\node_modules\tedious\src\token\token-stream-parser.ts:23:55)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'EREQUEST',
+  number: 8120,
+  state: 1,
+  class: 16,
+  serverName: 'DESKTOP-O1DK904\\SQLEXPRESS',
+  procName: '',
+  lineNumber: 1
+}
