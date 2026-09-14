@@ -32,12 +32,14 @@ export async function up(knex: Knex): Promise<void> {
       SELECT ct.id, ct.competition_id, ct.tenant_id, ct.name, ct.score, ct.responsible_id, COALESCE(ct.created_at, GETDATE())
       FROM [dbo].[competition_teams] ct
       INNER JOIN [dbo].[events] e ON ct.competition_id = e.id
+      WHERE NOT EXISTS (SELECT 1 FROM [dbo].[event_teams] et WHERE et.id = ct.id)
     `);
     await trx.raw(`
       INSERT INTO [dbo].[event_team_members] (event_team_id, student_id, points_earned)
       SELECT etm.team_id, etm.student_id, etm.points_earned
       FROM [dbo].[competition_team_members] etm
       INNER JOIN [dbo].[event_teams] et ON etm.team_id = et.id
+      WHERE NOT EXISTS (SELECT 1 FROM [dbo].[event_team_members] x WHERE x.event_team_id = etm.team_id AND x.student_id = etm.student_id)
     `);
     await trx.raw(`
       DELETE etm FROM [dbo].[competition_team_members] etm
