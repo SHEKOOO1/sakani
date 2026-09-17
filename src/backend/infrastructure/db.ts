@@ -30,7 +30,23 @@ export async function initializeDb() {
     console.log('DB runtime:', { DB_CLIENT: process.env.DB_CLIENT, DB_NAME: process.env.DB_NAME });
   }
 
+  // P1-DB-5: cross-process advisory lock. Multiple instances or a restart can
+  // otherwise run the raw DDL concurrently and deadlock each other. The lock is
+  // owned by this transaction (a connection is held) and released on
+  // commit/rollback.
+  const schemaLock = await kdb.transaction();
   try {
+    await schemaLock.raw(`
+      DECLARE @lockResult int;
+      EXEC @lockResult = sp_getapplock
+        @Resource = 'sakani_schema_init',
+        @LockMode = 'Exclusive',
+        @LockOwner = 'Transaction',
+        @LockTimeout = 120000;
+      IF @lockResult < 0
+        THROW 50000, 'Could not acquire sakani_schema_init lock', 1;
+    `);
+
     const fs = await import('fs');
     const { fileURLToPath } = await import('url');
     // db.ts -> infrastructure -> backend -> src, so ../../.. brings to project root
@@ -229,8 +245,10 @@ export async function initializeDb() {
     await kdb.raw("DELETE FROM [dbo].[token_blacklist] WHERE expires_at < GETDATE()");
 
     await seedPermissions();
+    await schemaLock.commit();
     return;
   } catch (e) {
+    try { await schemaLock.rollback(); } catch { /* transaction already closed */ }
     console.error('Failed applying MSSQL schema or seeding permissions:', e);
     throw e;
   }

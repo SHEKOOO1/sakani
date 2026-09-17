@@ -46,7 +46,7 @@ async function run() {
         break;
       case 'make':
         const name = process.argv[3];
-        if (!name) { console.error('❌ Usage: migrate make <name>'); break; }
+        if (!name) { console.error('❌ Usage: migrate make <name>'); process.exitCode = 1; break; }
         const result = await db.migrate.make(name, {
           directory: path.resolve(process.cwd(), 'migrations'),
           extension: 'ts',
@@ -55,9 +55,13 @@ async function run() {
         break;
       default:
         console.error(`❌ Unknown action: ${action}. Use: latest, up, down, status, make`);
+        process.exitCode = 1;
     }
   } catch (err) {
+    // P1-DB-3: a failed migration must produce a non-zero exit code so CI and
+    // operators can detect it instead of seeing a false success.
     console.error('❌ Migration failed:', err);
+    process.exitCode = 1;
   } finally {
     await db.destroy();
   }

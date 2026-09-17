@@ -175,8 +175,39 @@ jobs:
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
             git pull --ff-only origin "$BRANCH"
+            # P0-DP-1: capture the current image so we can roll back.
+            APP_CID=$(docker compose ps -q app || true)
+            PREV_IMAGE=""
+            if [ -n "$APP_CID" ]; then
+              PREV_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$APP_CID" 2>/dev/null || true)
+            fi
             docker compose pull app
-            docker compose up -d --no-build --no-deps app
+            # P1-CI-1: bring up the FULL stack (db -> app -> nginx). `up` honors
+            # app's `depends_on: db: condition: service_healthy`; --no-build runs
+            # the exact image pulled above instead of rebuilding stale source.
+            docker compose up -d --no-build app nginx
+            # P0-DP-1: gate on real readiness (/api/ready probes the database).
+            HEALTHY=""
+            for i in $(seq 1 30); do
+              APP_CID=$(docker compose ps -q app || true)
+              if [ -n "$APP_CID" ]; then
+                STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$APP_CID" 2>/dev/null || echo unknown)
+                echo "app status: $STATUS (attempt $i)"
+                if [ "$STATUS" = "healthy" ]; then HEALTHY=1; break; fi
+                if [ "$STATUS" = "unhealthy" ] || [ "$STATUS" = "exited" ]; then break; fi
+              else
+                echo "app container not found yet (attempt $i)"
+              fi
+              sleep 5
+            done
+            if [ -z "$HEALTHY" ]; then
+              echo "::error::Deployment failed readiness check"
+              if [ -n "$PREV_IMAGE" ]; then
+                echo "Rolling back to $PREV_IMAGE"
+                APP_IMAGE="$PREV_IMAGE" docker compose up -d --no-build --no-deps app
+              fi
+              exit 1
+            fi
             docker image prune -f
         env:
           APP_IMAGE: ${{ steps.meta.outputs.image }}:${{ github.sha }}

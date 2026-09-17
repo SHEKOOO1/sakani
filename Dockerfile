@@ -40,8 +40,8 @@ RUN mkdir -p /app/uploads/documents /app/uploads/radio /app/uploads/broadcasts &
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:3000/api/ready || exit 1
 
 # tsx handles .ts imports at runtime — needed for server.ts and all backend src
 CMD ["npx", "tsx", "server.ts"]

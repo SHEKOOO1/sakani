@@ -7,11 +7,23 @@ const logError = (label: string, err: unknown) => {
   const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
   console.error(`[${ts}] ${label}\n${msg}`);
 };
+const isProductionEnv = process.env.NODE_ENV === 'production';
+
+// P0-RT-1: an uncaught exception / unhandled rejection means the process state
+// is no longer trustworthy. In production we log and exit non-zero so Docker's
+// `restart: unless-stopped` can recover a clean process (the periodic
+// upload-cleanup timer would otherwise keep a broken process alive forever).
+const handleFatalRuntimeError = (label: string, err: unknown): void => {
+  logError(label, err);
+  if (isProductionEnv) {
+    process.exit(1);
+  }
+};
 process.on('unhandledRejection', (reason) => {
-  logError('UNHANDLED PROMISE REJECTION', reason);
+  handleFatalRuntimeError('UNHANDLED PROMISE REJECTION', reason);
 });
 process.on('uncaughtException', (err) => {
-  logError('UNCAUGHT EXCEPTION', err);
+  handleFatalRuntimeError('UNCAUGHT EXCEPTION', err);
 });
 
 let activeHttpServer: import("http").Server | null = null;
@@ -46,7 +58,7 @@ import cookieParser from "cookie-parser";
 import fs from "fs";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { initializeDb } from "./src/backend/infrastructure/db.ts";
+import { initializeDb, kdb } from "./src/backend/infrastructure/db.ts";
 import { validateJwtSecret, describeJwtSecretRejection, MIN_JWT_SECRET_LENGTH } from "./src/backend/config/jwt-secret.ts";
 import { assertProductionDbConfig, describeDbConfigRejection } from "./src/backend/config/db-config.ts";
 import { resolveCorsOrigins, describeCorsRejection } from "./src/backend/config/cors-config.ts";
@@ -157,9 +169,20 @@ if (!corsConfig.ok) {
 }
 
 // Initialize DB
-await initializeDb();
+// P0-DB-2: schema initialization must succeed before the server serves. A
+// failure here used to leave a live-but-non-serving process (the upload-cleanup
+// timer kept the event loop alive). Fail closed instead.
+try {
+  await initializeDb();
+} catch (dbInitError) {
+  logError('DATABASE SCHEMA INITIALIZATION FAILED', dbInitError);
+  process.exit(1);
+}
 
 // Auto-run pending migrations
+// P0-DB-1: a failed migration must stop the process in production — serving
+// traffic against an outdated schema can corrupt data. Development keeps the
+// non-fatal warning so a local broken migration can be iterated on.
 try {
   const { kdb } = await import('./src/backend/infrastructure/knex');
   activeKnex = kdb;
@@ -168,7 +191,11 @@ try {
     console.log(`✅ Migrations up: batch ${batch}, ${migrations.length} file(s)`);
   }
 } catch (migrationError) {
-  console.warn('⚠️  Migration auto-run skipped:', migrationError instanceof Error ? migrationError.message : String(migrationError));
+  logError('DATABASE MIGRATION FAILED', migrationError);
+  if (isProductionEnv) {
+    process.exit(1);
+  }
+  console.warn('⚠️  Migration auto-run failed; continuing because NODE_ENV is not production.');
 }
 
 async function startServer() {
@@ -312,6 +339,21 @@ async function startServer() {
   // Health endpoint before rate limiter so monitoring always works
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // P0-HL-1: readiness verifies the database is actually reachable. The Docker
+  // HEALTHCHECK and the deploy gate use this endpoint, so an app that cannot
+  // reach its database is never reported healthy.
+  app.get("/api/ready", async (req, res) => {
+    try {
+      await Promise.race([
+        kdb.raw('SELECT 1 AS ok'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('readiness timeout')), 3000)),
+      ]);
+      res.json({ status: "ready", timestamp: new Date().toISOString() });
+    } catch {
+      res.status(503).json({ status: "not-ready", timestamp: new Date().toISOString() });
+    }
   });
 
   const isTest = process.env.NODE_ENV === 'test';
@@ -505,4 +547,7 @@ app.use("/api/items", itemManagersRoutes);
   });
 }
 
-startServer().catch(console.error);
+startServer().catch((error) => {
+  logError('HTTP SERVER FAILED TO START', error);
+  process.exit(1);
+});

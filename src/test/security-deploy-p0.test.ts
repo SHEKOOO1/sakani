@@ -67,9 +67,17 @@ describe('deploy-p0-3: CI deploy uses the pushed image', () => {
     expect(CI).toMatch(/git fetch origin/);
   });
 
-  it('pulls the app image and starts it without rebuilding', () => {
+  it('pulls the app image and starts the full stack without rebuilding', () => {
     expect(CI).toContain('docker compose pull app');
-    expect(CI).toContain('docker compose up -d --no-build --no-deps app');
+    expect(CI).toContain('docker compose up -d --no-build app nginx');
+  });
+
+  it('gates the deploy on readiness and rolls back on failure (P0-DP-1)', () => {
+    expect(CI).toContain('docker inspect --format');
+    expect(CI).toMatch(/healthy/);
+    expect(CI).toContain('Rolling back to');
+    expect(CI).toContain('--no-build --no-deps app');
+    expect(CI).toContain('exit 1');
   });
 
   it('passes the exact pushed image tag to the remote host', () => {
@@ -119,5 +127,36 @@ describe('deploy-p1: uploads/logs ownership and privilege drop', () => {
   it('container no longer pins USER appuser without the entrypoint drop', () => {
     // Privileges must be dropped by the entrypoint, not only by USER.
     expect(DOCKERFILE).not.toMatch(/^\s*USER\s+appuser\s*$/m);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// 5) Runtime readiness + fail-fast startup (P0-DB-1/2, P0-RT-1/2, P0-HL-1)
+// ────────────────────────────────────────────────────────────────
+
+describe('deploy-p0: readiness and fail-fast startup', () => {
+  const SERVER = readRepoFile('server.ts');
+
+  it('app waits for a healthy database before starting', () => {
+    expect(serviceBlock(COMPOSE, 'app')).toMatch(/condition:\s*service_healthy/);
+    expect(serviceBlock(COMPOSE, 'db')).toContain('healthcheck:');
+  });
+
+  it('docker healthcheck probes database-backed readiness', () => {
+    expect(DOCKERFILE).toContain('/api/ready');
+  });
+
+  it('server exposes readiness and fails fast on init/migration/server errors', () => {
+    expect(SERVER).toContain('/api/ready');
+    expect(SERVER).toContain('DATABASE SCHEMA INITIALIZATION FAILED');
+    expect(SERVER).toContain('DATABASE MIGRATION FAILED');
+    expect(SERVER).toContain('HTTP SERVER FAILED TO START');
+  });
+
+  it('ships a backup script with retention', () => {
+    const backup = readRepoFile('scripts/backup.sh');
+    expect(backup).toContain('BACKUP DATABASE');
+    expect(backup).toContain('BACKUP_RETENTION_DAYS');
+    expect(readRepoFile('.gitignore')).toContain('backups/');
   });
 });

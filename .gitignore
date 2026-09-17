@@ -13,3 +13,5 @@ tmp/
 # Runtime user-generated uploads — ignore contents but keep the directory.
 uploads/*
 !uploads/.gitkeep
+# Local/on-host backups (never commit database dumps).
+backups/
