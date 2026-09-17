@@ -7,7 +7,7 @@ COPY . .
 RUN npx tsc --noEmit && npm run build
 
 FROM node:22-alpine AS runner
-RUN apk add --no-cache curl && \
+RUN apk add --no-cache curl su-exec && \
     addgroup -g 1001 -S appgroup && \
     adduser -S -u 1001 -G appgroup appuser
 
@@ -26,11 +26,16 @@ COPY --from=builder /app/src/backend ./src/backend
 COPY --from=builder /app/server.ts ./
 COPY --from=builder /app/tsconfig.json ./
 
-RUN chown -R appuser:appgroup /app/uploads && \
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
+    chown -R appuser:appgroup /app/uploads && \
     chmod -R 755 /app && \
     chmod -R 775 /app/uploads
 
-USER appuser
+# P1: entrypoint starts as root only to chown the bind-mounted ./uploads and
+# ./logs (created root:root on a fresh host), then drops to appuser via su-exec.
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \

@@ -12,15 +12,17 @@
 **الوصف:**
 ملف `.env` يحتوي أسراراً حقيقية وهو غير مضاف لـ `.gitignore`، مما يعني أن كل هذه الأسرار منشورة في تاريخ المستودع.
 
-**الأسرار المكشوفة:**
-| السر | القيمة | الخطورة |
+**الأسرار المكشوفة (القيم الفعلية أُزيلت — رمز `[REDACTED]`):**
+| متغير البيئة | القيمة | الخطورة |
 |------|--------|---------|
-| `DB_PASSWORD` | `123` | كلمة سر قاعدة البيانات — حساب `sa` |
-| `JWT_SECRET` | `sakani-secret-key-...` | مفتاح توقيع التوكن — يمكن تزوير أي JWT |
-| `ENCRYPTION_KEY` | `sakani-encryption-key-32chars!!` | مفتاح تشفير البيانات |
-| `YOUTUBE_API_KEY` | `AIzaSyBTjv2SHPMRbRlTi9Dd-m8...` | مفتاح YouTube API حقيقي |
-| `VAPID_PRIVATE_KEY` | `Gb9gulZaC1dlJjgZnIa...` | مفتاح الإشعارات الخاص |
-| `VAPID_PUBLIC_KEY` | `BAazhTY4BAIhi-eUAt5rWHw7...` | مفتاح الإشعارات العام |
+| `DB_PASSWORD` | `[REDACTED]` | كلمة سر قاعدة البيانات — حساب `sa` |
+| `JWT_SECRET` | `[REDACTED COMPROMISED JWT SECRET]` | مفتاح توقيع التوكن — يمكن تزوير أي JWT |
+| `ENCRYPTION_KEY` | `[REDACTED]` | مفتاح تشفير البيانات |
+| `YOUTUBE_API_KEY` | `[REDACTED]` | مفتاح YouTube API حقيقي |
+| `VAPID_PRIVATE_KEY` | `[REDACTED]` | مفتاح الإشعارات الخاص |
+| `VAPID_PUBLIC_KEY` | `[REDACTED]` | مفتاح الإشعارات العام |
+
+> ⚠️ ملاحظة أمنية (P0-2): أُزيلت القيم الفعلية من هذا المستند لأنه مُتتبَّع في Git. أي قيمة سرية سابقة يجب اعتبارها مُخترقة ويجب تدويرها فوراً.
 
 **خطوات الإصلاح:**
 
@@ -422,7 +424,7 @@ if (!allowedExts.includes(ext)) {
 1. **استخدام متغيرات بيئة للاختبارات:**
 ```ts
 // قبل
-admin: { email: 'admin@sakani.com', password: 'admin123' },
+admin: { email: 'admin@sakani.com', password: '[REDACTED]' },
 
 // بعد
 admin: {
@@ -434,7 +436,7 @@ admin: {
 2. **إضافة `.env.test` (مضاف لـ `.gitignore`):**
 ```env
 TEST_ADMIN_EMAIL=admin@sakani.com
-TEST_ADMIN_PASSWORD=admin123
+TEST_ADMIN_PASSWORD=[REDACTED]
 ```
 
 3. **ملفات متأثرة:**
@@ -458,7 +460,7 @@ TEST_ADMIN_PASSWORD=admin123
 - `src/backend/api/student.service.ts:49-51, 132-134`
 
 **الوصف:**
-`DEFAULT_USER_PASSWORD` بقيمة `123456`. جميع حسابات المستخدمين الجدد تُنشأ بهذه الكلمة السرية.
+`DEFAULT_USER_PASSWORD` بقيمة افتراضية معروفة `[REDACTED]`. جميع حسابات المستخدمين الجدد تُنشأ بهذه الكلمة السرية.
 
 **خطوات الإصلاح:**
 
@@ -721,8 +723,9 @@ server_name your-production-domain.com; # غيّر للنطاق الفعلي
 
 2. **تأكد من وجود شهادات SSL في المسار الصحيح:**
 ```nginx
-ssl_certificate     /etc/ssl/certs/sakani.crt;
-ssl_certificate_key /etc/ssl/private/sakani.key;
+# المسار المطابق لربط docker-compose: ./ssl -> /etc/nginx/ssl
+ssl_certificate     /etc/nginx/ssl/sakani.crt;
+ssl_certificate_key /etc/nginx/ssl/sakani.key;
 ```
 
 3. **تحقق من `docker-compose.yml` — مجلد الـ ssl:**

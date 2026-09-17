@@ -2,10 +2,23 @@ version: '3.8'
 
 services:
   app:
+    # P0-3 (deploy): the CI pipeline builds and pushes this image to GHCR.
+    # Declaring `image` (alongside `build`) lets the server `docker compose pull
+    # app` and run the exact pushed build via `up -d --no-build`; otherwise the
+    # deploy command would silently REBUILD from whatever stale source sits in
+    # /opt/sakani. APP_IMAGE is provided by the deploy job (defaults to latest).
+    image: ${APP_IMAGE:-ghcr.io/shekooo1/sakani:latest}
     build: .
     expose:
       - "3000"
     env_file: .env
+    environment:
+      # P0-3: hard-force production mode. Compose precedence is
+      # `environment` > `env_file` > Dockerfile ENV, so a developer's local
+      # .env (which sets NODE_ENV=development) can never downgrade the
+      # deployed container. Local dev runs via `npm run dev` (or the explicit
+      # docker-compose.dev.yml override), never through this production file.
+      NODE_ENV: production
     depends_on:
       - db
     volumes:
@@ -29,10 +42,14 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       ACCEPT_EULA: "Y"
-      SA_PASSWORD: "${DB_PASSWORD:-YourStrong@Password123}"
+      # P0-4: container initialization only — the application NEVER connects as
+      # `sa` (it uses DB_USER/DB_PASSWORD). Required with NO fallback password;
+      # docker compose fails closed when MSSQL_SA_PASSWORD is unset.
+      SA_PASSWORD: "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set}"
       MSSQL_DB: "${DB_NAME:-DormMaster}"
-    ports:
-      - "1433:1433"
+    # P0-4: SQL Server is NOT published to the host in production. The app
+    # reaches it over the internal Docker network (DB_HOST=db, port 1433).
+    # Host access for local development is provided by docker-compose.dev.yml.
     volumes:
       - mssql_data:/var/opt/mssql
     restart: unless-stopped

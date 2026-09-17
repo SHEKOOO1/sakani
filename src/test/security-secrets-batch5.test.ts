@@ -15,6 +15,9 @@ import path from 'path';
 
 const ROOT = path.resolve(__dirname, '../..');
 
+// بادئة المفتاح القديم مُجمّعة من أجزاء حتى لا تظهر كسلسلة حرفية في المصدر
+const LEGACY_JWT_PREFIX = ['sakani', 'secret', 'key'].join('-');
+
 function readRepoFile(rel: string): string {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
 }
@@ -96,7 +99,7 @@ describe('batch5: no hardcoded secrets remain in admin scripts (source scan)', (
     const src = readRepoFile('scripts/test-endpoints.ts');
     expect(src).toContain('process.env.JWT_SECRET');
     // المفتاح المضمّن السابق زال نهائياً
-    expect(src).not.toContain('sakani-secret-key');
+    expect(src).not.toContain(LEGACY_JWT_PREFIX);
     expect(/jwt\.sign\([^)]*,\s*['"]/.test(src)).toBe(false);
     // فشل آمن عند غياب المفتاح
     expect(src.toLowerCase()).toContain('jwt_secret غير مضبوط');
@@ -110,11 +113,14 @@ describe('batch5: no hardcoded secrets remain in admin scripts (source scan)', (
     expect(src).toContain('token_version');
   });
 
-  it('server.ts rejects the documented .env.example JWT placeholder at boot (E-1)', () => {
+  it('server.ts fails closed on missing/placeholder/compromised JWT_SECRET at boot (E-1 + P0-1)', () => {
     const src = readRepoFile('server.ts');
-    expect(src).toContain('insecureJwtValues');
-    // sentinel: القيمة الموثقة في .env.example (ليست سراً حقيقياً) أصبحت ضمن قائمة الرفض
-    expect(src).toContain('super-secret-key-change-me-in-production');
+    // يستخدم المدقّق النقي ويفشل بأمان (خروج 1) دون طباعة القيمة
+    expect(src).toContain('validateJwtSecret');
+    expect(src).toMatch(/process\.exit\(1\)/);
+    // sentinel: القيمة الموثقة في .env.example مرفوضة داخل وحدة التحقق النقية
+    const mod = readRepoFile('src/backend/config/jwt-secret.ts');
+    expect(mod).toContain('super-secret-key-change-me-in-production');
   });
 
   it('vite.config.ts inlines ONLY client-safe env (fixes secret leakage into the bundle)', () => {
@@ -137,7 +143,7 @@ describe('batch5: .env.example documents seed-admin env placeholders', () => {
     expect(src).toContain('SEED_ADMIN_EMAIL');
     expect(src).toContain('SEED_ADMIN_ALLOW_PRODUCTION');
     // القيم المسرّبة سابقاً لم تعد تظهر كقيم افتراضية صالحة
-    expect(src).not.toContain('sakani-secret-key');
+    expect(src).not.toContain(LEGACY_JWT_PREFIX);
   });
 });
 

@@ -47,6 +47,8 @@ import fs from "fs";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { initializeDb } from "./src/backend/infrastructure/db.ts";
+import { validateJwtSecret, describeJwtSecretRejection, MIN_JWT_SECRET_LENGTH } from "./src/backend/config/jwt-secret.ts";
+import { assertProductionDbConfig, describeDbConfigRejection } from "./src/backend/config/db-config.ts";
 import authRoutes from "./src/backend/api/auth.routes.ts";
 import tenantRoutes from "./src/backend/api/tenant.routes.ts";
 import apartmentRoutes from "./src/backend/api/apartment.routes.ts";
@@ -107,26 +109,36 @@ setInterval(() => {
   }
 }, 6 * 60 * 60 * 1000);
 
-// Validate required environment variables
-const requiredEnvVars = [
-  { key: 'JWT_SECRET', label: 'JWT_SECRET' },
-];
-const insecureJwtValues = ['your-secret-key-here', 'super-secret-key', 'super-secret-key-change-me-in-production', ''];
-const jwtVal = process.env.JWT_SECRET;
-if (!jwtVal || insecureJwtValues.includes(jwtVal)) {
-  console.error(`❌ ERROR: JWT_SECRET is missing or using a default value. Set a strong secret in .env`);
+// Validate required environment variables (fail closed; the value is never logged)
+const jwtValidation = validateJwtSecret(process.env.JWT_SECRET);
+if (!jwtValidation.ok) {
+  console.error(
+    `❌ ERROR: JWT_SECRET ${describeJwtSecretRejection(jwtValidation.reason)}. ` +
+      `Set a strong unique secret (>= ${MIN_JWT_SECRET_LENGTH} chars) in .env or the environment.`,
+  );
   process.exit(1);
 }
-// DB vars: warn if missing but don't block dev (127.0.0.1 / sa are valid for local SQL Express)
-const dbVars = [
-  { key: 'DB_HOST', label: 'DB_HOST' },
-  { key: 'DB_USER', label: 'DB_USER' },
-  { key: 'DB_PASSWORD', label: 'DB_PASSWORD' },
-  { key: 'DB_NAME', label: 'DB_NAME' },
-];
-for (const { key, label } of dbVars) {
-  if (!process.env[key]) {
-    console.warn(`⚠️  WARNING: ${label} is not set in .env — will try default connection`);
+// DB config: production FAILS CLOSED on missing/weak credentials or `sa`;
+// development keeps the permissive warning (local SQL Express is valid there).
+const dbConfigCheck = assertProductionDbConfig(process.env);
+if (!dbConfigCheck.ok) {
+  console.error(
+    `❌ ERROR: database configuration ${describeDbConfigRejection(dbConfigCheck)}. ` +
+      `Set DB_HOST, DB_NAME, DB_USER and DB_PASSWORD (a dedicated non-sa account) in the production environment.`,
+  );
+  process.exit(1);
+}
+if (process.env.NODE_ENV !== 'production') {
+  const dbVars = [
+    { key: 'DB_HOST', label: 'DB_HOST' },
+    { key: 'DB_USER', label: 'DB_USER' },
+    { key: 'DB_PASSWORD', label: 'DB_PASSWORD' },
+    { key: 'DB_NAME', label: 'DB_NAME' },
+  ];
+  for (const { key, label } of dbVars) {
+    if (!process.env[key]) {
+      console.warn(`⚠️  WARNING: ${label} is not set in .env — will try default connection`);
+    }
   }
 }
 

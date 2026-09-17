@@ -10,7 +10,7 @@
 ## Executive Summary
 
 - **A-2 fixed.** `scripts/seed-admin.ts` previously reset the super-admin to a hardcoded `admin123` and never bumped `token_version`. It now reads `SEED_ADMIN_PASSWORD`/`SEED_ADMIN_EMAIL` from the environment, **fails closed** (no default, min 12 chars, known-weak blocklist, rejects reuse of the documented `DEFAULT_USER_PASSWORD`), refuses production without explicit `SEED_ADMIN_ALLOW_PRODUCTION=true`, and **bumps `token_version` in the same update** so every previously issued JWT for that account is invalidated (existing Batch #3 mechanism — no second mechanism added).
-- **Hardcoded JWT secret removed.** `scripts/test-endpoints.ts` signed admin/bishop tokens with a literal `sakani-secret-key-…`. It now loads `process.env.JWT_SECRET` via dotenv and exits fail-closed if unset.
+- **Hardcoded JWT secret removed.** `scripts/test-endpoints.ts` signed admin/bishop tokens with a literal hardcoded secret (the previously compromised legacy JWT secret — value redacted). It now loads `process.env.JWT_SECRET` via dotenv and exits fail-closed if unset.
 - **`scripts/set-passwords.ts` hardened** (same hardcoded-credential class; it reset **every** user to `123456`): env-driven DB config + password, weak/default rejection, production guard, and `token_version` bumped with the password.
 - **E-1 fixed.** The startup guard now rejects the documented `.env.example` value `super-secret-key-change-me-in-production`.
 - **EXPOSURE FOUND (new):** at batch start, the on-disk built bundle `dist/assets/index-*.js` contained the **literal values of 4 server secrets** (`JWT_SECRET`, `ENCRYPTION_KEY`, `VAPID_PRIVATE_KEY`, `YOUTUBE_API_KEY`) plus the identifiers for 5 env keys (including `DB_PASSWORD`). Root cause: `vite.config.ts` serialized the **entire** loaded env into `define` (`JSON.stringify(env)`) and `process`. Fixed by inlining **only** `NODE_ENV`/`MODE`/`VITE_*`; rebuilt bundle re-scanned → **0 secret-value hits, 0 secret-name hits**.
@@ -61,7 +61,7 @@
 - **After:** no literal password exists anywhere; the password is required from env and validated fail-closed (missing/empty/`<12`/known-weak/`=DEFAULT_USER_PASSWORD` ⇒ exit 1 **before** connecting). Production requires explicit opt-in. Reset updates `{ password, token_version: old+1 }` atomically ⇒ every prior JWT for the admin is rejected by `authenticate` (`middleware.ts:77-80`).
 
 ### `scripts/test-endpoints.ts`
-- **Before:** `const SECRET = 'sakani-secret-key-change-in-production-2024'` — a committed signing key (matching a previously shipped secret string), usable to forge admin tokens if it ever matched a live server.
+- **Before:** `const SECRET = '[REDACTED COMPROMISED JWT SECRET]'` — a committed signing key (the previously compromised legacy JWT secret), usable to forge admin tokens if it ever matched a live server.
 - **After:** secret read from `process.env.JWT_SECRET` only, fail-closed when missing.
 
 ### `scripts/set-passwords.ts`
@@ -120,8 +120,8 @@ Counts: `231 → 247` tests (+16); files `15 → 16`. The batch-5 suite proves t
 ## REMAINING SECURITY RISKS (out of scope — documented, not fixed)
 
 1. **E-2 — `DEFAULT_USER_PASSWORD` (`Sakani@2026#ChangeMe`)** is a documented constant applied to auto-created accounts; anyone who knows it can log into every account that never changed its password. Fixing requires touching account-creation flows (multiple routes) — deferred.
-2. **Local diagnostic credentials remain** in `scripts/check-db.ts:9` and `scripts/test-db-conn.ts:8` (`password: '123'`) and `scripts/test-api.ts:29,39` (`123456`). Intended for local dev only, but they are in git; a security-conscious operator should parameterize them.
-3. **CI/Docker defaults:** `.github/workflows/ci.yml` uses `JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-secret-key' }}` (lines 72, 84) and `JWT_SECRET: build-secret` (line 111); `docker-compose.yml:32` defaults `SA_PASSWORD` to `YourStrong@Password123`. Test/build-only, but replace-with-required would be safer.
+2. **Local diagnostic credentials** in `scripts/check-db.ts` and `scripts/test-db-conn.ts` hardcoded a weak value. **Fixed in P0-4:** both scripts now read `DB_*` from the environment and fail closed when `DB_PASSWORD` is missing. `scripts/test-api.ts:29,39` (`123456`) remains test-only.
+3. **CI/Docker defaults:** `.github/workflows/ci.yml` uses `JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-secret-key' }}` (lines 72, 84) and `JWT_SECRET: build-secret` (line 111). **Fixed in P0-4:** `docker-compose.yml` previously defaulted `SA_PASSWORD` to a weak example value (redacted); the default was removed and `MSSQL_SA_PASSWORD` is now required with no fallback.
 4. **`src/test/students.test.ts:25,51,72`** logs in with `admin@sakani.com`/`admin123` against the live test server — depends on local DB state; migrate to env-based test credentials.
 5. **Auth cache TTL window:** `userCache` TTL is 15s (`cache.ts:54`). In a *running* server, a script-based DB reset is reflected only after cache convergence (≤15s) unless the cache is invalidated; the `token_version` bump is the authoritative server-side control. Documented residual.
 6. **Tracked generated PWA artifacts:** `dev-dist/{sw.js,registerSW.js,workbox-*.js}` are committed and regenerated by builds/tests (noisy diffs; 1-line change to `dev-dist/sw.js` in this batch, no secrets). Consider untracking them.
@@ -162,7 +162,7 @@ SECURITY_FIX_BATCH5_REPORT.md             (this file)
 1. **Was the hardcoded `admin123` removed from seed-admin?** Yes — no literal password remains; the password comes from `SEED_ADMIN_PASSWORD` and is validated fail-closed (`scripts/seed-admin-lib.ts`, `scripts/seed-admin.ts`).
 2. **Does a reset invalidate existing sessions?** Yes — `token_version` is bumped in the same update (`buildAdminPasswordReset`), verified end-to-end (old JWT → 401, bumped JWT → 200).
 3. **Is there a production-safety guard?** Yes — production refuses to run without `SEED_ADMIN_ALLOW_PRODUCTION=true` (and `set-passwords.ts` has the analogous guard).
-4. **Was the hardcoded JWT secret in `test-endpoints.ts` removed?** Yes — read from `process.env.JWT_SECRET`, fail-closed; no `sakani-secret-key` string remains.
+4. **Was the hardcoded JWT secret in `test-endpoints.ts` removed?** Yes — read from `process.env.JWT_SECRET`, fail-closed; no hardcoded secret string remains.
 5. **Are there hardcoded credentials left in admin scripts?** Only the local diagnostic/dev utilities (`check-db.ts`, `test-db-conn.ts`, `test-api.ts`) — documented, not used by production flows.
 6. **Is `.env` tracked or in git history?** No — git-ignored and never committed; `.env.example` is tracked and contains placeholders only.
 7. **Does the frontend or built bundle expose server secrets?** Not now — no client `process.env`, and the rebuilt bundle has zero secret-name/value hits; an actual pre-fix exposure was found and fixed.
