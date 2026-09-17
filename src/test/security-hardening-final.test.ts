@@ -192,6 +192,48 @@ describe('final: Docker build context hygiene', () => {
       expect(dockerignore.split(/\r?\n/).map((l) => l.trim())).not.toContain(needed);
     }
   });
+
+  it('resolves the build context like Docker (.dockerignore semantics)', () => {
+    function globToRegExp(glob: string): RegExp {
+      let re = '';
+      for (let i = 0; i < glob.length; i++) {
+        const c = glob[i];
+        if (c === '*') {
+          if (glob[i + 1] === '*') {
+            if (glob[i + 2] === '/') { re += '(?:.*/)?'; i += 2; } else { re += '.*'; i += 1; }
+          } else { re += '[^/]*'; }
+        } else if (c === '?') { re += '[^/]'; }
+        else if ('\\^$.|+()[]{}'.includes(c)) { re += '\\' + c; }
+        else { re += c; }
+      }
+      return new RegExp('^' + re + '$');
+    }
+
+    const rules = dockerignore
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l !== '' && !l.startsWith('#'))
+      .map((l) => {
+        const negate = l.startsWith('!');
+        return { negate, re: globToRegExp(negate ? l.slice(1) : l) };
+      });
+    const matchesAncestor = (p: string, re: RegExp) => {
+      const parts = p.split('/');
+      return parts.some((_, i) => re.test(parts.slice(0, i + 1).join('/')));
+    };
+    const ignored = (p: string) => {
+      let result = false;
+      for (const rule of rules) if (matchesAncestor(p, rule.re)) result = !rule.negate;
+      return result;
+    };
+
+    for (const keep of ['server.ts', 'knexfile.ts', 'migrations/001_init.ts', 'public/icon.png', 'src/backend/config/cors-config.ts', '.env.example', 'docker-entrypoint.sh']) {
+      expect(ignored(keep), `${keep} must stay in the context`).toBe(false);
+    }
+    for (const drop of ['.env', '.gitignore', '.git/config', 'node_modules/react/index.js', 'dist/sw.js', 'dev-dist/sw.js', 'coverage/x.json', 'test-results/x', 'logs/app.log', 'uploads/documents/x.jpg', 'server.err', 'ssl/priv.key', 'x.pem', 'x.db', 'tmp/x']) {
+      expect(ignored(drop), `${drop} must be excluded from the context`).toBe(true);
+    }
+  });
 });
 
 // ────────────────────────────────────────────────────────────────
