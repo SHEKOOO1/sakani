@@ -111,7 +111,7 @@ setInterval(() => {
 const requiredEnvVars = [
   { key: 'JWT_SECRET', label: 'JWT_SECRET' },
 ];
-const insecureJwtValues = ['your-secret-key-here', 'super-secret-key', ''];
+const insecureJwtValues = ['your-secret-key-here', 'super-secret-key', 'super-secret-key-change-me-in-production', ''];
 const jwtVal = process.env.JWT_SECRET;
 if (!jwtVal || insecureJwtValues.includes(jwtVal)) {
   console.error(`❌ ERROR: JWT_SECRET is missing or using a default value. Set a strong secret in .env`);

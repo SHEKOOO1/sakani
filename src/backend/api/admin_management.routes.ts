@@ -3,7 +3,9 @@ import { v4 as uuidv4 } from "uuid";
 import { kdb } from "../infrastructure/db";
 import { invalidateUserPermissionCache } from "../infrastructure/cache";
 import { authenticate, authorizePermission } from "./middleware";
-import { AppPermission, validatePermissionArray } from "../../types/permissions";
+import { AppPermission } from "../../types/permissions";
+import { validatePermissionsInput } from "../infrastructure/permission-parser";
+import { canGrantSubset, getEffectivePermissionCodes } from "../infrastructure/permission-grants";
 
 const router = express.Router();
 
@@ -59,13 +61,10 @@ router.post("/roles", authenticate, authorizePermission(AppPermission.MANAGE_SET
     return res.status(400).json({ success: false, message: "بيانات الدور غير مكتملة" });
   }
 
-  // منع إنشاء دور بصلاحيات غير معروفة أو صلاحية ALL لغير مدير التطبيق
-  const permValidation = validatePermissionArray(permissions);
-  if (!permValidation.valid) {
-    return res.status(403).json({ success: false, message: `صلاحية غير معروفة: ${permValidation.invalidPermission}` });
-  }
-  if (permissions.includes('ALL') && req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'صلاحية "ALL" غير مسموحة إلا لمدير التطبيق' });
+  // فحص شكلي FAIL-CLOSED موحّد: مصفوفة + قيم معروفة + ALL لغير مدير التطبيق
+  const input = validatePermissionsInput(permissions, req.user?.role ?? '');
+  if (!input.ok) {
+    return res.status(input.status!).json({ success: false, message: input.message });
   }
 
   try {
@@ -81,11 +80,19 @@ router.post("/roles", authenticate, authorizePermission(AppPermission.MANAGE_SET
       return res.status(403).json({ success: false, message: "غير مصرح لك بإنشاء دور لهذا السكن" });
     }
 
+    // GRANTOR-SUBSET: لا يُنشأ دور إلا بصلاحياتٍ يملكها المنفِّذ فعليًا
+    // (يمنع الأسقف/الكاهن/المشرف من إنشاء دور بصلاحيات لا يملكها — مثل MANAGE_BISHOPS).
+    const grantor = await getEffectivePermissionCodes(req.user?.id as string);
+    const subset = canGrantSubset(input.permissions!, grantor.codes, grantor.hasAll, grantor.isAppAdmin);
+    if (!subset.ok) {
+      return res.status(subset.status).json({ success: false, message: subset.message });
+    }
+
     await kdb("tenant_custom_roles").insert({
       id,
       tenant_id: tenantId,
       name,
-      permissions: JSON.stringify(permissions),
+      permissions: JSON.stringify([...new Set(input.permissions!)]),
       created_by: req.user?.id,
       created_at: new Date()
     });
@@ -105,13 +112,10 @@ router.put("/roles/:id", authenticate, authorizePermission(AppPermission.MANAGE_
     return res.status(400).json({ success: false, message: "بيانات الدور غير مكتملة" });
   }
 
-  // منع تعديل دور بصلاحيات غير معروفة أو صلاحية ALL لغير مدير التطبيق
-  const permValidation = validatePermissionArray(permissions);
-  if (!permValidation.valid) {
-    return res.status(403).json({ success: false, message: `صلاحية غير معروفة: ${permValidation.invalidPermission}` });
-  }
-  if (permissions.includes('ALL') && req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'صلاحية "ALL" غير مسموحة إلا لمدير التطبيق' });
+  // فحص شكلي FAIL-CLOSED موحّد
+  const input = validatePermissionsInput(permissions, req.user?.role ?? '');
+  if (!input.ok) {
+    return res.status(input.status!).json({ success: false, message: input.message });
   }
 
   try {
@@ -130,9 +134,16 @@ router.put("/roles/:id", authenticate, authorizePermission(AppPermission.MANAGE_
       return res.status(403).json({ success: false, message: "لا يمكنك تعديل هذا الدور. فقط منشئ الدور أو مدير التطبيق يمكنه التعديل." });
     }
 
+    // GRANTOR-SUBSET: لا يُعدَّل دورٌ إلى صلاحياتٍ لا يملكها المنفِّذ
+    const grantor = await getEffectivePermissionCodes(req.user?.id as string);
+    const subset = canGrantSubset(input.permissions!, grantor.codes, grantor.hasAll, grantor.isAppAdmin);
+    if (!subset.ok) {
+      return res.status(subset.status).json({ success: false, message: subset.message });
+    }
+
     await kdb("tenant_custom_roles").where({ id }).update({
       name,
-      permissions: JSON.stringify(permissions)
+      permissions: JSON.stringify([...new Set(input.permissions!)])
     });
 
     const affectedUsers = await kdb("users").where({ custom_role_id: id }).select("id");

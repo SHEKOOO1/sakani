@@ -799,6 +799,82 @@ describe('security-authz: password reset invalidates prior sessions', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// SECURITY_FIX_BATCH5 — seed-admin: تأثير RÈSET المباشر على قاعدة
+// البيانات (رفع token_version + تغيير كلمة المرور في نفس التحديث) يجب
+// أن يبطل فوراً كل JWT مشغّل مسبقاً — نفس آلية Batch 3، بدون آلة ثانية.
+// هذا يختبر السيناريو النصي (scripts/seed-admin.ts) وليس مسار API.
+// ═══════════════════════════════════════════════════════════════
+
+describe('security-secrets: seed-admin DB reset (token_version bump) invalidates all live JWTs', () => {
+  const seedAdminRow = {
+    id: 'admSeed',
+    role: 'admin',
+    tenant_id: null,
+    email: 'admseed@test.com',
+    password: OLD_PASSWORD_HASH,
+    token_version: 0,
+  };
+
+  function seedOperator() {
+    dbMock.setRows('users', [
+      seedAdminRow,
+      {
+        id: 'op',
+        role: 'supervisor',
+        tenant_id: 'A',
+        email: 'op@test.com',
+        password: OLD_PASSWORD_HASH,
+        token_version: 0,
+        daily_readings_enabled: 1,
+        radio_514_enabled: 1,
+      },
+    ]);
+    dbMock.setRows('tenants', [{ id: 'A', name: 'res' }]);
+    dbMock.setRows('user_tenant_assignments', []);
+  }
+
+  it('JWTs minted BEFORE the script-style reset are rejected afterwards; the bumped version works', async () => {
+    seedOperator();
+    const oldToken = signToken({ id: 'op', role: 'supervisor', tenantId: 'A', email: 'op@test.com' }, 0);
+
+    const pre = await request('/api/auth/me', { token: oldToken });
+    expect(pre.status).toBe(200);
+
+    // ما يفعله scripts/seed-admin.ts مباشرة على قاعدة البيانات:
+    // تعيين كلمة مرور جديدة مجزأة + رفع token_version في نفس التحديث.
+    const rows = dbMock.readRows('users');
+    const op = rows.find((r: any) => r.id === 'op');
+    op.password = bcrypt.hashSync('HardcodedNeev3r', 10);
+    op.token_version = 1;
+    // التقارب: في بيئة حية تتقارب ذاكرة cache بعد ≤15s (قيمة TTL) — نحوّلها هنا للحتمية.
+    userCache.invalidate('user:op');
+    userCache.invalidate('user:admSeed');
+
+    const dead = await request('/api/auth/me', { token: oldToken });
+    expect(dead.status).toBe(401);
+
+    const fresh = await request('/api/auth/me', {
+      token: signToken({ id: 'op', role: 'supervisor', tenantId: 'A', email: 'op@test.com' }, 1),
+    });
+    expect(fresh.status).toBe(200);
+  });
+
+  it('a bare token_version bump (what the reset emits) is sufficient to kill old sessions', async () => {
+    seedOperator();
+    const oldToken = signToken({ id: 'op', role: 'supervisor', tenantId: 'A', email: 'op@test.com' }, 0);
+    await request('/api/auth/me', { token: oldToken });
+
+    const op = dbMock.readRows('users').find((r: any) => r.id === 'op');
+    op.token_version = 2;
+    userCache.invalidate('user:op');
+
+    const dead = await request('/api/auth/me', { token: oldToken });
+    expect(dead.status).toBe(401);
+    expect(dbMock.readRows('users').find((r: any) => r.id === 'op').token_version).toBe(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Self-service password change (PUT /api/users/me/password)
 // ═══════════════════════════════════════════════════════════════
 

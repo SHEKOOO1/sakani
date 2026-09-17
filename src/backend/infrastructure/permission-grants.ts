@@ -1,6 +1,6 @@
 import { UserRole, isValidPermission, VALID_PERMISSIONS } from "../../types/permissions";
 import { kdb } from "./db";
-import { parseStoredPermissionsArray } from "./permission-parser";
+import { parseStoredPermissionsArray, safeParseStoredPermissionValue } from "./permission-parser";
 
 /**
  * ═══════════════════════════════════════════════════════════════════
@@ -23,7 +23,7 @@ import { parseStoredPermissionsArray } from "./permission-parser";
  *
  * ملاحظة بنيوية: تعتمد هذه الوحدة على `kdb` (قراءة فقط) وليس على
  * `hasPermission/checkUserPermission` — لأنها تُستخدم داخل db.ts نفسها وفي
- * middleware/실 tests التي قد تُقلّد hasPermission بحيث تُعيد `true` دائمًا.
+ * middleware/tests التي قد تُقلّد hasPermission بحيث تُعيد `true` دائمًا.
  */
 
 /** نتيجة حساب صلاحيات الدور الفعلية (آمنة للاستخدام في منح التصعيد). */
@@ -63,7 +63,8 @@ export async function getEffectivePermissionCodes(userId: string): Promise<Effec
   let hasAll = false;
 
   // 1. الصلاحيات المباشرة المخزنة
-  const direct = parseStoredPermissionsArray(user.custom_permissions);
+  //    (تٌفك أولًا بقاعدة FAIL-CLOSED: نص JSON لسلسلة مفردة مثل `"ALL"` لا يُقرأ أبدًا)
+  const direct = parseStoredPermissionsArray(safeParseStoredPermissionValue(user.custom_permissions));
   for (const p of direct.perms) {
     if (p === "ALL") {
       hasAll = true;
@@ -79,7 +80,7 @@ export async function getEffectivePermissionCodes(userId: string): Promise<Effec
     else query = query.whereNotNull("tenant_id");
     const customRole = await query.first();
     if (customRole) {
-      const role = parseStoredPermissionsArray(customRole.permissions);
+      const role = parseStoredPermissionsArray(safeParseStoredPermissionValue(customRole.permissions));
       for (const p of role.perms) {
         if (p === "ALL") hasAll = true;
         else if (isValidPermission(p)) effective.add(p);
@@ -92,8 +93,7 @@ export async function getEffectivePermissionCodes(userId: string): Promise<Effec
     try {
       const rolePerms = await kdb("role_permissions").where({ role: user.role });
       for (const rp of rolePerms || []) {
-        const val = parseStoredPermissionsArray(rp?.permission ?? rp?.permissions);
-        for (const p of val.perms) {
+        for (const p of parseRolePermissionRow(rp)) {
           if (p === "ALL") hasAll = true;
           else if (isValidPermission(p)) effective.add(p);
         }
@@ -109,6 +109,41 @@ export async function getEffectivePermissionCodes(userId: string): Promise<Effec
     hasAll,
     isAppAdmin: false,
   };
+}
+
+/**
+ * تحويل صف من جدول `role_permissions` إلى قائمة أكواد صلاحيات.
+ *
+ * في هذا الجدول يُخزَّن كل صف كقيمة **سلسلة نصية واحدة** (مثل
+ * `permission = 'VIEW_STUDENT'`)، وليس كـ JSON array — على عكس
+ * `custom_permissions`/`custom_role.permissions`. لذلك نتعامل معه بشكلٍ
+ * مختلف لكن بنفس الروح FAIL-CLOSED:
+ *   - مصفوفة (أو نص JSON لمصفوفة) ⇐ المحلِّل الصارم.
+ *   - سلسلة نصية مفردة ⇐ تُعَدّ رمزًا واحدًا فقط إذا كان صالحًا (أو ALL).
+ *   - أي شيء آخر ⇐ [] (لا تُمنح أي صلاحية زائفة).
+ */
+function parseRolePermissionRow(row: any): string[] {
+  const raw = row?.permission ?? row?.permissions;
+  if (raw == null) return [];
+
+  if (Array.isArray(raw)) return parseStoredPermissionsArray(raw).perms;
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    const upper = trimmed.toUpperCase();
+    if (upper === 'ALL') return ['ALL'];
+    if (isValidPermission(upper)) return [upper];
+    // الاحتمال الآخر: عمود مُخزَّن بنص JSON لمصفوفة (مثل أعمدة custom_*)
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parseStoredPermissionsArray(parsed).perms;
+    } catch {
+      /* ليست JSON → تُرفض */
+    }
+    return [];
+  }
+
+  return [];
 }
 
 /** نسخة نقيّة من مجموعة صلاحيات الأساس (بلا "ALL") — للاستخدام في الفحص النهائي. */

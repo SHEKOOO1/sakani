@@ -1,21 +1,24 @@
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 
-const SECRET = 'sakani-secret-key-change-in-production-2024';
+dotenv.config();
+
 const BASE = 'http://localhost:3000';
 
-// Create a test admin token
-const adminToken = jwt.sign(
-  { id: 'test-admin-id', tenantId: null, role: 'admin', email: 'admin@sakani.com', gender: 'male' },
-  SECRET,
-  { expiresIn: '1h' }
-);
-
-// Create a test bishop token (with tenantIds in custom claim - real middleware may not have this)
-const bishopToken = jwt.sign(
-  { id: 'test-bishop-id', tenantId: null, role: 'bishop', email: 'bishop@test.com', gender: 'male' },
-  SECRET,
-  { expiresIn: '1h' }
-);
+/**
+ * مفتاح التوقيع يُقرأ من البيئة فقط (نفس JWT_SECRET الذي يتحقق منه الخادم).
+ * لا يوجد أي سر مضمّن في الكود؛ ويفشل السكربت بأمان إن لم يكن المفتاح مضبوطًا.
+ */
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.trim().length === 0) {
+    console.error(
+      '❌ JWT_SECRET غير مضبوط. هذا السكربت يحتاج مفتاح توقيع الخادم لإنشاء توكنات اختبار. اضبطه في .env أو البيئة.'
+    );
+    process.exit(1);
+  }
+  return secret;
+}
 
 async function test(label: string, url: string, token?: string) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -53,6 +56,22 @@ async function testPost(label: string, url: string, body: any, token?: string) {
 }
 
 async function main() {
+  const SECRET = getJwtSecret();
+
+  // Create a test admin token
+  const adminToken = jwt.sign(
+    { id: 'test-admin-id', tenantId: null, role: 'admin', email: 'admin@sakani.com', gender: 'male' },
+    SECRET,
+    { expiresIn: '1h' }
+  );
+
+  // Create a test bishop token (with tenantIds in custom claim - real middleware may not have this)
+  const bishopToken = jwt.sign(
+    { id: 'test-bishop-id', tenantId: null, role: 'bishop', email: 'bishop@test.com', gender: 'male' },
+    SECRET,
+    { expiresIn: '1h' }
+  );
+
   console.log('=== TESTING ADMIN ENDPOINTS ===\n');
 
   // 1. My Tenants (admin)

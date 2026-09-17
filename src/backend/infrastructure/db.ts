@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import { MemoryCache, permissionCache, userCache, tenantCache } from "./cache.ts";
+import { parseStoredPermissionsArray, safeParseStoredPermissionValue } from "./permission-parser";
 
 
 // Load env from project root explicitly
@@ -384,6 +385,14 @@ export function logAuditEvent(params: {
 }
 
 /**
+ * تحويل قيمة JSON مخزّنة (custom_permissions / role.permissions) إلى
+ * قيمتها الأصلية بمعالجة آمنة (FAIL-CLOSED) — تُنفَّذ في
+ * safeParseStoredPermissionValue (permission-parser.ts) للتوحيد مع منح
+ * الصلاحيات (permission-grants.ts). أي محاولة لتخزين `"ALL"` كنص مفرد
+ * لا تُقرأ أبدًا كصلاحية.
+ */
+
+/**
  * تحقق متقدم من صلاحيات المستخدم يشمل:
  * 1. الصلاحيات المباشرة الممنوحة له (custom_permissions)
  * 2. الصلاحيات داخل الدور المخصص (custom_role_id)
@@ -407,10 +416,13 @@ export async function checkUserPermission(userId: string, permission: string): P
 
   let result = false;
 
-  // 1. فحص الصلاحيات المباشرة المخزنة كـ JSON
+  // 1. الصلاحيات المباشرة المخزّنة — FAIL-CLOSED: لا تُقرأ إلا إذا كانت قيمتها
+  //    مصفوفة JSON (parseStoredPermissionsArray ترفض السلسلة المفردة/الكائن/الرقم/null).
+  //    كما أن `ALL` لا تُكرم من البيانات المخزّنة إطلاقًا لغير Admin (تُدار فقط عبر
+  //    canGrantSubset)، فأي عنصر ALL قديم/مسرّب داخل مصفوفة لا يُمنح شيئًا.
   if (user.custom_permissions) {
-    const perms = JSON.parse(user.custom_permissions);
-    if (perms.includes(permission) || perms.includes('ALL')) {
+    const direct = parseStoredPermissionsArray(safeParseStoredPermissionValue(user.custom_permissions));
+    if (direct.perms.includes(permission)) {
       result = true;
     }
   }
@@ -427,8 +439,8 @@ export async function checkUserPermission(userId: string, permission: string): P
       })
       .first();
     if (customRole) {
-      const rolePerms = JSON.parse(customRole.permissions);
-      if (rolePerms.includes(permission) || rolePerms.includes('ALL')) {
+      const roleParsed = parseStoredPermissionsArray(safeParseStoredPermissionValue(customRole.permissions));
+      if (roleParsed.perms.includes(permission)) {
         result = true;
       }
     }

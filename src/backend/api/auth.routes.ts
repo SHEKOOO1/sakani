@@ -5,12 +5,47 @@ import { v4 as uuidv4 } from "uuid";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { kdb } from "../infrastructure/db.ts";
+import { parseStoredPermissionsArray } from "../infrastructure/permission-parser";
 import { UserRole } from "../../types/permissions";
 import { authenticate } from "./middleware";
 import { validate } from "../validation/middleware";
 import { loginSchema, registerSchema } from "../validation/schemas";
 
 const router = express.Router();
+
+// دمج الصلاحيات الفعلية (custom_permissions + custom_role) بقراءة FAIL-CLOSED:
+// القيم غير المصفوفة تُهمل، وأي عنصر `ALL`/غير معروف من المخزّن لا يتسرّب إلى
+// الاستجابة — فقراءة الصلاحيات تتبع نفس القاعدة الصارمة لكتابتها.
+async function resolveEffectivePermissions(user: any): Promise<string[]> {
+  const merged: string[] = [];
+  if (user.custom_permissions) {
+    try {
+      const parsed = JSON.parse(user.custom_permissions);
+      if (Array.isArray(parsed)) {
+        for (const p of parseStoredPermissionsArray(parsed).perms) {
+          if (!merged.includes(p)) merged.push(p);
+        }
+      }
+    } catch {
+      /* قيمة غير صالحة → تُهمل (فشل آمن) */
+    }
+  }
+  if (user.custom_role_id) {
+    try {
+      const customRole = await kdb('tenant_custom_roles').where({ id: user.custom_role_id }).first();
+      if (customRole) {
+        const roleParsed = JSON.parse(customRole.permissions);
+        const rolePerms = Array.isArray(roleParsed) ? parseStoredPermissionsArray(roleParsed).perms : [];
+        for (const perm of rolePerms) {
+          if (!merged.includes(perm)) merged.push(perm);
+        }
+      }
+    } catch {
+      /* تجاهل — لا تُمنح صلاحية من دور تالف */
+    }
+  }
+  return merged;
+}
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -188,18 +223,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
     }
 
     // Resolve effective permissions: merge custom_permissions + custom_role permissions
-    let effectiveCustomPermissions = user.custom_permissions ? JSON.parse(user.custom_permissions) : [];
-    if (user.custom_role_id) {
-      try {
-        const customRole = await kdb('tenant_custom_roles').where({ id: user.custom_role_id }).first();
-        if (customRole) {
-          const rolePerms = JSON.parse(customRole.permissions);
-          for (const perm of rolePerms) {
-            if (!effectiveCustomPermissions.includes(perm)) effectiveCustomPermissions.push(perm);
-          }
-        }
-      } catch {}
-    }
+    const effectiveCustomPermissions = await resolveEffectivePermissions(user);
 
     // The user record already reflects the cascaded tenant value,
     // so no separate tenant check is needed here.
@@ -273,18 +297,7 @@ router.get("/me", authenticate, async (req, res) => {
       return res.status(401).json({ success: false, message: "المستخدم غير موجود" });
     }
 
-    let effectiveCustomPermissions = user.custom_permissions ? JSON.parse(user.custom_permissions) : [];
-    if (user.custom_role_id) {
-      try {
-        const customRole = await kdb('tenant_custom_roles').where({ id: user.custom_role_id }).first();
-        if (customRole) {
-          const rolePerms = JSON.parse(customRole.permissions);
-          for (const perm of rolePerms) {
-            if (!effectiveCustomPermissions.includes(perm)) effectiveCustomPermissions.push(perm);
-          }
-        }
-      } catch {}
-    }
+    const effectiveCustomPermissions = await resolveEffectivePermissions(user);
 
     res.json({
       success: true,

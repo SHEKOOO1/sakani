@@ -1,44 +1,72 @@
 import knex from 'knex';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import dotenv from 'dotenv';
+import path from 'path';
 import config from '../knexfile';
+import {
+  resolveSeedAdminEmail,
+  validateSeedAdminPassword,
+  assertSeedAdminProductionSafety,
+  buildAdminPasswordReset,
+} from './seed-admin-lib';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 async function main() {
-  const kdb = knex((config as any).default || config.development);
-  try {
-    const countRow = await kdb('users').count('id as cnt').first();
-    const count = Number(countRow?.cnt || 0);
-    console.log('Current user count:', count);
+  // ── حماية FAIL-CLOSED قبل أي اتصال/كتابة ──────────────────────────
+  // لا كلمة مرور افتراضية إطلاقًا: تُقرأ من البيئة فقط.
+  const email = resolveSeedAdminEmail();
+  const password = process.env.SEED_ADMIN_PASSWORD;
 
-    // Check if admin already exists
-    const existing = await kdb('users').where({ email: 'admin@sakani.com' }).first();
+  const productionCheck = assertSeedAdminProductionSafety();
+  if (!productionCheck.ok) {
+    console.error(`❌ ${productionCheck.message}`);
+    process.exit(1);
+  }
+
+  const passwordCheck = validateSeedAdminPassword(password);
+  if (!passwordCheck.ok) {
+    console.error(`❌ ${passwordCheck.message}`);
+    process.exit(1);
+  }
+
+  const connection = process.env.NODE_ENV === 'production'
+    ? (config as any).production
+    : (config as any).development;
+  const kdb = knex(connection);
+  try {
+    const existing = await kdb('users').where({ email }).first();
+    // نفس تكلفة bcrypt المستخدمة في بقية التطبيق (10) — لا تُوَهَّن.
+    const hashed = await bcrypt.hash(password as string, 10);
+
     if (existing) {
-      console.log('Admin exists, email:', existing.email, 'role:', existing.role);
-      // Update password
-      const hashed = await bcrypt.hash('admin123', 10);
-      await kdb('users').where({ id: existing.id }).update({ password: hashed });
-      console.log('Password reset to admin123');
+      // إعادة تعيين: رفع token_version بنفس التحديث ⇒ إبطال كل JWT قديم.
+      const reset = buildAdminPasswordReset(existing, hashed);
+      await kdb('users').where({ id: existing.id }).update(reset);
+      console.log(`✅ تمت إعادة تعيين كلمة مرور المدير (${email}) وتم إبطال الجلسات القديمة.`);
     } else {
-      // Create admin
-      const hashed = await bcrypt.hash('admin123', 10);
       await kdb('users').insert({
         id: uuidv4(),
         tenant_id: null,
-        email: 'admin@sakani.com',
+        email,
         password: hashed,
         role: 'admin',
         name: 'مدير النظام',
         gender: 'male',
+        token_version: 0,
         daily_readings_enabled: 1,
         radio_514_enabled: 1,
       });
-      console.log('Admin user created: admin@sakani.com / admin123');
+      console.log(`✅ تم إنشاء حساب المدير: ${email}`);
     }
   } catch (e: any) {
-    console.log('ERR:', e.message);
-    console.log('STACK:', e.stack?.substring(0, 500));
+    // لا نطبع أي كلمة مرور — الرسالة فقط.
+    console.error('ERR:', e.message);
+    process.exitCode = 1;
+  } finally {
+    await kdb.destroy();
   }
-  await kdb.destroy();
 }
 
 main();

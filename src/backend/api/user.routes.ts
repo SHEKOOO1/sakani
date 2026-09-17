@@ -8,7 +8,9 @@ import { invalidateUserPermissionCache } from "../infrastructure/cache.ts";
 import { authenticate, authorizePermission, getAllowedAssignableRoles, computeUserTenantIds } from "./middleware";
 import { validate } from "../validation/middleware";
 import { createUserSchema, updateUserSchema, addToTenantSchema } from "../validation/schemas";
-import { AppPermission, UserRole, validatePermissionArray } from "../../types/permissions";
+import { AppPermission, UserRole } from "../../types/permissions";
+import { validatePermissionsInput, parseStoredPermissionsArray } from "../infrastructure/permission-parser";
+import { canGrantSubset, getEffectivePermissionCodes } from "../infrastructure/permission-grants";
 import { parsePagination, paginateQuery } from "../services/radio/pagination.ts";
 
 const router = express.Router();
@@ -59,20 +61,11 @@ export const canImportTargetUser = async (req: any, target: any): Promise<boolea
   return assignments.some((a: any) => allowedIds.includes(a.tenant_id));
 };
 
-// منع منح صلاحية "ALL" لأي مستخدم غير مدير التطبيق + التحقق من أن كل صلاحية قيمة صحيحة
-const validatePermissionsArray = (permissions: any, role: string): string | null => {
-  if (!Array.isArray(permissions)) return null;
-  const upper = permissions.map((p: any) => String(p || '').toUpperCase().trim());
-  if (upper.includes('ALL') && role !== UserRole.Admin) {
-    return 'صلاحية "ALL" (كل الصلاحيات) غير مسموحة إلا لمدير التطبيق';
-  }
-  // منع إدخال قيم صلاحيات غير معروفة (منع التصعيد بصلاحيات خيالية مثل MANAGE_BISHOPS للمشرف)
-  const result = validatePermissionArray(permissions);
-  if (!result.valid) {
-    return `صلاحية غير معروفة: ${result.invalidPermission}`;
-  }
-  return null;
-};
+// منع منح صلاحية "ALL" لأي مستخدم غير مدير التطبيق + التحقق من أن كل صلاحية قيمة صحيحة.
+// التحقق الشكلي (مصفوفة/قيم معروفة/ALL) منجّز الآن في البنية التحتية:
+//   validatePermissionsInput  = فحص FAIL-CLOSED لقيمة مرسلة (400 غير مصفوفة/غير معروفة، 403 ALL لغير Admin)
+//   canGrantSubset            = فحص النطاق (يُمنح فقط ما يملكه ‏الدور المنفِّذ — GRANTOR-SUBSET)
+// لذا لا حاجة لدالة محلية هنا — لا يجوز أن يتحقق أي مسار كتابة صلاحيات بمنطق مختلف.
 
 // Get all users in tenant (including those assigned via user_tenant_assignments)
 /**
@@ -450,11 +443,19 @@ router.post("/custom-roles", authenticate, authorizePermission(AppPermission.MAN
   const tenantId = req.user.tenantId;
 
   try {
-    const permError = validatePermissionsArray(permissions, req.user.role);
-    if (permError) {
-      return res.status(403).json({ success: false, message: permError });
+    // 1) فحص شكلي FAIL-CLOSED: مصفوفة + قيم معروفة + ALL لغير Admin
+    const input = validatePermissionsInput(permissions, req.user.role);
+    if (!input.ok) {
+      return res.status(input.status!).json({ success: false, message: input.message });
     }
-    const permissionsJson = JSON.stringify(permissions || []);
+    // 2) GRANTOR-SUBSET: لا يُنشأ/يُعدَّل دور إلا بصلاحيات يملكها المنفِّذ فعليًا
+    const grantor = await getEffectivePermissionCodes(req.user.id);
+    const subset = canGrantSubset(input.permissions!, grantor.codes, grantor.hasAll, grantor.isAppAdmin);
+    if (!subset.ok) {
+      return res.status(subset.status).json({ success: false, message: subset.message });
+    }
+    const cleaned = [...new Set(input.permissions!)];
+    const permissionsJson = JSON.stringify(cleaned);
     if (id) {
       // تحديث دور موجود — فقط المنشئ أو مدير التطبيق
       const role = await kdb("tenant_custom_roles").where({ id, tenant_id: tenantId }).first();
@@ -490,7 +491,24 @@ router.post("/custom-roles", authenticate, authorizePermission(AppPermission.MAN
 router.put("/:id/permissions", authenticate, authorizePermission(AppPermission.MANAGE_USERS), async (req, res) => {
   const { id } = req.params;
   const { permissions, customRoleId } = req.body;
-  const { role } = req.user;
+  const actorRole = req.user.role;
+
+  // منع المستخدم من تعديل صلاحياته هو بنفسه (حتى لو كان مؤهلًا للوصول إلى
+  // هذا المسار) — تغيير صلاحيات الذات هو تصعيدٌ ذاتي يبقى بعيدًا عن يد
+  // المستخدم نفسه، ومسموح فقط للمدير الأعلى/مدير التطبيق عبر أدواره.
+  if (id === req.user.id) {
+    return res.status(403).json({ success: false, message: "لا يمكنك تعديل صلاحياتك بنفسك. اطلب من مديرك." });
+  }
+
+  if (permissions === undefined && customRoleId === undefined) {
+    return res.status(400).json({ success: false, message: "لا توجد بيانات للتحديث: أرسل permissions أو customRoleId" });
+  }
+
+  // FAIL-CLOSED: أي قيمة غير مصفوفة (سلسلة مثل "ALL"، كائن، رقم) تُرفض 400 —
+  // لا يُخزَّن أبدًا نص "ALL" كقيمة custom_permissions (مسار التصعيد القديم).
+  if (permissions !== undefined && !Array.isArray(permissions)) {
+    return res.status(400).json({ success: false, message: 'الصلاحيات يجب أن تكون مصفوفة من النصوص (مثال: ["VIEW_STUDENT"])' });
+  }
 
   try {
     const target = await kdb("users").where({ id }).first();
@@ -500,11 +518,24 @@ router.put("/:id/permissions", authenticate, authorizePermission(AppPermission.M
       return res.status(403).json({ success: false, message: "لا تملك صلاحية تعديل صلاحيات هذا المستخدم" });
     }
 
-    const permError = validatePermissionsArray(permissions, role);
-    if (permError) {
-      return res.status(403).json({ success: false, message: permError });
+    // صلاحيات المنفِّذ الفعلية من قاعدة البيانات — مصدر الحقيقة الوحيد لفحص النطاق
+    const grantor = await getEffectivePermissionCodes(req.user.id);
+
+    // 1) الصلاحيات المباشرة: فحص شكلي + GRANTOR-SUBSET
+    let cleanedPermissions: string[] | undefined;
+    if (permissions !== undefined) {
+      const input = validatePermissionsInput(permissions, actorRole);
+      if (!input.ok) {
+        return res.status(input.status!).json({ success: false, message: input.message });
+      }
+      const subset = canGrantSubset(input.permissions!, grantor.codes, grantor.hasAll, grantor.isAppAdmin);
+      if (!subset.ok) {
+        return res.status(subset.status).json({ success: false, message: subset.message });
+      }
+      cleanedPermissions = [...new Set(input.permissions!)];
     }
 
+    // 2) الدور المخصص: لا يُربط إلا إذا كانت صلاحياته ضمن صلاحيات المنفِّذ
     if (customRoleId !== undefined && customRoleId !== null) {
       const customRole = await kdb("tenant_custom_roles")
         .where({ id: customRoleId, tenant_id: req.user.tenantId })
@@ -512,10 +543,21 @@ router.put("/:id/permissions", authenticate, authorizePermission(AppPermission.M
       if (!customRole) {
         return res.status(404).json({ success: false, message: "الدور المخصص غير موجود في سكنك" });
       }
+      let rolePerms: string[] = [];
+      try {
+        const parsed = JSON.parse(customRole.permissions);
+        if (Array.isArray(parsed)) rolePerms = parseStoredPermissionsArray(parsed).perms;
+      } catch {
+        rolePerms = [];
+      }
+      const roleSubset = canGrantSubset(rolePerms, grantor.codes, grantor.hasAll, grantor.isAppAdmin);
+      if (!roleSubset.ok) {
+        return res.status(403).json({ success: false, message: "لا يمكنك ربط هذا الدور لأنه يمنح صلاحيات لا تملكها" });
+      }
     }
 
     const updateData: any = {};
-    if (permissions) updateData.custom_permissions = JSON.stringify(permissions);
+    if (cleanedPermissions !== undefined) updateData.custom_permissions = JSON.stringify(cleanedPermissions);
     if (customRoleId !== undefined) updateData.custom_role_id = customRoleId;
 
     await kdb("users").where({ id }).update(updateData);
@@ -697,7 +739,10 @@ router.get("/refresh-permissions", authenticate, async (req, res) => {
 
     let effectivePermissions: string[] = [];
     if (user.custom_permissions) {
-      try { effectivePermissions = JSON.parse(user.custom_permissions); } catch {}
+      try {
+        const parsed = JSON.parse(user.custom_permissions);
+        if (Array.isArray(parsed)) effectivePermissions = parseStoredPermissionsArray(parsed).perms;
+      } catch {}
     }
     if (user.custom_role_id) {
       try {
@@ -709,7 +754,8 @@ router.get("/refresh-permissions", authenticate, async (req, res) => {
           })
           .first();
         if (customRole) {
-          const rolePerms = JSON.parse(customRole.permissions);
+          const roleParsed = JSON.parse(customRole.permissions);
+          const rolePerms = Array.isArray(roleParsed) ? parseStoredPermissionsArray(roleParsed).perms : [];
           for (const perm of rolePerms) {
             if (!effectivePermissions.includes(perm)) effectivePermissions.push(perm);
           }

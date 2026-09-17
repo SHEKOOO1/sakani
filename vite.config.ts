@@ -6,6 +6,15 @@ import { VitePWA } from 'vite-plugin-pwa'; // ضفنا المكتبة هنا
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  // أمان: نُدرج في الكود العميل ONLY ما هو آمن للعميل. لا تُمرَّر أسرار الخادم
+  // (JWT_SECRET، بيانات قاعدة البيانات، مفاتيح VAPID، إعداد تسجيل الدخول…)
+  // إلى bundle الواجهة إطلاقًا — حتى لو أشار أي كود/مكتبة خارجية إلى process.env.
+  const clientSafeEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key === 'NODE_ENV' || key === 'MODE' || key.startsWith('VITE_')) {
+      clientSafeEnv[key] = value;
+    }
+  }
   return {
     plugins: [
       react(),
@@ -50,9 +59,9 @@ export default defineConfig(({ mode }) => {
       })
     ],
     define: {
-      'process.env': JSON.stringify(env),
+      'process.env': JSON.stringify(clientSafeEnv),
       'process.platform': JSON.stringify('win32'),
-      'process': { env: env }, // إضافة هذا السطر لحل مشاكل المكتبات الخارجية
+      'process': { env: clientSafeEnv }, // إضافة هذا السطر لحل مشاكل المكتبات الخارجية
       'global': 'window',
     },
     resolve: {

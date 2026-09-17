@@ -88,8 +88,12 @@ export interface PermissionInputResult {
  * - صلاحية غير معروفة أو عنصر غير نصي ⇐ 400.
  *
  * ملاحظة: منح "ALL" مسموح فقط لمدير التطبيق (Admin) — يتم عبر هذه الدالة
- * عبر حقل `granterRole`. القرار النهائي (التحقق من الدور + النطاق) يتم
- * في canGrantSubset (permission-grants.ts) لعدم تحميل DB هنا.
+ * عبر حقل `granterRole`. ومع ذلك، `ALL` **لا تُخزَّن أبدًا** في قوائم
+ * الصلاحيات (تُستبعد من الناتج حتى للمدير، لأن قراءة الجانب FAIL-CLOSED
+ * لا تُكرمها من البيانات المخزّنة إطلاقًا — منح ALL هو قرار سياسةٍ عبر
+ * canGrantSubset ولا يحتاج تمثيلًا مخزّنًا). القرار النهائي (التحقق من
+ * الدور + النطاق) يتم في canGrantSubset (permission-grants.ts) لعدم تحميل
+ * DB هنا.
  */
 export function validatePermissionsInput(
   permissions: any,
@@ -115,7 +119,10 @@ export function validatePermissionsInput(
   }
 
   for (const perm of upper) {
-    if (!isValidPermission(perm) || perm === 'ALL') {
+    // «ALL» مُديرة أعلاه (403 لغير Admin / مسموحة للمدير) لكنها لا تُخزَّن
+    // أبدًا: تُستبعد من القائمة المعتمدة حتى للمدير (انظر الملاحظة أعلاه).
+    if (perm === 'ALL') continue;
+    if (!isValidPermission(perm)) {
       return {
         ok: false,
         status: 400,
@@ -147,6 +154,33 @@ export function canGrantPermissionByRole(permission: string, role: string): bool
 /** قائمة بكل الصلاحيات الصالحة — مفيدة للبناء العام للمصفوفات. */
 export function allValidPermissions(): string[] {
   return Array.from(VALID_PERMISSIONS).filter((p) => p !== 'ALL');
+}
+
+/**
+ * فك قيمة صلاحيات مخزّنة في قاعدة البيانات إلى قيمتها الأصلية بشكل آمن
+ * (FAIL-CLOSED) قبل تمريرها إلى المحلِّل الصارم:
+ *   - null / undefined ⇐ null (لا تُمنح أي صلاحية).
+ *   - مصفوفة فعلية ⇐ تُعاد كما هي.
+ *   - سلسلة نصية:
+ *       * تُحل من JSON إلى مصفوفة ⇐ المصفوفة.
+ *       * تُحل من JSON إلى أي شيء آخر (كائن/رقم/سلسلة مفردة مثل `"ALL"`) ⇐ null.
+ *       * لا يمكن تحليلها كـ JSON ⇐ null (لا تُمنح أي صلاحية زائفة).
+ *   - أي نوع آخر (كائن/رقم مباشر) ⇐ null.
+ *
+ * الهدف: كتابة الصلاحيات تُخزَّن كمصفوفات JSON نصية، وأي سلسلة مفردة
+ * كـ `"ALL"` (مسار التصعيد القديم) لا تُقرأ أبدًا كمصفوفة.
+ */
+export function safeParseStoredPermissionValue(value: any): any {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** اختصار: تحقّق أن قيمة مخزّنة في DB آمنة (مصفوفة). */
