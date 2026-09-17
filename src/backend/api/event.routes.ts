@@ -400,25 +400,49 @@ router.get("/:id/payments", authenticate, authorizePermission(AppPermission.MANA
 router.post("/:id/payments/remind/:studentId", authenticate, authorizePermission(AppPermission.MANAGE_EVENT_PAYMENTS), async (req, res) => {
   const { id, studentId } = req.params;
   const tenantId = req.user.tenantId;
+  const isAdmin = req.user.role === 'admin';
 
   try {
     const event = await kdb('events').where({ id }).select('title', 'price', 'tenant_id').first();
     if (!event) return res.status(404).json({ success: false, message: "الفعالية غير موجودة" });
-    if (event.tenant_id && event.tenant_id !== tenantId && req.user.role !== 'admin') {
+
+    // الفعالية نفسها يجب أن تكون ضمن نطاق المرسل
+    if (event.tenant_id) {
+      const allowed = await computeUserTenantIds(req.user);
+      if (!isAdmin && !allowed.includes(event.tenant_id)) {
+        return res.status(403).json({ success: false, message: "ليس لديك صلاحية لإرسال تذكير لهذه الفعالية" });
+      }
+    } else if (!isAdmin && !tenantId) {
+      // فعالية عالمية (بلا سكن): لا يرسل منها إلا مدير التطبيق أو من له سكن مرتبط
       return res.status(403).json({ success: false, message: "ليس لديك صلاحية لإرسال تذكير لهذه الفعالية" });
     }
 
+    // لا يجوز إرسال تذكير لطالب من سكن آخر: الطالب يجب أن يكون في نطاق الفعالية
     const student = await kdb('students as s')
       .join('users as u', 's.user_id', 'u.id')
-      .select('s.id', 'u.id as user_id', 'u.name')
+      .select('s.id', 's.tenant_id', 'u.id as user_id', 'u.name')
       .where('s.id', studentId)
       .first();
     if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
 
-    if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+    if (event.tenant_id) {
+      // فعالية سكنية: الطالب من نفس السكن فقط
+      if (student.tenant_id !== event.tenant_id) {
+        return res.status(403).json({ success: false, message: "لا يمكن إرسال تذكير لطالب من سكن آخر" });
+      }
+    } else if (!isAdmin) {
+      // فعالية عالمية: لا يرسل لطالب خارج سكنات المرسل
+      const allowed = await computeUserTenantIds(req.user);
+      if (!allowed.includes(student.tenant_id)) {
+        return res.status(403).json({ success: false, message: "لا يمكن إرسال تذكير لطالب من سكن آخر" });
+      }
+    }
+
+    const notifyTenantId = student.tenant_id || tenantId;
+    if (!notifyTenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
     await createNotification({
       userId: student.user_id,
-      tenantId,
+      tenantId: notifyTenantId,
       title: `تذكير بدفع رسوم الفعالية`,
       message: `عزيزي ${student.name}، تذكر دفع رسوم فعالية "${event.title}" بمبلغ ${event.price} ج.م.`,
       type: 'warning',
@@ -1085,8 +1109,20 @@ router.post(
   const tenantId = req.user.tenantId;
 
   try {
+    // لا يجوز تسجيل درجات لفريق يخص فعالية أخرى عبر تغيير event_id في الرابط
+    const team = await kdb('event_teams').where({ id: teamId }).first();
+    if (!team || team.event_id !== eventId) {
+      return res.status(404).json({ success: false, message: "الفريق غير موجود في هذه الفعالية" });
+    }
+
+    const criteria = await kdb('event_criteria').where({ event_id: eventId }).select('id');
+    const validCriterionIds = new Set(criteria.map((c: any) => c.id));
+
     await kdb.transaction(async (trx) => {
       for (const s of scores) {
+        if (!validCriterionIds.has(s.criterionId)) {
+          throw new Error("المعيار غير موجود في هذه الفعالية");
+        }
         await trx('event_scores').insert({
           id: uuidv4(),
           event_id: eventId,
@@ -1100,6 +1136,9 @@ router.post(
     });
     res.json({ success: true, message: "تم تسجيل الدرجات بنجاح" });
   } catch (err: any) {
+    if (err?.message === "المعيار غير موجود في هذه الفعالية") {
+      return res.status(400).json({ success: false, message: err.message });
+    }
     res.status(400).json({ success: false, message: "حدث خطأ. لم نتمكن من تحميل البيانات." });
   }
 });
@@ -1165,7 +1204,14 @@ const event = await kdb('events').where({ id }).first();
 // Upload receipt image
 router.post("/upload-receipt", authenticate, upload.single("receipt"), validateMagicBytes, sanitizeInput, async (req, res) => {
   try {
+    const { event_id } = req.body;
     if (!req.file) return res.status(400).json({ success: false, message: "لم يتم رفع أي ملف" });
+    if (!event_id) return res.status(400).json({ success: false, message: "معرّف الفعالية مطلوب" });
+    const event = await kdb('events').where({ id: event_id }).first();
+    if (!event) return res.status(404).json({ success: false, message: "الفعالية غير موجودة" });
+    if (!await canAccessEvent(req, event)) {
+      return res.status(403).json({ success: false, message: "غير مصرح بالوصول" });
+    }
     const url = `${UPLOADS_BASE}/documents/${req.file.filename}`;
     res.json({ success: true, data: { url } });
   } catch (error: any) {

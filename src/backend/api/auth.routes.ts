@@ -108,7 +108,7 @@ router.post("/register", rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: 
     });
 
     const token = jwt.sign(
-      { id, tenantId: null, role, email, gender: gender || 'male', daily_readings_enabled: true, radio_514_enabled: true },
+      { id, tenantId: null, role, email, gender: gender || 'male', daily_readings_enabled: true, radio_514_enabled: true, tokenVersion: 0 },
       process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );
@@ -206,7 +206,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
     const dailyReadingsEnabled = user.daily_readings_enabled != 0;
     const radio514Enabled = user.radio_514_enabled != 0;
     const token = jwt.sign(
-      { id: user.id, tenantId: effectiveTenantId, role: user.role, email: user.email, gender: user.gender || 'male', daily_readings_enabled: dailyReadingsEnabled, radio_514_enabled: radio514Enabled },
+      { id: user.id, tenantId: effectiveTenantId, role: user.role, email: user.email, gender: user.gender || 'male', daily_readings_enabled: dailyReadingsEnabled, radio_514_enabled: radio514Enabled, tokenVersion: Number(user.token_version ?? 0) },
       process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );

@@ -69,6 +69,7 @@ export function useEventSubscriptions(selectedEvent: any, fetchEvents: () => voi
         setReceiptUploading(true);
         const formData = new FormData();
         formData.append('receipt', receiptFile);
+        formData.append('event_id', detailEvent.id);
         const uploadRes = await request('/api/events/upload-receipt', {
           method: 'POST', body: formData, headers: {},
         });
@@ -116,6 +117,7 @@ export function useEventSubscriptions(selectedEvent: any, fetchEvents: () => voi
         setReceiptUploading(true);
         const formData = new FormData();
         formData.append('receipt', receiptFile);
+        formData.append('event_id', detailEvent.id);
         const uploadRes = await request('/api/events/upload-receipt', {
           method: 'POST', body: formData, headers: {},
         });

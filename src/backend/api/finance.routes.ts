@@ -189,6 +189,10 @@ router.post("/", authenticate, validate(createFinanceSchema), (req, res, next) =
 // Delete a financial record — respects admin isolation
 router.delete("/:id", authenticate, async (req, res, next) => {
   const tenantId = req.user.tenantId;
+  // FAIL-CLOSED: مستخدم غير مدير بلا سكن أساسي لا يجوز له فحص معاملة خارج نطاق سكن
+  if (req.user.role !== 'admin' && !tenantId) {
+    return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
+  }
   const record = await kdb('finances').where({ id: req.params.id, ...(tenantId ? { tenant_id: tenantId } : {}) }).first();
   if (!record) return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
   const perm = record.type === 'expense' ? AppPermission.ADD_EXPENSE : AppPermission.ADD_REVENUE;
@@ -221,10 +225,19 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 // Edit a financial record — respects admin isolation and per-type permission
 router.put("/:id", authenticate, async (req, res, next) => {
   const tenantId = req.user.tenantId;
+  const isAdmin = req.user.role === 'admin';
+  // FAIL-CLOSED: مستخدم غير مدير بلا سكن أساسي لا يجوز له فحص معاملة خارج نطاق سكن
+  if (!isAdmin && !tenantId) {
+    return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
+  }
   let recordQuery = kdb('finances').where({ id: req.params.id });
-  if (tenantId) recordQuery = recordQuery.where('tenant_id', tenantId);
-  if (req.user.role === 'admin') recordQuery = recordQuery.where('is_admin_only', 1);
-  else recordQuery = recordQuery.where(function () { this.where('is_admin_only', 0).orWhereNull('is_admin_only'); });
+  if (isAdmin) {
+    if (tenantId) recordQuery = recordQuery.where('tenant_id', tenantId);
+    recordQuery = recordQuery.where('is_admin_only', 1);
+  } else {
+    recordQuery = recordQuery.where('tenant_id', tenantId);
+    recordQuery = recordQuery.where(function () { this.where('is_admin_only', 0).orWhereNull('is_admin_only'); });
+  }
   const record = await recordQuery.first();
   if (!record) return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
   const perm = (req.body.type || record.type) === 'expense' ? AppPermission.ADD_EXPENSE : AppPermission.ADD_REVENUE;

@@ -331,7 +331,7 @@ export const updateStudentSchema = z.object({
   address: z.string().optional(),
   billingCycle: z.string().optional(),
   agreedPrice: z.number().optional(),
-  status: z.string().optional(),
+  status: z.enum(['active', 'in_pause', 'vacation', 'withdrawn', 'archived'], { message: 'حالة الطالب غير صحيحة' }).optional(),
   governorate: z.string().optional(),
   village: z.string().optional(),
   churchName: z.string().optional(),

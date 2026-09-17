@@ -22,9 +22,9 @@ function isItemType(v: string): v is ItemType {
 // الكاهن أو المشرف الخاص بالسكن يقدر يعين متحكمين — وكذلك الادارة العامة
 async function canAssign(user: { id: string; role: string; tenantId?: string | null }, itemType: ItemType, itemId: string) {
   if (!user) return false;
-  if (user.role === 'admin' || user.role === 'bishop') return true;
   const item = await kdb(ITEM_TABLE[itemType]).where({ id: itemId }).first();
   if (!item) return false;
+  if (user.role === 'admin' || user.role === 'bishop') return true;
   if (user.role === 'priest' || user.role === 'supervisor') {
     return item.tenant_id && user.tenantId && String(item.tenant_id).toLowerCase() === String(user.tenantId).toLowerCase();
   }

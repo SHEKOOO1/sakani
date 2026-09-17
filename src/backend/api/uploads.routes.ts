@@ -2,11 +2,16 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { kdb } from "../infrastructure/db";
-import { authenticate } from "./middleware";
+import { authenticate, computeUserTenantIds } from "./middleware";
 
 const router = express.Router();
 
 const UPLOADS_ROOT = path.resolve(process.cwd(), "uploads");
+
+type OrphanedOwner =
+  | { kind: "event-receipt"; tenant_id: string | null; user_id: string; student_id: string | null }
+  | { kind: "maintenance"; tenant_id: string; requester_id: string }
+  | null;
 
 // تأمين ملفات /uploads — مفيش وصول من غير مصادقة
 router.use(authenticate);
@@ -19,18 +24,14 @@ function resolveSafeFile(rawPath: string): string | null {
   return resolved;
 }
 
-async function canAccessDocument(user: any, studentId: string): Promise<boolean> {
+export async function canAccessDocument(user: any, studentId: string): Promise<boolean> {
   if (user.role === "admin") return true;
   const student = await kdb("students as s")
-    .leftJoin("tenants as t", "s.tenant_id", "t.id")
-    .select("s.user_id", "s.tenant_id", "t.bishop_id")
+    .select("s.user_id", "s.tenant_id")
     .where("s.id", studentId)
     .first();
   if (!student) return false;
 
-  if (user.role === "bishop") {
-    return !!student.bishop_id && student.bishop_id === user.id;
-  }
   if (user.role === "student") {
     return student.user_id === user.id;
   }
@@ -42,11 +43,62 @@ async function canAccessDocument(user: any, studentId: string): Promise<boolean>
       .first();
     return !!linked;
   }
-  // مشرف/كاهن/موظف/نائب مشرف — من نفس السكن
-  if (["supervisor", "priest", "employee", "assistant_supervisor"].includes(user.role)) {
-    return !!student.tenant_id && student.tenant_id === user.tenantId;
+  // كل أدوار الهيئة (أسقف/مشرف/كاهن/موظف/نائب مشرف): فقط ضمن سكناتهم المسموحة
+  if (["bishop", "supervisor", "priest", "employee", "assistant_supervisor"].includes(user.role)) {
+    if (!student.tenant_id) return false;
+    const allowed = await computeUserTenantIds(user);
+    return allowed.includes(student.tenant_id);
   }
   return false;
+}
+
+// ملفات /uploads/documents/ غير المرتبطة بسجل StudentDocuments (إيصالات فعاليات وصور صيانة)
+export async function resolveOrphanedDocument(baseName: string): Promise<OrphanedOwner> {
+  const sub = await kdb("event_subscriptions as es")
+    .join("events as ev", "es.event_id", "ev.id")
+    .select("ev.tenant_id", "es.user_id", "es.student_id")
+    .where("es.receipt_image", "like", `%${baseName}`)
+    .first();
+  if (sub) return { kind: "event-receipt", tenant_id: sub.tenant_id ?? null, user_id: sub.user_id, student_id: sub.student_id ?? null };
+
+  const mtn = await kdb("maintenance_requests")
+    .select("tenant_id", "requester_id")
+    .where("photo_url", "like", `%${baseName}`)
+    .first();
+  if (mtn) return { kind: "maintenance", tenant_id: mtn.tenant_id, requester_id: mtn.requester_id };
+
+  return null;
+}
+
+// صلاحية الوصول لملف documents غير مرتبط بمستند طالب
+export async function canAccessOrphanedDocument(user: any, owner: NonNullable<OrphanedOwner>): Promise<boolean> {
+  if (user.role === "admin") return true;
+
+  if (owner.kind === "event-receipt") {
+    // صاحب الاشتراك يرى الإيصال الذي رفعه
+    if (owner.user_id === user.id) return true;
+    // ولي الأمر يرى إيصال طفله المَشترك
+    if (user.role === "parent" && owner.student_id) {
+      const child = await kdb("student_guardians as sg")
+        .join("parents as p", "p.id", "sg.guardian_id")
+        .where("sg.student_id", owner.student_id)
+        .where("p.user_id", user.id)
+        .first();
+      if (child) return true;
+    }
+    if (owner.tenant_id == null) {
+      // فعالية عامة (بلا سكن): للمشرف العام وأساقفة النظام فقط
+      return user.role === "bishop";
+    }
+    const allowed = await computeUserTenantIds(user);
+    return allowed.includes(owner.tenant_id);
+  }
+
+  // طلب صيانة: مقدّم الطلب يرى صورته
+  if (owner.requester_id === user.id) return true;
+  if (owner.tenant_id == null) return user.role === "bishop";
+  const allowed = await computeUserTenantIds(user);
+  return allowed.includes(owner.tenant_id);
 }
 
 router.get("/:path(*)", async (req, res) => {
@@ -65,13 +117,22 @@ router.get("/:path(*)", async (req, res) => {
         return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول لهذا الملف" });
       }
     } else {
-      // الملف غير مربوط بمستند طالب: نمنع الوصول لأي مستخدم مصادق إلا للأقسام المخصصة للجميع
-      // (راديو 514 ومرفقات الإعلانات) أو لأعضاء الهيئة المشرفين
+      // الملف غير مربوط بمستند طالب:
       const lowerPath = absPath.replace(/\\/g, "/").toLowerCase();
+      // راديو 514 ومرفقات الإعلانات: محتوى عام للنظام كاملاً (بحكم التصميم) — أي مستخدم مصادق
       const publicArea = lowerPath.includes("/uploads/radio/") || lowerPath.includes("/uploads/broadcasts/");
-      const isStaff = ["admin", "bishop", "supervisor", "priest", "employee", "assistant_supervisor"].includes(req.user.role);
-      if (!publicArea && !isStaff) {
-        return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول لهذا الملف" });
+      if (!publicArea) {
+        if (req.user.role === "admin") {
+          // المشرف العام يرى أي ملف
+        } else if (!lowerPath.includes("/uploads/documents/")) {
+          // أي مجلد آخر داخل uploads غير docs/radio/broadcasts: مرفوض لغير admin
+          return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول لهذا الملف" });
+        } else {
+          const owner = await resolveOrphanedDocument(baseName);
+          if (!owner || !await canAccessOrphanedDocument(req.user, owner)) {
+            return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول لهذا الملف" });
+          }
+        }
       }
     }
 

@@ -10,18 +10,24 @@ import { StudentController } from '../student.controller';
 const router = express.Router();
 
 // التحقق من أن الموظف المستهدف ضمن سكنات المستخدم الحالي (لمنع منح الصلاحيات عبر سكنات)
-const canManageEmployee = async (req: any, employeeId: string): Promise<boolean> => {
+// التصميم: نطاق الموظف = tenant_id + كل روابط user_tenant_assignments (كلاهما من قاعدة البيانات).
+// tenant_id = NULL بدون أي رابطة لا يعني أبداً "كل السكنات"، لذا يُرفض الوصول بـ FAIL-CLOSED.
+export const canManageEmployee = async (req: any, employeeId: string): Promise<boolean> => {
   const employee = await kdb('users').where('id', employeeId).first();
   if (!employee) return false;
   if (req.user.role === 'admin') return true;
   if (employee.role === 'admin' || employee.role === 'bishop') return false;
-  if (!employee.tenant_id) return true;
   const allowedIds = await computeUserTenantIds(req.user);
-  if (allowedIds.includes(employee.tenant_id)) return true;
+  if (allowedIds.length === 0) return false;
+  const employeeScope = new Set<string>();
+  if (employee.tenant_id) employeeScope.add(employee.tenant_id);
   const assignments = await kdb('user_tenant_assignments')
     .where({ user_id: employee.id })
     .select('tenant_id');
-  return assignments.some((a: any) => allowedIds.includes(a.tenant_id));
+  for (const a of assignments) if (a.tenant_id) employeeScope.add(a.tenant_id);
+  if (employeeScope.size === 0) return false;
+  for (const id of employeeScope) if (allowedIds.includes(id)) return true;
+  return false;
 };
 
 // Travel Start

@@ -54,8 +54,11 @@ export const permissionCache = new MemoryCache<boolean>(60_000);
 export const userCache = new MemoryCache<any>(15_000);
 export const tenantCache = new MemoryCache<any>(30_000);
 
-// مسح كاش الصلاحيات لمستخدم محدد فور تغيير دوره أو صلاحياته
+// مسح كاش الصلاحيات والسكنات لمستخدم محدد فور تغيير دوره أو صلاحياته أو تعييناته
 export function invalidateUserPermissionCache(userId: string): void {
   permissionCache.invalidatePattern(`perm:${userId}:`);
   userCache.invalidate(`user:${userId}`);
+  userCache.invalidatePattern(`tenantIds:${userId}`);
+  userCache.invalidatePattern(`assignment:${userId}:`);
+  userCache.invalidatePattern(`bishop_tenant:${userId}:`);
 }

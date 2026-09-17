@@ -44,7 +44,35 @@ const ROLE_POWER: Record<string, number> = {
   parent: 0,
 };
 
-function passesScopeIsolation(user: any, broadcastSenderRole: string, broadcastTargeting: Targeting, senderTenantId?: string): boolean {
+const BROADCAST_STAFF_ROLES = ['supervisor', 'priest', 'assistant_supervisor', 'employee'];
+
+async function resolveTargetScope(user: any): Promise<string[] | 'global'> {
+  if (user.role === 'admin') return 'global';
+  if (user.role === 'bishop') {
+    const rows = await kdb("tenants").where({ bishop_id: user.id }).select("id");
+    return rows.map((t: any) => t.id);
+  }
+  if (BROADCAST_STAFF_ROLES.includes(user.role)) {
+    return user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
+  }
+  return [];
+}
+
+// قص السكنات المستهدفة إلى نطاق المرسل — يرفض إذا لم يملك المرسل أي نطاق مسموح (fail closed)
+export async function applySenderTenantScope(user: any, targeting: Targeting): Promise<{ ok: boolean; targeting: Targeting }> {
+  if (user.role === 'admin') return { ok: true, targeting };
+  const allowed = await getSenderTenantIds(user);
+  if (allowed.length === 0) return { ok: false, targeting };
+  const supplied = targeting.tenants?.length ? targeting.tenants : [];
+  if (supplied.length > 0) {
+    const clamped = supplied.filter((t: string) => allowed.includes(t));
+    if (clamped.length === 0) return { ok: false, targeting: { ...targeting, tenants: [] } };
+    return { ok: true, targeting: { ...targeting, tenants: clamped } };
+  }
+  return { ok: true, targeting: { ...targeting, tenants: allowed } };
+}
+
+export function passesScopeIsolation(user: any, broadcastSenderRole: string, broadcastTargeting: Targeting, senderTenantId?: string): boolean {
   const viewerRole = user.role;
   const viewerTenantId = user.tenantId;
   const viewerPower = ROLE_POWER[viewerRole] ?? 0;
@@ -63,14 +91,15 @@ function passesScopeIsolation(user: any, broadcastSenderRole: string, broadcastT
     return true;
   }
 
-  // 4. ط§ظ„ظ…ط´ط±ظپ ظˆط§ظ„ظƒط§ظ‡ظ†: ظپظ‚ط· ظ„ظ†ظپط³ ط§ظ„ط³ظƒظ†
-  if (broadcastSenderRole === 'supervisor' || broadcastSenderRole === 'priest') {
+  // 4. الهيئة (مشرف/كاهن/نائب مشرف/موظف): فقط لنطاق السكن المستهدف — لا يظهر لأعلى
+  if (BROADCAST_STAFF_ROLES.includes(broadcastSenderRole)) {
     const targetTenants = broadcastTargeting.tenants || [];
     if (targetTenants.length > 0) return targetTenants.includes(viewerTenantId);
     return senderTenantId != null && viewerTenantId === senderTenantId;
   }
 
-  return true;
+  // 5. أي دور غير معروف: fail closed
+  return false;
 }
 
 // Check if a user matches the targeting criteria
@@ -238,37 +267,26 @@ export async function userMatchesTargeting(user: any, targeting: Targeting): Pro
 
 // Get my scoped list of tenants (for targeting UI)
 export async function getScopedTenants(user: any): Promise<any[]> {
-  let query = kdb("tenants").select("id", "name");
-
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    const tenantIds = user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("id", tenantIds);
-  } else if (user.role === 'bishop') {
-    query = query.where({ bishop_id: user.id });
+  const scope = await resolveTargetScope(user);
+  if (scope === 'global') {
+    return kdb("tenants").select("id", "name").orderBy("name");
   }
-
-  return query.orderBy("name");
+  if (scope.length === 0) return [];
+  return kdb("tenants").select("id", "name").whereIn("id", scope).orderBy("name");
 }
 
 // Get scoped list of colleges (for targeting UI)
 export async function getScopedColleges(user: any, selectedTenantIds?: string[]): Promise<string[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("students").distinct("college").whereNotNull("college").where("college", "!=", "");
 
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    const tenantIds = user.role === 'supervisor'
-      ? (user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []))
-      : await getPriestTenantIds(user.id);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("tenant_id", ids);
-  }
-
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("tenant_id", scope);
+    if (selected?.length) query = query.whereIn("tenant_id", selected);
   }
 
   const rows = await query;
@@ -277,22 +295,16 @@ export async function getScopedColleges(user: any, selectedTenantIds?: string[])
 
 // Get scoped list of governorates
 export async function getScopedGovernorates(user: any, selectedTenantIds?: string[]): Promise<string[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("students").distinct("governorate").whereNotNull("governorate").where("governorate", "!=", "");
 
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    const tenantIds = user.role === 'supervisor'
-      ? (user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []))
-      : await getPriestTenantIds(user.id);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("tenant_id", ids);
-  }
-
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("tenant_id", scope);
+    if (selected?.length) query = query.whereIn("tenant_id", selected);
   }
 
   const rows = await query;
@@ -301,58 +313,38 @@ export async function getScopedGovernorates(user: any, selectedTenantIds?: strin
 
 // Get scoped list of churches
 export async function getScopedChurches(user: any, selectedTenantIds?: string[]): Promise<string[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("students").distinct("church_name").whereNotNull("church_name").where("church_name", "!=", "");
 
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    const tenantIds = user.role === 'supervisor'
-      ? (user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []))
-      : await getPriestTenantIds(user.id);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("tenant_id", ids);
-  }
-
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("tenant_id", scope);
+    if (selected?.length) query = query.whereIn("tenant_id", selected);
   }
 
   const rows = await query;
   return rows.map((r: any) => r.church_name).filter(Boolean);
 }
 
-async function getPriestTenantIds(priestUserId: string): Promise<string[]> {
-  const assignments = await kdb("user_tenant_assignments")
-    .where({ user_id: priestUserId })
-    .select("tenant_id");
-  return assignments.map((a: any) => a.tenant_id);
-}
-
 // Get scoped students (for targeting UI search)
 export async function getScopedStudents(user: any, search: string, selectedTenantIds?: string[]): Promise<any[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("students as s")
     .join("users as u", "s.user_id", "u.id")
     .select("s.id", "s.user_id", "u.name", "s.college", "s.governorate", "s.tenant_id", "s.is_graduate")
     .where("u.name", "like", `%${search}%`)
     .limit(20);
 
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    const tenantIds = user.role === 'supervisor'
-      ? (user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []))
-      : await getPriestTenantIds(user.id);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("s.tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("s.tenant_id", ids);
-  }
-
-  // Apply additional tenant filter from selected tenants in UI
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("s.tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("s.tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("s.tenant_id", scope);
+    if (selected?.length) query = query.whereIn("s.tenant_id", selected);
   }
 
   return query;
@@ -360,20 +352,18 @@ export async function getScopedStudents(user: any, search: string, selectedTenan
 
 // Get scoped parents (for private message recipient search)
 export async function getScopedParents(user: any, search: string): Promise<any[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("parents as p")
     .join("users as u", "p.user_id", "u.id")
     .select("p.id", "p.user_id", "u.name", "p.tenant_id")
     .where("u.name", "like", `%${search}%`)
     .limit(20);
 
-  if (user.role === 'supervisor' || user.role === 'assistant_supervisor' || user.role === 'priest') {
-    const tenantIds = user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("p.tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const ids = (await kdb("tenants").where({ bishop_id: user.id }).select("id")).map((t: any) => t.id);
-    if (ids.length === 0) return [];
-    query = query.whereIn("p.tenant_id", ids);
+  if (scope === 'global') {
+    // admin: كل أولياء الأمور (بحث عام)
+  } else {
+    if (scope.length === 0) return [];
+    query = query.whereIn("p.tenant_id", scope);
   }
 
   const rows = await query;
@@ -395,7 +385,7 @@ export async function getSenderTenantIds(user: any): Promise<string[]> {
   if (user.role === 'admin') {
     return (await kdb("tenants").select("id")).map((t: any) => t.id);
   }
-  if (user.role === 'supervisor' || user.role === 'assistant_supervisor' || user.role === 'priest') {
+  if (['supervisor', 'priest', 'assistant_supervisor', 'employee'].includes(user.role)) {
     return user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
   }
   if (user.role === 'bishop') {
@@ -427,20 +417,16 @@ export async function getScopedBishops(user: any, selectedTenantIds?: string[]):
 
 // Get scoped priests (for targeting UI)
 export async function getScopedPriests(user: any, selectedTenantIds?: string[]): Promise<any[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("users").select("id", "name", "tenant_id").where({ role: "priest" });
 
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    const tenantIds = user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("tenant_id", ids);
-  }
-
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("tenant_id", scope);
+    if (selected?.length) query = query.whereIn("tenant_id", selected);
   }
 
   return query.orderBy("name");
@@ -448,23 +434,16 @@ export async function getScopedPriests(user: any, selectedTenantIds?: string[]):
 
 // Get scoped supervisors (for targeting UI)
 export async function getScopedSupervisors(user: any, selectedTenantIds?: string[]): Promise<any[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("users").select("id", "name", "tenant_id").where({ role: "supervisor" });
 
-  if (user.role === 'supervisor') {
-    const tenantIds = user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'priest') {
-    const tenantIds = await getPriestTenantIds(user.id);
-    if (tenantIds.length > 0) query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("tenant_id", ids);
-  }
-
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("tenant_id", scope);
+    if (selected?.length) query = query.whereIn("tenant_id", selected);
   }
 
   return query.orderBy("name");
@@ -472,25 +451,16 @@ export async function getScopedSupervisors(user: any, selectedTenantIds?: string
 
 // Get scoped employees (for targeting UI)
 export async function getScopedEmployees(user: any, selectedTenantIds?: string[]): Promise<any[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("users").select("id", "name", "tenant_id").where({ role: "employee" });
 
-  if (user.role === 'supervisor' || user.role === 'priest') {
-    let tenantIds: string[];
-    if (user.role === 'supervisor') {
-      tenantIds = user.tenantIds?.length ? user.tenantIds : (user.tenantId ? [user.tenantId] : []);
-    } else {
-      tenantIds = await getPriestTenantIds(user.id);
-    }
-    if (tenantIds.length === 0) return [];
-    query = query.whereIn("tenant_id", tenantIds);
-  } else if (user.role === 'bishop') {
-    const tenantIds = await kdb("tenants").where({ bishop_id: user.id }).select("id");
-    const ids = tenantIds.map((t: any) => t.id);
-    if (ids.length > 0) query = query.whereIn("tenant_id", ids);
-  }
-
-  if (selectedTenantIds?.length) {
-    query = query.whereIn("tenant_id", selectedTenantIds);
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) query = query.whereIn("tenant_id", selectedTenantIds);
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
+    query = query.whereIn("tenant_id", scope);
+    if (selected?.length) query = query.whereIn("tenant_id", selected);
   }
 
   return query.orderBy("name");
@@ -498,15 +468,25 @@ export async function getScopedEmployees(user: any, selectedTenantIds?: string[]
 
 // Get scoped guardian relation types (dynamic from DB)
 export async function getScopedGuardianRelations(user: any, selectedTenantIds?: string[]): Promise<string[]> {
+  const scope = await resolveTargetScope(user);
   let query = kdb("student_guardians")
     .distinct("relation_type")
     .whereNotNull("relation_type")
     .orderBy("relation_type");
 
-  if (selectedTenantIds?.length) {
+  if (scope === 'global') {
+    if (selectedTenantIds?.length) {
+      query = query
+        .join("students", "student_guardians.student_id", "students.id")
+        .whereIn("students.tenant_id", selectedTenantIds);
+    }
+  } else {
+    if (scope.length === 0) return [];
+    const selected = selectedTenantIds?.length ? selectedTenantIds.filter((t) => scope.includes(t)) : undefined;
     query = query
       .join("students", "student_guardians.student_id", "students.id")
-      .whereIn("students.tenant_id", selectedTenantIds);
+      .whereIn("students.tenant_id", scope);
+    if (selected?.length) query = query.whereIn("students.tenant_id", selected);
   }
 
   const rows = await query;

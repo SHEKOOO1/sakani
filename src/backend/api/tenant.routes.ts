@@ -2,7 +2,8 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
 import { kdb } from "../infrastructure/db.ts";
-import { authenticate, authorize, authorizePermission } from "./middleware.ts";
+import { invalidateUserPermissionCache } from "../infrastructure/cache";
+import { authenticate, authorize, authorizePermission, computeUserTenantIds } from "./middleware.ts";
 import { AppPermission, UserRole } from "../../types/permissions";
 import { validate } from "../validation/middleware";
 import { createTenantSchema, updateTenantSchema } from "../validation/schemas";
@@ -280,6 +281,23 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
       }
     }
 
+    // منع الأسقف من ضم موظفين/كهنة يتبعون سكناً لا يديره (منع عبور السكنات)
+    if (req.user.role === UserRole.Bishop) {
+      const staffUserIds = [...new Set([
+        ...(supervisor_ids || []),
+        ...(priest_ids || []).filter((u: string) => u),
+      ])];
+      if (staffUserIds.length > 0) {
+        const allowedIds = await computeUserTenantIds(req.user);
+        const selectedRows = await kdb('users').whereIn('id', staffUserIds).select('id', 'tenant_id');
+        for (const row of selectedRows) {
+          if (row.tenant_id && row.tenant_id !== id && !allowedIds.includes(row.tenant_id)) {
+            return res.status(403).json({ success: false, message: "أحد الأسماء المختارة يتبع سكناً لا تملك إدارته" });
+          }
+        }
+      }
+    }
+
     await kdb.transaction(async trx => {
         await trx('tenants')
           .where({ id })
@@ -331,6 +349,13 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
           }
         }
     });
+
+    // مسح كاش الصلاحيات/السكنات للأسماء المعاد تعيينها فورًا
+    const affectedUsers = [...new Set([
+      ...(supervisor_ids || []),
+      ...(priest_ids || []).filter((u: string) => u),
+    ])];
+    for (const userId of affectedUsers) invalidateUserPermissionCache(userId);
 
     res.json({ success: true, message: "Tenant updated successfully" });
   } catch (error: any) {

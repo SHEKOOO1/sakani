@@ -12,13 +12,24 @@ const MAGIC_BYTES: Record<string, (string | RegExp)[]> = {
   '.pdf': [/^%PDF/],
   '.doc': [/^ÐÐà/],
   '.docx': [/^PK../],
+  '.mp3': [/^(ID3|\xff\xfb|\xff\xf3|\xff\xf2)/],
+  '.m4a': [/^.{4}ftyp/],
+  '.aac': [/^\xff[\xf1\xf9]/],
+  '.mp4': [/^.{4}ftyp/],
+  '.mov': [/^.{4}ftyp/],
+  '.webm': [/^\x1a\x45\xdf\xa3/],
+  '.ogg': [/^OggS/],
+  '.wav': [/^RIFF.{4}WAVE/],
 };
+
+export const BROADCAST_ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.doc', '.docx', '.mp3', '.m4a', '.aac', '.mp4', '.mov', '.webm', '.ogg', '.wav'];
 
 function checkMagicBytes(filePath: string, ext: string): boolean {
   try {
     const header = fs.readFileSync(filePath).subarray(0, 16);
     const patterns = MAGIC_BYTES[ext];
-    if (!patterns) return true;
+    // No known pattern for this extension → reject (prevents HTML/SVG/exe masquerading as allowed types)
+    if (!patterns) return false;
     return patterns.some(p => {
       if (typeof p === 'string') return header.toString('latin1').startsWith(p);
       return p.test(header.toString('latin1'));

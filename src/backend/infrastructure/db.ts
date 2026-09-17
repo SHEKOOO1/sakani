@@ -54,6 +54,9 @@ export async function initializeDb() {
       IF NOT EXISTS (SELECT * FROM sys.objects WHERE name = 'UQ_Event_Attendance' AND type = 'UQ')
       ALTER TABLE [dbo].[event_attendance] ADD CONSTRAINT UQ_Event_Attendance UNIQUE (event_id, student_id);
 
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('user_tenant_assignments') AND name = 'assigned_at')
+      ALTER TABLE [dbo].[user_tenant_assignments] ADD [assigned_at] DATETIME2 DEFAULT GETDATE();
+
       IF NOT EXISTS (SELECT * FROM sys.objects WHERE name = 'UQ_Event_Attendance_Detailed' AND type = 'UQ')
       ALTER TABLE [dbo].[event_attendance_detailed] ADD CONSTRAINT UQ_Event_Attendance_Detailed UNIQUE (session_id, student_id);
 
@@ -76,6 +79,8 @@ export async function initializeDb() {
       ALTER TABLE [dbo].[users] ADD [phone] NVARCHAR(50);
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'photo_url')
       ALTER TABLE [dbo].[users] ADD [photo_url] NVARCHAR(MAX);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'token_version')
+      ALTER TABLE [dbo].[users] ADD [token_version] INT NOT NULL DEFAULT 0;
     `);
 
     // أعمدة الصيانة
@@ -251,6 +256,7 @@ async function seedPermissions() {
       'VIEW_DASHBOARD', 'VIEW_REPORTS', 'VIEW_GLOBAL_REPORTS', 'VIEW_STUDENT',
       'VIEW_ATTENDANCE', 'VIEW_FINANCE_REPORTS',
       'MANAGE_GLOBAL_TENANTS', 'ASSIGN_GLOBAL_STAFF', 'MANAGE_EMPLOYEES',
+      'VIEW_USERS', 'MANAGE_USERS',
       'SEND_BROADCAST', 'VIEW_BROADCASTS',
       'VIEW_RADIO'
     ],

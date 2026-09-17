@@ -6,7 +6,7 @@ import { AppPermission } from "../../types/permissions";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { validateMagicBytes } from "../middleware/upload";
+import { validateMagicBytes, BROADCAST_ALLOWED_EXTENSIONS } from "../middleware/upload";
 import {
   getScopedTenants,
   getScopedColleges,
@@ -21,6 +21,7 @@ import {
   getScopedParents,
   getSenderTenantIds,
   clampTargetingTenants,
+  applySenderTenantScope,
   estimateRecipientCount,
   getUserBroadcasts,
 } from "./broadcast.service";
@@ -30,6 +31,11 @@ const router = express.Router();
 const upload = multer({
   dest: path.resolve(process.cwd(), "uploads", "broadcasts"),
   limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (BROADCAST_ALLOWED_EXTENSIONS.includes(ext)) return cb(null, true);
+    cb(new Error(`نوع الملف ${ext || '(بدون امتداد)'} غير مسموح به للإعلانات`));
+  },
 });
 
 // ─── إعلانات التي تظهر للمستخدم (Ticker + Messages) ───
@@ -96,15 +102,12 @@ router.post("/", authenticate, authorizePermission(AppPermission.SEND_BROADCAST)
     if (target_audience === "students") finalTargeting.roles = ["student"];
     else if (target_audience === "parents") finalTargeting.roles = ["parent"];
 
-    // لو المشرف أو الكاهن معملش فلتر → نحدد سكنه تلقائياً
-    if ((req.user.role === "supervisor" || req.user.role === "priest") && !finalTargeting.tenants?.length) {
-      finalTargeting.tenants = [req.user.tenantId];
+    // قص السكنات المستهدفة إلى نطاق المرسل فقط (مشرف/كاهن/نائب مشرف/موظف/أسقف بلا تحديد = سكناته تلقائياً)
+    const scoped = await applySenderTenantScope(req.user, finalTargeting);
+    if (!scoped.ok) {
+      return res.status(403).json({ success: false, message: "لا تملك صلاحية إرسال إعلان لهذه السكنات" });
     }
-
-    // قص السكنات المستهدفة إلى نطاق المرسل فقط
-    if (finalTargeting.tenants?.length) {
-      finalTargeting.tenants = await clampTargetingTenants(req.user, finalTargeting.tenants);
-    }
+    finalTargeting = scoped.targeting;
 
     await kdb("broadcasts").insert({
       id,
@@ -154,9 +157,11 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.SEND_BROADCAS
     else if (target_audience === "parents") finalTargeting.roles = ["parent"];
 
     // قص السكنات المستهدفة إلى نطاق المرسل فقط
-    if (finalTargeting.tenants?.length) {
-      finalTargeting.tenants = await clampTargetingTenants(req.user, finalTargeting.tenants);
+    const scoped = await applySenderTenantScope(req.user, finalTargeting);
+    if (!scoped.ok) {
+      return res.status(403).json({ success: false, message: "لا تملك صلاحية تعديل الإعلان لهذه السكنات" });
     }
+    finalTargeting = scoped.targeting;
 
     await kdb("broadcasts").where({ id: req.params.id }).update({
       title: title || broadcast.title,
@@ -455,7 +460,10 @@ router.post("/private", authenticate, authorizePermission(AppPermission.SEND_BRO
 
     // عزل النطاق: المستلم يجب أن يكون ضمن نطاق المرسل
     const senderTenantIds = await getSenderTenantIds(req.user);
-    if (recipient.tenant_id && senderTenantIds.length && !senderTenantIds.includes(recipient.tenant_id)) {
+    if (!senderTenantIds.length) {
+      return res.status(403).json({ success: false, message: "لا تملك نطاق سكن للتواصل مع هذا المستلم" });
+    }
+    if (recipient.tenant_id && !senderTenantIds.includes(recipient.tenant_id)) {
       return res.status(403).json({ success: false, message: "لا تملك صلاحية مراسلة هذا المستلم" });
     }
 

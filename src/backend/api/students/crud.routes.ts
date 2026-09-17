@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import { kdb } from "../../infrastructure/db";
-import { authenticate, authorizePermission, sanitizeInput } from "../middleware";
+import { authenticate, authorizePermission, sanitizeInput, computeUserTenantIds } from "../middleware";
 import { AppPermission } from "../../../types/permissions";
 import { parsePagination, paginateQuery } from "../../services/radio/pagination.ts";
 import { upload, UPLOADS_BASE, validateMagicBytes } from "../../middleware/upload";
@@ -16,6 +16,33 @@ const router = express.Router();
 const getTenantStudent = async (id: string, tenantId: string | null | undefined) => {
   return kdb("students").where({ id, tenant_id: tenantId }).first();
 };
+
+// التحقق من صلاحية إدارة طالب بناءً على نطاق السكن المسموح (computeUserTenantIds)
+// admin يشرف على الكل، وأي دور آخر (أسقف/مشرف/كاهن/موظف/نائب مشرف) ضمن سكناته فقط
+export const canManageStudent = async (user: any, studentTenantId: string | null | undefined): Promise<boolean> => {
+  if (user.role === 'admin') return true;
+  if (!studentTenantId) return false;
+  const allowedTenantIds = await computeUserTenantIds(user);
+  return allowedTenantIds.includes(studentTenantId);
+};
+
+// استبعاد الحقول الشخصية الحساسة من مخرجات قوائم الطلاب
+const SENSITIVE_STUDENT_FIELDS = [
+  'national_id', 'id_card_number', 'address', 'phone', 'whatsapp_number',
+  'confession_father_phone', 'confession_father_whatsapp',
+  'guardian_phone', 'guardian_whatsapp',
+];
+
+const sanitizeStudentRow = (row: any) => {
+  const out: any = {};
+  for (const key of Object.keys(row)) {
+    if (!SENSITIVE_STUDENT_FIELDS.includes(key)) out[key] = row[key];
+  }
+  return out;
+};
+
+// قائمة السماح لحالة الطالب — أي قيمة خارجها تُرفض لمنع إدخال حالات غير صالحة
+const ALLOWED_STUDENT_STATUSES = ['active', 'in_pause', 'vacation', 'withdrawn', 'archived'];
 
 /**
  * @openapi
@@ -119,6 +146,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_STUDENT), a
     }
 
     const result = await paginateQuery<any>(query, { page, limit });
+    result.data = (result.data || []).map(sanitizeStudentRow);
     res.json({ success: true, ...result });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "حصل خطأ فني. لو سمحت كرر المحاولة." });
@@ -574,6 +602,10 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.EDIT_STUDENT)
   } = req.body;
   const tenantId = req.user.tenantId;
 
+  if (status !== undefined && !ALLOWED_STUDENT_STATUSES.includes(status)) {
+    return res.status(400).json({ success: false, message: "حالة الطالب غير صحيحة. القيم المسموحة: active, in_pause, vacation, withdrawn, archived" });
+  }
+
   try {
     await kdb.transaction(async trx => {
       const oldStudent = await trx('students as s')
@@ -871,17 +903,18 @@ router.put("/:id/priest-edit", authenticate, authorizePermission(AppPermission.E
 router.post("/:id/priest-upload", authenticate, authorizePermission(AppPermission.EDIT_STUDENT), upload.array('files'), validateMagicBytes, sanitizeInput, async (req, res) => {
   const { id } = req.params;
   const { doc_types, file_labels } = req.body;
-  const tenantId = req.user.tenantId;
   const priestName = req.user.name;
 
   try {
     const student = await kdb('students as s')
       .join('users as u', 's.user_id', 'u.id')
-      .select('s.id', 'u.name as student_name')
+      .select('s.id', 's.tenant_id', 'u.name as student_name')
       .where('s.id', id)
-      .where('s.tenant_id', tenantId)
       .first();
     if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+    if (!await canManageStudent(req.user, student.tenant_id)) {
+      return res.status(404).json({ success: false, message: "Student not found" });
+    }
 
     const files = (req as any).files as Express.Multer.File[];
     if (!files || files.length === 0) return res.status(400).json({ success: false, message: "No files uploaded" });
@@ -900,7 +933,7 @@ router.post("/:id/priest-upload", authenticate, authorizePermission(AppPermissio
     // Notify supervisors
     const supervisors = await kdb('user_tenant_assignments as uta')
       .join('users as u', 'uta.user_id', 'u.id')
-      .where('uta.tenant_id', tenantId)
+      .where('uta.tenant_id', student.tenant_id)
       .where('u.role', 'supervisor')
       .select('uta.user_id');
 
@@ -908,7 +941,7 @@ router.post("/:id/priest-upload", authenticate, authorizePermission(AppPermissio
       await kdb('notifications').insert({
         id: uuidv4(),
         user_id: sup.user_id,
-        tenant_id: tenantId,
+        tenant_id: student.tenant_id,
         title: `إضافة مستندات للطالب ${student.student_name}`,
         message: `قام الأب ${priestName} بإضافة ${files.length} مستند للملفات الخاصة بالطالب ${student.student_name}`,
         type: "info",
@@ -926,13 +959,17 @@ router.post("/:id/priest-upload", authenticate, authorizePermission(AppPermissio
 router.post("/:id/files", authenticate, authorizePermission(AppPermission.EDIT_STUDENT), upload.array('files'), validateMagicBytes, sanitizeInput, async (req, res) => {
   const { id } = req.params;
   const { doc_types, file_labels } = req.body;
-  const tenantId = req.user.tenantId;
 
   try {
-    const query = kdb('students').where({ id });
-    if (tenantId) query.where({ tenant_id: tenantId });
-    const student = await query.first();
+    const student = await kdb('students')
+      .select('id', 'tenant_id')
+      .where({ id })
+      .first();
     if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+    // لا يجوز الاعتماد على tenantId مأخوذ من الطلب — النطاق محسوب من قاعدة البيانات للمستخدم الحالي فقط
+    if (!await canManageStudent(req.user, student.tenant_id)) {
+      return res.status(404).json({ success: false, message: "Student not found" });
+    }
 
     const files = (req as any).files as Express.Multer.File[];
     if (!files || files.length === 0) return res.status(400).json({ success: false, message: "No files uploaded" });
@@ -957,13 +994,10 @@ router.post("/:id/files", authenticate, authorizePermission(AppPermission.EDIT_S
 // List files for a student
 router.get("/:id/files", authenticate, authorizePermission(AppPermission.VIEW_STUDENT), async (req, res) => {
   const { id } = req.params;
-  const tenantId = req.user.tenantId;
   try {
-    if (req.user.role !== 'admin') {
-      const student = await kdb('students').select('tenant_id').where({ id }).first();
-      if (!student || student.tenant_id !== tenantId) {
-        return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
-      }
+    const student = await kdb('students').select('id', 'tenant_id').where({ id }).first();
+    if (!student || !await canManageStudent(req.user, student.tenant_id)) {
+      return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
     }
     const files = await kdb('StudentDocuments')
       .where({ student_id: id })
@@ -977,10 +1011,11 @@ router.get("/:id/files", authenticate, authorizePermission(AppPermission.VIEW_ST
 // Delete a file
 router.delete("/:id/files/:fileId", authenticate, authorizePermission(AppPermission.EDIT_STUDENT), async (req, res) => {
   const { id, fileId } = req.params;
-  const tenantId = req.user.tenantId;
   try {
-    const student = await getTenantStudent(id, tenantId);
-    if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
+    const student = await kdb('students').select('id', 'tenant_id').where({ id }).first();
+    if (!student || !await canManageStudent(req.user, student.tenant_id)) {
+      return res.status(404).json({ success: false, message: "الطالب غير موجود" });
+    }
 
     const result = await kdb.raw(`SELECT file_path FROM StudentDocuments WHERE id = ? AND student_id = ?`, [fileId, id]);
     const rows = result.recordset || [];

@@ -62,11 +62,22 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     // Verify user still exists (cached)
     let userExists = userCache.get(`user:${user.id}`);
     if (userExists === undefined) {
-      userExists = await kdb('users').where({ id: user.id }).first();
+      const freshUser = await kdb('users').where({ id: user.id }).first();
+      // نسخة دفاعية: نخزّن نسخة وليس المرجع ذاته حتى لا تتلوث ذاكرة الكاش بأي تعديل لاحق
+      userExists = freshUser ? { ...freshUser } : freshUser;
       userCache.set(`user:${user.id}`, userExists);
     }
     if (!userExists) {
       return res.status(401).json({ success: false, message: "Session expired: User no longer exists" });
+    }
+
+    // Verify the token's session version still matches the DB.
+    // A password change (admin reset or self-service) bumps token_version,
+    // invalidating every JWT issued with an older version.
+    const dbTokenVersion = Number(userExists.token_version ?? 0);
+    const tokenVersion = Number(decoded.tokenVersion ?? 0);
+    if (tokenVersion !== dbTokenVersion) {
+      return res.status(401).json({ success: false, message: "Session expired: تم تغيير كلمة المرور. برجاء تسجيل الدخول مرة أخرى." });
     }
 
     // Verify role/tenant still match DB (detect role changes / demotion before token expiry)
@@ -147,6 +158,31 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
   }
 };
 
+// Socket.io auth — mirrors the HTTP authenticate checks (blacklist + user existence + role/tenant recheck)
+export async function resolveSocketUser(token: string): Promise<any> {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error("JWT_SECRET not set");
+  const decoded = jwt.verify(token, secret) as any;
+  const tokenHash = hashToken(token);
+  const blacklisted = await kdb('token_blacklist').where({ token_hash: tokenHash }).first();
+  if (blacklisted) throw new Error("Token revoked");
+  const userExists = await kdb('users').where({ id: decoded.id }).first();
+  if (!userExists) throw new Error("User no longer exists");
+  const dbTokenVersion = Number(userExists.token_version ?? 0);
+  const tokenVersion = Number(decoded.tokenVersion ?? 0);
+  if (tokenVersion !== dbTokenVersion) throw new Error("Session stale");
+  const dbRole = userExists.role;
+  const dbTenantId = userExists.tenant_id ?? null;
+  if (decoded.role !== dbRole || (decoded.tenantId ?? null) !== dbTenantId) {
+    throw new Error("Session stale");
+  }
+  const user = { ...decoded, id: userExists.id, role: dbRole, tenantId: dbTenantId };
+  if (user.role !== 'admin') {
+    user.tenantIds = await computeUserTenantIds(user);
+  }
+  return user;
+}
+
 export const authorize = (roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!(req as any).user || !roles.includes(((req as any).user as any).role)) {
@@ -163,6 +199,8 @@ export const authorizePermission = (permission: string) => {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
+    // قائمة صلاحيات الأسقف: مطابقة لـ role_permissions seed — لا تشمل إدارة الإعدادات (MANAGE_SETTINGS/VIEW_SETTINGS)
+    // لأن الأسقف لا يظهر له قسم الإعدادات إطلاقاً في الواجهة (Layout.tsx)
     const bishopFallbackPermissions = [
       AppPermission.VIEW_DASHBOARD,
       AppPermission.VIEW_GLOBAL_REPORTS,
@@ -171,10 +209,8 @@ export const authorizePermission = (permission: string) => {
       AppPermission.MANAGE_GLOBAL_TENANTS,
       AppPermission.ASSIGN_GLOBAL_STAFF,
       AppPermission.MANAGE_EMPLOYEES,
-      AppPermission.MANAGE_SETTINGS,
       AppPermission.VIEW_USERS,
       AppPermission.MANAGE_USERS,
-      AppPermission.VIEW_SETTINGS,
     ];
 
     if (req.user.role === UserRole.Bishop && bishopFallbackPermissions.includes(permission as AppPermission)) {
@@ -298,7 +334,7 @@ export const auditLogger = (req: AuthRequest, res: Response, next: NextFunction)
         status: String(res.statusCode),
         details: {
           body: filteredBody,
-          query: req.query,
+          query: Object.fromEntries(Object.entries(req.query).filter(([k]) => !['token','access_token','authorization','secret'].includes(k.toLowerCase()))),
           durationMs: Date.now() - start,
         },
       });

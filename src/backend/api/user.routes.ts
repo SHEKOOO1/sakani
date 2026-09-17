@@ -1,8 +1,10 @@
 import express from "express";
+import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
 import { kdb, logAuditEvent } from "../infrastructure/db";
-import { invalidateUserPermissionCache } from "../infrastructure/cache";
+import { invalidateUserPermissionCache } from "../infrastructure/cache.ts";
 import { authenticate, authorizePermission, getAllowedAssignableRoles, computeUserTenantIds } from "./middleware";
 import { validate } from "../validation/middleware";
 import { createUserSchema, updateUserSchema, addToTenantSchema } from "../validation/schemas";
@@ -19,14 +21,37 @@ const safeUser = (u: any) => {
 };
 
 // التحقق من أن المستخدم الحالي يملك صلاحية إدارة المستخدم المستهدف (عزل تام بين السكنات)
-const canManageTargetUser = async (req: any, target: any): Promise<boolean> => {
+// FAIL-CLOSED: حساب الرقم العام (tenant_id = NULL) بلا أي رابطة لا يعني "كل السكنات".
+export const canManageTargetUser = async (req: any, target: any): Promise<boolean> => {
   if (!target) return false;
   if (req.user.role === UserRole.Admin) return true;
   // لا يجوز لغير مدير التطبيق التعديل/الحذف على حسابات مدير/أسقف خارج ولايته
   if (target.role === UserRole.Admin || target.role === UserRole.Bishop) return false;
+  const allowedIds = await computeUserTenantIds(req.user);
+  if (allowedIds.length === 0) return false;
+  // نطاق المستخدم المستهدف = tenant_id + كل روابط user_tenant_assignments (من قاعدة البيانات)
+  const targetScope = new Set<string>();
+  if (target.tenant_id) targetScope.add(target.tenant_id);
+  const assignments = await kdb('user_tenant_assignments')
+    .where({ user_id: target.id })
+    .select('tenant_id');
+  for (const a of assignments) if (a.tenant_id) targetScope.add(a.tenant_id);
+  if (targetScope.size === 0) return false;
+  for (const id of targetScope) if (allowedIds.includes(id)) return true;
+  return false;
+};
+
+// استيراد حساب عام (add-to-tenant): الحسابات غير المرابطة بأي سكن بعد تستحق الإستيراد بواسطة أي
+// مدير سكن معتمد — هذه الحالة وحدها تمارس نفس سلوك استيراد الحساب العالمي السابق، بينما تُقيّد
+// عمليات الإدارة (تحديث/حذف/صلاحيات/كلمة مرور) بواسطة canManageTargetUser (FAIL-CLOSED).
+export const canImportTargetUser = async (req: any, target: any): Promise<boolean> => {
+  if (!target) return false;
+  if (req.user.role === UserRole.Admin) return true;
+  if (target.role === UserRole.Admin || target.role === UserRole.Bishop) return false;
   // حسابات عامة غير مرابطة بسكن بعد — يستطيع أي مدير سكن معتمد استيرادها
   if (!target.tenant_id) return true;
   const allowedIds = await computeUserTenantIds(req.user);
+  if (allowedIds.length === 0) return false;
   if (allowedIds.includes(target.tenant_id)) return true;
   const assignments = await kdb('user_tenant_assignments')
     .where({ user_id: target.id })
@@ -145,7 +170,7 @@ router.post("/add-to-tenant", authenticate, authorizePermission(AppPermission.MA
       return res.status(403).json({ success: false, message: `غير مسموح لك بتعيين دور "${newRole}".` });
     }
     // المستخدم المستهدف يجب أن يكون غير مرابط بأي سكن آخر (نفس منطق /search) أو ضمن سكنات المدير
-    if (!(await canManageTargetUser(req, user))) {
+    if (!(await canImportTargetUser(req, user))) {
       return res.status(403).json({ success: false, message: "لا يمكنك استيراد مستخدم مسجل في سكن آخر" });
     }
     const existing = await kdb("user_tenant_assignments").where({ user_id: userId, tenant_id: tenantId }).first();
@@ -240,9 +265,74 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_USERS)
 
     await kdb("users").where({ id }).update(updateData);
 
+    // الدور من الحقول الحساسة أمنيًا: تغييره يؤثر على الجلسات المفعّلة والصلاحيات،
+    // لذا نمسح كاش المستخدم/الصلاحيات لهذا المستخدم فقط
+    if (role && role !== existingUser.role) {
+      invalidateUserPermissionCache(id);
+    }
+
     res.json({ success: true, message: "User updated successfully" });
   } catch (error: any) {
     res.status(400).json({ success: false, message: "فشل تحديث المستخدم. يرجى المحاولة مرة أخرى." });
+  }
+});
+
+// تغيير كلمة مرور المستخدم الحالي (self-service)
+// حد معدل منفصل: يمنع تخمين كلمة المرور الحالية مع الحفاظ على إمكانية الاستخدام المشروع
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: "محاولات تغيير كلمة السر كتيرة. لو سمحت استنى شوية." }
+});
+
+// ملاحظة تحديد المسار: يجب أن يُسجّل قبل "/:id/password" وإلا سيطابقه
+// (حيث :id = 'me') ويُحال إلى مسار إعادة تعيين كلمة مرور المشرف
+router.put("/me/password", changePasswordLimiter, authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+    return res.status(400).json({ success: false, message: "كلمة المرور الحالية مطلوبة" });
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128 ||
+      !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+    return res.status(400).json({
+      success: false,
+      message: "كلمة المرور الجديدة يجب أن تكون بين 8 و128 حرفًا وتضم حروفًا إنجليزية ورقمًا على الأقل"
+    });
+  }
+
+  try {
+    const user = await kdb("users").where({ id: req.user.id }).first();
+    if (!user) return res.status(401).json({ success: false, message: "المستخدم غير موجود" });
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) {
+      return res.status(400).json({ success: false, message: "كلمة المرور الحالية غير صحيحة" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const nextVersion = (Number(user.token_version) || 0) + 1;
+    await kdb("users").where({ id: user.id }).update({ password: hashedPassword, token_version: nextVersion });
+    invalidateUserPermissionCache(user.id);
+
+    // إصدار جلسة جديدة فقط للجلسة الحالية (كل الجلسات القديمة أُلغيت برفع token_version)
+    const token = jwt.sign(
+      { id: user.id, tenantId: user.tenant_id ?? null, role: user.role, email: user.email, gender: user.gender || 'male', daily_readings_enabled: user.daily_readings_enabled != 0, radio_514_enabled: user.radio_514_enabled != 0, tokenVersion: nextVersion },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "strict",
+      maxAge: 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+
+    res.json({ success: true, message: "تم تغيير كلمة المرور بنجاح.", data: { user: safeUser(user) } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "فشل تغيير كلمة المرور" });
   }
 });
 
@@ -264,7 +354,11 @@ router.put("/:id/password", authenticate, authorizePermission(AppPermission.MANA
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    await kdb("users").where({ id }).update({ password: hashedPassword });
+    const nextVersion = (Number(user.token_version) || 0) + 1;
+    await kdb("users").where({ id }).update({ password: hashedPassword, token_version: nextVersion });
+    // رفع token_version يُبطل كل الجلسات الصادرة سابقًا لهذا المستخدم فورًا (بدون الاعتماد على
+    // حذف الكوكي من العميل)، كما يُمسح كاش المستخدم/الصلاحيات حتى يحدث التغيير حالًا
+    invalidateUserPermissionCache(id);
 
     res.json({ success: true, message: "تم إعادة تعيين كلمة المرور بنجاح" });
   } catch (error: any) {

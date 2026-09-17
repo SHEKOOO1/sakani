@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { kdb } from "../infrastructure/db";
+import { kdb, checkUserPermission } from "../infrastructure/db";
 import { invalidateUserPermissionCache } from "../infrastructure/cache";
 import { authenticate, authorizePermission, getAllowedAssignableRoles } from "./middleware";
 import { AppPermission, UserRole, validatePermissionArray } from "../../types/permissions";
@@ -211,6 +211,14 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOY
       const permValidation = validatePermissionArray(custom_permissions);
       if (!permValidation.valid) {
         return res.status(403).json({ success: false, message: `صلاحية غير معروفة: ${permValidation.invalidPermission}` });
+      }
+      // موانع التصعيد: لا يجوز للمشرف/الكاهن/الأسقف منح صلاحية استثنائية لا يملكها هو نفسه
+      if (creatorRole !== 'admin') {
+        for (const perm of custom_permissions) {
+          if (!(await checkUserPermission(req.user.id, perm))) {
+            return res.status(403).json({ success: false, message: `لا تملك صلاحية منح "الصلاحية ${perm}" لغيرك` });
+          }
+        }
       }
     }
 

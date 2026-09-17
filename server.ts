@@ -43,7 +43,6 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import jwt from "jsonwebtoken";
 import fs from "fs";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -80,7 +79,7 @@ import radioRoutes from "./src/backend/api/radio.routes.ts";
 import itemManagersRoutes from "./src/backend/api/itemManagers.routes.ts";
 import uploadsRoutes from "./src/backend/api/uploads.routes.ts";
 import { startRadiojarService } from "./src/backend/services/radiojar.service.ts";
-import { auditLogger, sanitizeInput, computeUserTenantIds, authenticate, authorizePermission } from "./src/backend/api/middleware.ts";
+import { auditLogger, sanitizeInput, authenticate, authorizePermission, resolveSocketUser } from "./src/backend/api/middleware.ts";
 import { AppPermission } from "./src/types/permissions.ts";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./src/backend/infrastructure/swagger.ts";
@@ -407,20 +406,15 @@ app.use("/api/items", itemManagersRoutes);
     });
   });
 
-  // --- Socket.io Logic with JWT Auth ---
+  // --- Socket.io Logic with JWT Auth (mirrors HTTP authenticate: blacklist + user-exists + role/tenant recheck) ---
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       if (!token) return next(new Error("Authentication required"));
-      const secret = process.env.JWT_SECRET;
-      const decoded = jwt.verify(token as string, secret) as any;
-      (socket as any).user = decoded;
-      if (decoded.role !== 'admin') {
-        (socket as any).user.tenantIds = await computeUserTenantIds(decoded);
-      }
+      (socket as any).user = await resolveSocketUser(token as string);
       next();
-    } catch {
-      next(new Error("Invalid or expired token"));
+    } catch (err: any) {
+      next(new Error(err?.message || "Invalid or expired token"));
     }
   });
 

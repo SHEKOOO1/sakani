@@ -43,6 +43,7 @@ CREATE TABLE users (
     name NVARCHAR(255) NOT NULL,
     gender NVARCHAR(10) DEFAULT 'male',
     daily_readings_enabled BIT DEFAULT 1,
+    token_version INT NOT NULL DEFAULT 0,
     created_at DATETIME2 DEFAULT GETDATE()
 );
 END
@@ -395,6 +396,7 @@ BEGIN
 CREATE TABLE user_tenant_assignments (
     user_id NVARCHAR(128) NOT NULL,
     tenant_id NVARCHAR(128) NOT NULL,
+    assigned_at DATETIME2 DEFAULT GETDATE(),
     PRIMARY KEY (user_id, tenant_id)
 );
 END

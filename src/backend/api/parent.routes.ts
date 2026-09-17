@@ -83,7 +83,20 @@ router.get("/children", authenticate, async (req, res) => {
       .select("s.*", "u.name", "r.room_number", "a.name as apartment_name", "t.name as tenant_name", "t.bishop_id")
       .whereIn("sg.guardian_id", guardianIds);
 
-    res.json({ success: true, data: children });
+    const SENSITIVE_STUDENT_FIELDS = [
+      'national_id', 'id_card_number', 'address', 'phone', 'whatsapp_number',
+      'confession_father_phone', 'confession_father_whatsapp',
+      'guardian_phone', 'guardian_whatsapp',
+    ];
+    const sanitizeChildRow = (row: any) => {
+      const out: any = {};
+      for (const key of Object.keys(row)) {
+        if (!SENSITIVE_STUDENT_FIELDS.includes(key)) out[key] = row[key];
+      }
+      return out;
+    };
+
+    res.json({ success: true, data: children.map(sanitizeChildRow) });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
   }

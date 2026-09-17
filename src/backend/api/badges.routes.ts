@@ -15,6 +15,17 @@ const canAccessBadge = async (req: any, badge: any): Promise<boolean> => {
   return allowed.includes(badge.tenant_id);
 };
 
+// تحرير/حذف الشارات العامة (tenant_id IS NULL) مقتصر على مدير التطبيق والأسقف فقط —
+// نفس نموذج إدارة عناصر المؤسسة العامة في requireItemAccess (الميدلوير).
+// الشارات المرتبطة بسكن تبقى ضمن نطاق سكنات المستخدم (computeUserTenantIds).
+export const canManageBadge = async (req: any, badge: any): Promise<boolean> => {
+  if (req.user.role === 'admin') return true;
+  if (!badge?.tenant_id) return req.user.role === 'bishop';
+  const allowed = await computeUserTenantIds(req.user);
+  if (allowed.length === 0) return false;
+  return allowed.includes(badge.tenant_id);
+};
+
 // List all badges (admin sees all, others see their tenant's)
 router.get("/", authenticate, async (req, res) => {
   const tenantId = req.user.tenantId;
@@ -57,7 +68,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_REWARD
   try {
     const badge = await kdb('badges').where({ id }).first();
     if (!badge) return res.status(404).json({ success: false, message: 'Badge not found' });
-    if (!await canAccessBadge(req, badge)) return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
+    if (!await canManageBadge(req, badge)) return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
     const result = await kdb('badges').where({ id }).update({ title, description, icon, color, category });
     res.json({ success: true });
   } catch (error: any) {
@@ -71,7 +82,7 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_REW
   try {
     const badge = await kdb('badges').where({ id }).first();
     if (!badge) return res.status(404).json({ success: false, message: 'Badge not found' });
-    if (!await canAccessBadge(req, badge)) return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
+    if (!await canManageBadge(req, badge)) return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
     await kdb('student_badges').where({ badge_id: id }).del();
     await kdb('badges').where({ id }).del();
     res.json({ success: true });
@@ -95,7 +106,8 @@ router.post("/assign", authenticate, authorizePermission(AppPermission.MANAGE_RE
         if (!student) throw new Error("أحد الطلاب غير موجود");
         if (req.user.role !== 'admin') {
           const allowed = await computeUserTenantIds(req.user);
-          if (student.tenant_id && !allowed.includes(student.tenant_id)) throw new Error("أحد الطلاب ليس ضمن سكنك");
+          // الطالب يجب أن يكون مرتبطاً بسكن من سكنات المستخدم (fail-closed لطلاب بلا سكن)
+          if (!student.tenant_id || !allowed.includes(student.tenant_id)) throw new Error("أحد الطلاب ليس ضمن سكنك");
           if (badge.tenant_id && !allowed.includes(badge.tenant_id)) throw new Error("الشارة ليست ضمن سكنك");
         }
         await trx('student_badges').insert({
@@ -126,9 +138,9 @@ router.post("/grant", authenticate, authorizePermission(AppPermission.MANAGE_REW
       }
     }
     await kdb.transaction(async trx => {
-      let badge = await trx('badges').where({ title: badgeName, tenant_id: req.user.tenantId }).first();
+      let badge = await trx('badges').where({ title: badgeName, tenant_id: student.tenant_id || req.user.tenantId }).first();
       if (!badge) {
-        badge = { id: uuidv4(), tenant_id: req.user.tenantId, title: badgeName, description: null, icon: 'Award', color: 'amber', category: 'housing', created_by: req.user.id };
+        badge = { id: uuidv4(), tenant_id: student.tenant_id || req.user.tenantId, title: badgeName, description: null, icon: 'Award', color: 'amber', category: 'housing', created_by: req.user.id };
         await trx('badges').insert(badge);
       }
 
@@ -137,16 +149,16 @@ router.post("/grant", authenticate, authorizePermission(AppPermission.MANAGE_REW
         student_id: studentId,
         badge_id: badge.id,
         awarded_by: req.user.id,
-        reason: pointsBonus ? `��� �� ${pointsBonus} ���� ������` : null,
+        reason: pointsBonus ? `_bonus_for_badge: ${badgeName}` : null,
       });
 
       if (pointsBonus) {
         await trx('student_points').insert({
           id: uuidv4(),
-          tenant_id: req.user.tenantId,
+          tenant_id: student.tenant_id || req.user.tenantId,
           student_id: studentId,
           amount: pointsBonus,
-          reason: `���� ������ �� ����: ${badgeName}`,
+          reason: `points_bonus_badge: ${badgeName}`,
           category: 'badge_bonus',
           created_by: req.user.id
         });
