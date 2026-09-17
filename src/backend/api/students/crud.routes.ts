@@ -9,6 +9,7 @@ import { parsePagination, paginateQuery } from "../../services/radio/pagination.
 import { upload, UPLOADS_BASE, validateMagicBytes } from "../../middleware/upload";
 import { validate } from "../../validation/middleware";
 import { createStudentSchema } from "../../validation/schemas";
+import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../../config/default-password";
 
 const router = express.Router();
 
@@ -345,11 +346,11 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
     // No existing parent found — create new
     await kdb.transaction(async trx => {
       const userId = uuidv4();
-      const parentDefaultPw = process.env.DEFAULT_USER_PASSWORD;
-      if (!parentDefaultPw || parentDefaultPw.length < 8) {
-        throw new Error('DEFAULT_USER_PASSWORD must be set in .env (min 8 chars)');
+      const resolvedDefaultPassword = resolveAccountPassword(password);
+      if (!resolvedDefaultPassword.ok) {
+        throw new Error(describeDefaultUserPasswordRejection(resolvedDefaultPassword.reason));
       }
-      const hashedPassword = bcrypt.hashSync(password || parentDefaultPw, 10);
+      const hashedPassword = bcrypt.hashSync(resolvedDefaultPassword.password as string, 10);
       if (!email) throw new Error('البريد الإلكتروني مطلوب');
       await trx('users').insert({ id: userId, tenant_id: tenantId, email, password: hashedPassword, role: 'parent', name });
 

@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createNotification } from '../api/notifications.routes';
 import bcrypt from 'bcryptjs';
 import { UPLOADS_BASE } from '../middleware/upload';
+import { resolveAccountPassword, describeDefaultUserPasswordRejection } from '../config/default-password';
 
 export class StudentService {
     private parseBool(value: any): boolean {
@@ -48,11 +49,11 @@ export class StudentService {
 
             // 0. ط¥ظ†ط´ط§ط، ط­ط³ط§ط¨ ظ…ط³طھط®ط¯ظ… ظ„ظ„ط·ط§ظ„ط¨
             const studentUserId = uuidv4();
-            const defaultPw = process.env.DEFAULT_USER_PASSWORD;
-            if (!defaultPw || defaultPw.length < 8) {
-              throw new Error('DEFAULT_USER_PASSWORD must be set in .env (min 8 chars)');
+            const resolvedStudentPassword = resolveAccountPassword(password);
+            if (!resolvedStudentPassword.ok) {
+              throw new Error(describeDefaultUserPasswordRejection(resolvedStudentPassword.reason));
             }
-            const hashedPassword = await bcrypt.hash(password || defaultPw, 10);
+            const hashedPassword = await bcrypt.hash(resolvedStudentPassword.password as string, 10);
             const requestedEnabled = true;
             await transaction.request()
                 .input('id', mssql.UniqueIdentifier, studentUserId)
@@ -131,11 +132,11 @@ export class StudentService {
                 } else {
                     // â€”â€”â€” ط¥ظ†ط´ط§ط، ظˆظ„ظٹ ط£ظ…ط± ط¬ط¯ظٹط¯ â€”
                     parentUserId = uuidv4();
-                    const parentPw2 = process.env.DEFAULT_USER_PASSWORD;
-                    if (!parentPw2 || parentPw2.length < 8) {
-                      throw new Error('DEFAULT_USER_PASSWORD must be set in .env (min 8 chars)');
+                    const resolvedParentPassword = resolveAccountPassword(parentPassword);
+                    if (!resolvedParentPassword.ok) {
+                      throw new Error(describeDefaultUserPasswordRejection(resolvedParentPassword.reason));
                     }
-                    const parentHashedPassword = await bcrypt.hash(parentPassword || parentPw2, 10);
+                    const parentHashedPassword = await bcrypt.hash(resolvedParentPassword.password as string, 10);
                     const parentFullName = parentName || `ظˆظ„ظٹ ط£ظ…ط± ${name}`;
 
                     await transaction.request()

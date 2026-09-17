@@ -12,6 +12,7 @@ import { AppPermission, UserRole } from "../../types/permissions";
 import { validatePermissionsInput, parseStoredPermissionsArray } from "../infrastructure/permission-parser";
 import { canGrantSubset, getEffectivePermissionCodes } from "../infrastructure/permission-grants";
 import { parsePagination, paginateQuery } from "../services/radio/pagination.ts";
+import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../config/default-password";
 
 const router = express.Router();
 
@@ -192,11 +193,11 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
 
   try {
     const id = uuidv4();
-    const defaultPwUser = process.env.DEFAULT_USER_PASSWORD;
-    if (!defaultPwUser || defaultPwUser.length < 8) {
-      return res.status(500).json({ success: false, message: 'DEFAULT_USER_PASSWORD must be set in .env (min 8 chars)' });
+    const resolvedPassword = resolveAccountPassword(password);
+    if (!resolvedPassword.ok) {
+      return res.status(500).json({ success: false, message: describeDefaultUserPasswordRejection(resolvedPassword.reason) });
     }
-    const hashedPassword = await bcrypt.hash(password || defaultPwUser, 10);
+    const hashedPassword = await bcrypt.hash(resolvedPassword.password as string, 10);
 
     await kdb.transaction(async trx => {
       await trx("users").insert({

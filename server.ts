@@ -49,6 +49,7 @@ import { createServer as createViteServer } from "vite";
 import { initializeDb } from "./src/backend/infrastructure/db.ts";
 import { validateJwtSecret, describeJwtSecretRejection, MIN_JWT_SECRET_LENGTH } from "./src/backend/config/jwt-secret.ts";
 import { assertProductionDbConfig, describeDbConfigRejection } from "./src/backend/config/db-config.ts";
+import { resolveCorsOrigins, describeCorsRejection } from "./src/backend/config/cors-config.ts";
 import authRoutes from "./src/backend/api/auth.routes.ts";
 import tenantRoutes from "./src/backend/api/tenant.routes.ts";
 import apartmentRoutes from "./src/backend/api/apartment.routes.ts";
@@ -142,6 +143,19 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
+// CORS: production FAILS CLOSED unless CORS_ORIGIN is an explicit, valid origin
+// (never `*`, never a silent localhost fallback). Development/test keep the
+// permissive local workflow. The same resolved list is shared by Express CORS,
+// Socket.IO and the CSRF origin check.
+const corsConfig = resolveCorsOrigins(process.env);
+if (!corsConfig.ok) {
+  console.error(
+    `❌ ERROR: CORS_ORIGIN ${describeCorsRejection(corsConfig.reason)}. ` +
+      `Set CORS_ORIGIN to your production frontend origin(s) in the environment.`,
+  );
+  process.exit(1);
+}
+
 // Initialize DB
 await initializeDb();
 
@@ -163,8 +177,11 @@ async function startServer() {
   activeHttpServer = httpServer;
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-      methods: ["GET", "POST"]
+      // Same validated origin list as Express CORS / CSRF (corsConfig is
+      // resolved once at startup and fails closed in production).
+      origin: corsConfig.origins,
+      methods: ["GET", "POST"],
+      credentials: true
     }
   });
 
@@ -229,9 +246,8 @@ async function startServer() {
     },
   }));
 
-  // CORS محدود
-  const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:5173";
-  const allowedOrigins = corsOrigin.split(',').map((s: string) => s.trim());
+  // CORS محدود — نفس القائمة المُتحقَّق منها عند الإقلاع (corsConfig)
+  const allowedOrigins = corsConfig.origins;
   app.use(cors({ origin: allowedOrigins, credentials: true }));
   app.use(cookieParser());
 

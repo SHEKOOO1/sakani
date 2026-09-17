@@ -7,6 +7,7 @@ import { authenticate, authorize, authorizePermission, computeUserTenantIds } fr
 import { AppPermission, UserRole } from "../../types/permissions";
 import { validate } from "../validation/middleware";
 import { createTenantSchema, updateTenantSchema } from "../validation/schemas";
+import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../config/default-password.ts";
 
 const router = express.Router();
 
@@ -566,11 +567,11 @@ router.post("/:id/import", authenticate, authorize([UserRole.Admin, UserRole.Bis
   }
 
   const importData = req.body;
-  const defaultPwImport = process.env.DEFAULT_USER_PASSWORD;
-  if (!defaultPwImport || defaultPwImport.length < 8) {
-    return res.status(500).json({ success: false, message: 'DEFAULT_USER_PASSWORD must be set in .env (min 8 chars)' });
+  const resolvedImportPassword = resolveAccountPassword(undefined);
+  if (!resolvedImportPassword.ok) {
+    return res.status(500).json({ success: false, message: describeDefaultUserPasswordRejection(resolvedImportPassword.reason) });
   }
-  const defaultPassword = bcrypt.hashSync(defaultPwImport, 10);
+  const defaultPassword = bcrypt.hashSync(resolvedImportPassword.password as string, 10);
 
   // الأدوار المسموح استيرادها عبر هذه النقطة — يُمنع إنشاء admin/bishop/employee من خلال الاستيراد
   const IMPORTABLE_ROLES = [UserRole.Student, UserRole.Parent, UserRole.Supervisor, UserRole.AssistantSupervisor, UserRole.Priest];

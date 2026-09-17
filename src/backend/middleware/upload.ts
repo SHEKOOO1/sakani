@@ -3,6 +3,17 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
+// Runtime upload directories are not tracked in Git (see .gitignore) and may be
+// absent in a fresh checkout or container — always ensure they exist before
+// multer tries to write into them.
+for (const sub of ['documents', 'radio', 'broadcasts']) {
+  try {
+    fs.mkdirSync(path.resolve(process.cwd(), 'uploads', sub), { recursive: true });
+  } catch {
+    // best effort — the upload itself will surface a clear error if this fails
+  }
+}
+
 const MAGIC_BYTES: Record<string, (string | RegExp)[]> = {
   '.jpg': [/^ÿØÿ/],
   '.jpeg': [/^ÿØÿ/],

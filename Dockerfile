@@ -21,14 +21,16 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/knexfile.ts ./
-COPY --from=builder /app/uploads ./uploads
 COPY --from=builder /app/src/backend ./src/backend
 COPY --from=builder /app/server.ts ./
 COPY --from=builder /app/tsconfig.json ./
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
+# uploads/ is runtime data (bind-mounted) and is excluded from the build
+# context via .dockerignore — create the empty structure instead of baking data.
+RUN mkdir -p /app/uploads/documents /app/uploads/radio /app/uploads/broadcasts && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh && \
     chown -R appuser:appgroup /app/uploads && \
     chmod -R 755 /app && \
     chmod -R 775 /app/uploads
