@@ -552,20 +552,24 @@ describe('H-5: canManageTargetUser / canImportTargetUser (user management isolat
 });
 
 // ═══════════════════════════════════════════════════════════════
-// M-7 — canManageBadge (global badge edit/delete authority).
-// Global badges (tenant_id IS NULL) are org-level items: admin + bishop
-// only, mirroring canManageItem/requireItemAccess. Tenant badges stay
-// within computeUserTenantIds. FAIL-CLOSED for empty resolvable scope.
+// M-7 — canManageBadge (badge edit/delete authority).
+// إدارة الأوسمة حق منفرد لمشرف السكن والأب الكاهن فقط — وداخل سكنهم
+// فقط. مدير التطبيق والأسقف وغيرهما لا يديرون الأوسمة إطلاقًا، والشارات
+// العامة (tenant_id IS NULL) لا يديرها أحد. FAIL-CLOSED لعدم النطاق.
 // ═══════════════════════════════════════════════════════════════
 
-describe('M-7: canManageBadge (global badge edit/delete authority)', () => {
-  it('1. admin can manage any badge, including global ones', async () => {
-    expect(await badges.canManageBadge({ user: { id: 'adm', role: 'admin' } }, { id: 'b', tenant_id: null })).toBe(true);
-    expect(await badges.canManageBadge({ user: { id: 'adm', role: 'admin' } }, { id: 'b', tenant_id: 'A' })).toBe(true);
+describe('M-7: canManageBadge (badge edit/delete authority)', () => {
+  it('1. admin can NEVER manage badges (including global and any tenant badge)', async () => {
+    computeUserTenantIds.mockResolvedValue(['A']);
+    expect(await badges.canManageBadge({ user: { id: 'adm', role: 'admin' } }, { id: 'b', tenant_id: null })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'adm', role: 'admin' } }, { id: 'b', tenant_id: 'A' })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'adm', role: 'admin', tenantId: 'A' } }, { id: 'b', tenant_id: 'B' })).toBe(false);
   });
 
-  it('2. bishop can manage global badges (org-level model, mirrors canManageItem)', async () => {
-    expect(await badges.canManageBadge({ user: { id: 'uB', role: 'bishop', tenantId: 'A' } }, { id: 'b', tenant_id: null })).toBe(true);
+  it('2. bishop can NEVER manage badges (even global ones)', async () => {
+    computeUserTenantIds.mockResolvedValue(['A']);
+    expect(await badges.canManageBadge({ user: { id: 'uB', role: 'bishop', tenantId: 'A' } }, { id: 'b', tenant_id: null })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'uB', role: 'bishop', tenantId: 'A' } }, { id: 'b', tenant_id: 'A' })).toBe(false);
   });
 
   it('3. supervisor CANNOT manage a global badge', async () => {
@@ -578,14 +582,14 @@ describe('M-7: canManageBadge (global badge edit/delete authority)', () => {
     expect(await badges.canManageBadge({ user: { id: 'uP', role: 'priest', tenantId: 'A' } }, { id: 'b', tenant_id: null })).toBe(false);
   });
 
-  it('5. employee CANNOT manage a global badge', async () => {
+  it('5. employee CANNOT manage badges', async () => {
     computeUserTenantIds.mockResolvedValue(['A']);
-    expect(await badges.canManageBadge({ user: { id: 'uE', role: 'employee', tenantId: 'A' } }, { id: 'b', tenant_id: null })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'uE', role: 'employee', tenantId: 'A' } }, { id: 'b', tenant_id: 'A' })).toBe(false);
   });
 
-  it('6. assistant_supervisor CANNOT manage a global badge', async () => {
+  it('6. assistant_supervisor CANNOT manage badges', async () => {
     computeUserTenantIds.mockResolvedValue(['A']);
-    expect(await badges.canManageBadge({ user: { id: 'uAS', role: 'assistant_supervisor', tenantId: 'A' } }, { id: 'b', tenant_id: null })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'uAS', role: 'assistant_supervisor', tenantId: 'A' } }, { id: 'b', tenant_id: 'A' })).toBe(false);
   });
 
   it('7. supervisor can manage a same-tenant badge when authorized', async () => {
@@ -593,12 +597,18 @@ describe('M-7: canManageBadge (global badge edit/delete authority)', () => {
     expect(await badges.canManageBadge({ user: { id: 'uS', role: 'supervisor', tenantId: 'A' } }, { id: 'b', tenant_id: 'A' })).toBe(true);
   });
 
-  it('8. cross-tenant badge → denied', async () => {
+  it('8. priest can manage a same-tenant badge when authorized', async () => {
     computeUserTenantIds.mockResolvedValue(['A']);
-    expect(await badges.canManageBadge({ user: { id: 'uS', role: 'supervisor', tenantId: 'A' } }, { id: 'b', tenant_id: 'B' })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'uP', role: 'priest', tenantId: 'A' } }, { id: 'b', tenant_id: 'A' })).toBe(true);
   });
 
-  it('9. staff with NO resolvable scope fails closed (even for tenant badges)', async () => {
+  it('9. cross-tenant badge → denied for managers of A', async () => {
+    computeUserTenantIds.mockResolvedValue(['A']);
+    expect(await badges.canManageBadge({ user: { id: 'uS', role: 'supervisor', tenantId: 'A' } }, { id: 'b', tenant_id: 'B' })).toBe(false);
+    expect(await badges.canManageBadge({ user: { id: 'uP', role: 'priest', tenantId: 'A' } }, { id: 'b', tenant_id: 'B' })).toBe(false);
+  });
+
+  it('10. staff with NO resolvable scope fails closed (even for tenant badges)', async () => {
     computeUserTenantIds.mockResolvedValue([]);
     const ghost = { user: { id: 'uG', role: 'supervisor', tenantId: null } };
     expect(await badges.canManageBadge(ghost, { id: 'b', tenant_id: null })).toBe(false);

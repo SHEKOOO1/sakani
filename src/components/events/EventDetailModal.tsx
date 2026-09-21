@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Info, Calendar, MapPin, Users, DollarSign, Check, Clock, Smartphone, Upload, Send } from 'lucide-react';
+import { X, Info, Calendar, MapPin, Users, DollarSign, Check, Clock, Smartphone, Upload, Send, FileText, Loader2 } from 'lucide-react';
+import { useApi } from '../../hooks/useApi';
 
 interface EventDetailModalProps {
   isOpen: boolean;
@@ -46,6 +48,75 @@ export function EventDetailModal({
   receiptUploading,
   onRefresh,
 }: EventDetailModalProps) {
+  const { request } = useApi();
+  const [myStudentId, setMyStudentId] = useState<string | null>(null);
+  const [excuseReason, setExcuseReason] = useState('');
+  const [excuseNotes, setExcuseNotes] = useState('');
+  const [excuseInfo, setExcuseInfo] = useState<any | null>(null);
+  const [excuseSending, setExcuseSending] = useState(false);
+  const [excuseLoading, setExcuseLoading] = useState(false);
+
+  const isStudent = user?.role === 'student';
+  const isParent = user?.role === 'parent';
+  const targetChild = isParent ? parentChildren.find((c: any) => c.id === selectedChildId) || null : null;
+  const targetStudentId = isStudent ? myStudentId : isParent ? selectedChildId : null;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (user?.role === 'student') {
+      request('/api/students/my-profile')
+        .then((res: any) => {
+          if (res?.data?.id) setMyStudentId(res.data.id);
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, user?.role, request]);
+
+  useEffect(() => {
+    if (!isOpen || !event?.id || !targetStudentId) { setExcuseInfo(null); return; }
+    setExcuseLoading(true);
+    setExcuseReason('');
+    setExcuseNotes('');
+    request(`/api/students/${targetStudentId}/attendance/excuse?eventId=${event.id}`)
+      .then((res: any) => setExcuseInfo(res?.data || null))
+      .catch(() => setExcuseInfo(null))
+      .finally(() => setExcuseLoading(false));
+  }, [isOpen, event?.id, targetStudentId, request]);
+
+  const deadlineMinutes = event?.excuse_deadline_minutes;
+  const startRaw = event?.start_time || event?.event_date;
+  const startTime = startRaw ? new Date(startRaw).getTime() : null;
+  const deadlinePassed = startTime && deadlineMinutes != null && deadlineMinutes > 0
+    ? Date.now() > startTime - deadlineMinutes * 60000
+    : false;
+  const canSubmit = !excuseLoading && !excuseSending && !!targetStudentId && !deadlinePassed && !excuseInfo;
+  const submitterName = isParent ? (targetChild?.student_name || targetChild?.name || 'الابن')
+    : isStudent ? 'نفسي' : '';
+
+  const submitExcuse = async () => {
+    if (!targetStudentId || !excuseReason.trim()) return;
+    setExcuseSending(true);
+    try {
+      const res = await request(`/api/students/${targetStudentId}/attendance/excuse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: event.id, reason: excuseReason.trim(), notes: excuseNotes.trim() || null }),
+      });
+      if (res.success) {
+        setExcuseReason('');
+        setExcuseNotes('');
+        setExcuseInfo({ status: 'PENDING', reason: excuseReason.trim(), submitted_at: new Date().toISOString() } as any);
+      } else {
+        console.error(res.message);
+        setExcuseInfo({ _error: res.message || 'تعذر إرسال العذر' } as any);
+      }
+    } catch (err) {
+      console.error('Submit excuse failed:', err);
+    } finally {
+      setExcuseSending(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       {isOpen && event && (
@@ -108,6 +179,80 @@ export function EventDetailModal({
                 <div className="p-4 bg-white dark:bg-white/5 rounded-xl border border-slate-100 dark:border-white/10">
                   <p className="text-[10px] text-slate-500 font-bold mb-2">الوصف</p>
                   <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{event.description}</p>
+                </div>
+              )}
+
+              {/* تقديم عذر قبل الموعد النهائي (الطالب/ولي الأمر) */}
+              {(isStudent || isParent) && (
+                <div className="border border-slate-100 dark:border-white/10 rounded-xl overflow-hidden">
+                  <div className="p-4 bg-sky-50/60 dark:bg-sky-500/10 border-b border-sky-100 dark:border-sky-500/20">
+                    <div className="flex items-center gap-2">
+                      <FileText size={15} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                      <p className="text-sm font-black text-sky-800 dark:text-sky-200">تقديم عذر لعدم الحضور</p>
+                    </div>
+                    <p className="text-[10px] font-bold text-sky-500 dark:text-sky-300 leading-relaxed mt-1.5">
+                      {deadlineMinutes != null && deadlineMinutes > 0
+                        ? `آخر موعد لتقديم العذر: قبل الفعالية بـ ${deadlineMinutes} دقيقة (${deadlinePassed ? 'انتهى الموعد' : 'مازال متاحاً'})`
+                        : 'لا يوجد موعد محدد — يمكن تقديم العذر قبل الفعالية أو للتغيّب المسجل.'}
+                    </p>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    {excuseLoading ? (
+                      <div className="flex items-center justify-center py-4 text-slate-400"><Loader2 size={18} className="animate-spin" /></div>
+                    ) : !targetStudentId ? (
+                      <p className="text-xs font-bold text-slate-400 text-center py-2">
+                        {isParent && parentChildren.length === 0 ? 'لا يوجد ابن مسجل لعرض هذه الخدمة له' : 'اختر الابن الجاري تقديم العذر عنه من قائمة الاشتراك'}
+                      </p>
+                    ) : excuseInfo?._error ? (
+                      <p className="text-xs font-bold text-rose-500 bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20 rounded-xl p-3 text-center">
+                        {excuseInfo._error}
+                      </p>
+                    ) : excuseInfo ? (
+                      <div className={`p-3.5 rounded-xl border text-xs font-bold leading-relaxed ${
+                        excuseInfo.status === 'APPROVED' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300' :
+                        excuseInfo.status === 'REJECTED' ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300' :
+                        'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-300'
+                      }`}>
+                        {excuseInfo.status === 'APPROVED' ? 'تم قبول العذر من قبل المشرف/الكاهن ✅' :
+                         excuseInfo.status === 'REJECTED' ? 'تم رفض العذر ❌ — يرجى التواصل مع مشرف السكن الكاهن' :
+                         <>تم إرسال العذر وهو قيد المراجعة ⏳</>}
+                        {excuseInfo.reason && (
+                          <div className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
+                            سبب العذر: {excuseInfo.reason}
+                          </div>
+                        )}
+                        {excuseInfo.notes && (
+                          <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">ملاحظة: {excuseInfo.notes}</div>
+                        )}
+                      </div>
+                    ) : deadlinePassed ? (
+                      <p className="text-xs font-bold text-rose-500 bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20 rounded-xl p-3 text-center">
+                        انتهى الموعد النهائي لتقديم الأعذار لهذه الفعالية.
+                      </p>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">سبب العذر</label>
+                          <textarea value={excuseReason} onChange={e => setExcuseReason(e.target.value)}
+                            placeholder={`اكتب سبب عدم الحضور لـ «${submitterName}»...`}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-sky-500/50 resize-none h-20" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">ملاحظات إضافية (اختياري)</label>
+                          <input type="text" value={excuseNotes} onChange={e => setExcuseNotes(e.target.value)}
+                            placeholder="ملاحظات إضافية..."
+                            className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-sky-500/50" />
+                        </div>
+                        <button onClick={submitExcuse} disabled={!excuseReason.trim()}
+                          className="w-full py-3 bg-sky-600 text-white font-bold rounded-xl hover:bg-sky-700 transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+                          {excuseSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} إرسال العذر
+                        </button>
+                        <p className="text-[9px] font-bold text-slate-400 leading-relaxed">
+                          سيتم إشعار مشرف السكن والأب الكاهن بطلبك، وسيصلك (ولولي أمرك) إشعار عند قبول أو رفض العذر.
+                        </p>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -206,7 +351,7 @@ export function EventDetailModal({
                           className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white">
                           <option value="">نفسي (ولي الأمر)</option>
                           {parentChildren.map((c: any) => (
-                            <option key={c.student_id} value={c.student_id}>{c.student_name || c.name}</option>
+                            <option key={c.id} value={c.id}>{c.student_name || c.name}</option>
                           ))}
                         </select>
                       </div>

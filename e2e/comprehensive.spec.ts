@@ -62,14 +62,14 @@ test('[Task1] admin HAS PermissionsCard', async ({ page }) => {
   await expect(page.locator('text=الصلاحيات والخصوصية').first()).toBeVisible({ timeout: 8000 });
 });
 
-// ─── 3. Admin badges page ───
-test('[Task3] admin badges page', async ({ page }) => {
+// ─── 3. Badges management is supervisor/priest only (admin never manages) ───
+test('[Task3] admin CANNOT access badges management', async ({ page }) => {
   test.setTimeout(30000);
   await loginAs(page, 'shoukry@dorm.App');
   await page.goto('/admin/badges');
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(3000);
-  await expect(page.locator('button:has-text("وسام جديد")')).toBeVisible({ timeout: 8000 });
+  await expect(page.locator('button:has-text("وسام جديد")')).toHaveCount(0);
 });
 
 test('[Task3] supervisor badges page', async ({ page }) => {
@@ -101,7 +101,7 @@ test('[Task5] admin events page', async ({ page }) => {
   await page.goto('/admin/activities');
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(3000);
-  await expect(page.locator('button:has-text("إنشاء فعالية")')).toBeVisible({ timeout: 8000 });
+  await expect(page.locator('button:has-text("فعالية جديدة")').first()).toBeVisible({ timeout: 8000 });
 });
 
 // ─── 6. Payment methods ───

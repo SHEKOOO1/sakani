@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, Check, Clock, Info, AlertTriangle, XCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
+import { AppPermission } from '../types/permissions';
+import { normalizeFilePath } from './student/FileViewerModal';
 
 interface NotificationBellProps {
   onNavigate?: (studentId: string) => void;
@@ -13,9 +15,11 @@ interface NotificationBellProps {
 
 export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPage, onNavigateToFinance }: NotificationBellProps = {}) {
   const { request } = useApi();
-  const { isLoading } = useAuth();
+  const { isLoading, user, hasPermission } = useAuth();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [acting, setActing] = useState<string | null>(null);
+  const [settledExcuses, setSettledExcuses] = useState<Record<string, boolean>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
@@ -71,6 +75,32 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
   const triggerBrowserNotify = (title: string, body: string) => {
     if (Notification.permission === 'granted') {
       new Notification(title, { body, icon: '/favicon.ico' });
+    }
+  };
+
+  // قبول/رفض عذر حضور مباشرة من الإشعار (مشرف/كاهن/مساعد مشرف لديه صلاحية الإدارة)
+  const canReviewExcuses = user?.role === 'admin' || hasPermission?.(AppPermission.MANAGE_EVENT_ATTENDANCE);
+
+  const decideExcuse = async (notificationId: string, excuseId: string, decision: 'APPROVED' | 'REJECTED') => {
+    setActing(`${notificationId}:${decision}`);
+    try {
+      const res = await request(`/api/attendance/excuses/${excuseId}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, notes: null }),
+      });
+      if (res.success) {
+        setSettledExcuses(prev => ({ ...prev, [excuseId]: true }));
+        await request(`/api/notifications/${notificationId}/read`, { method: 'POST' }).catch(() => {});
+        fetchNotifications();
+      } else {
+        console.error(res.message);
+        fetchNotifications();
+      }
+    } catch (err) {
+      console.error('Decide excuse failed:', err);
+    } finally {
+      setActing(null);
     }
   };
 
@@ -151,7 +181,29 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
                             <p className="text-xs text-slate-500 leading-relaxed font-bold">{n.message}</p>
                             {meta?.receipt_image && (
                               <div className="mt-2">
-                                <img src={meta.receipt_image} alt="Receipt" className="w-full max-h-32 object-contain rounded-xl border border-slate-200 bg-slate-50" />
+                                <img src={normalizeFilePath(meta.receipt_image)} alt="Receipt" className="w-full max-h-32 object-contain rounded-xl border border-slate-200 bg-slate-50" />
+                              </div>
+                            )}
+                            {meta?.kind === 'excuse_review' && meta?.excuse_id && !settledExcuses[meta.excuse_id] && (
+                              <div className="pt-1">
+                                {canReviewExcuses ? (
+                                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                    <button onClick={() => decideExcuse(n.id, meta.excuse_id, 'APPROVED')}
+                                      disabled={acting !== null}
+                                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-black hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+                                      {acting === `${n.id}:APPROVED` ? <Clock size={10} className="animate-spin" /> : <CheckCircle2 size={10} />} قبول العذر
+                                    </button>
+                                    <button onClick={() => decideExcuse(n.id, meta.excuse_id, 'REJECTED')}
+                                      disabled={acting !== null}
+                                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-black hover:bg-rose-700 disabled:opacity-50 transition-colors">
+                                      {acting === `${n.id}:REJECTED` ? <Clock size={10} className="animate-spin" /> : <XCircle size={10} />} رفض العذر
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] font-black text-blue-500 flex items-center gap-1">
+                                    <ArrowLeft size={11} className="rotate-180" /> اضغط للانتقال إلى الفعالية
+                                  </p>
+                                )}
                               </div>
                             )}
                             {isProfileShare && (

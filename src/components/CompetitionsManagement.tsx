@@ -420,9 +420,9 @@ export function CompetitionsManagement({ defaultView = 'setup' }: { defaultView?
                                             <span>انقر على العضو لرصد نقاط فردية</span>
                                         </p>
                                         <div className="flex flex-wrap gap-2">
-                                            {t.members.map((m: any) => (
+                                            {t.members.map((m: any, idx: number) => (
                                                 <button 
-                                                    key={m.student_id} 
+                                                    key={m.student_id || `member-${idx}`} 
                                                     onClick={() => selectedComp && (selectedComp.canManage || hasPermission(AppPermission.MANAGE_COMPETITIONS)) && handleMemberScore(t.id, m.student_id, m.student_name)}
                                                     className="group relative px-4 py-2 bg-white dark:bg-card-dark border border-slate-200 dark:border-white/10 rounded-2xl text-[11px] font-black text-slate-600 dark:text-slate-300 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-2"
                                                 >

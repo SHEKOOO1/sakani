@@ -7,6 +7,8 @@ import { EventReportView } from './EventReportView';
 import { EventCompetitionView } from './EventCompetitionView';
 import { EventPaymentsView } from './EventPaymentsView';
 import { EventSubscriptionsView } from './EventSubscriptionsView';
+import { EventRulesView } from './EventRulesView';
+import { EventAttendanceOverviewView } from './EventAttendanceOverviewView';
 import { AppPermission } from '../../types/permissions';
 
 interface EventDashboardProps {
@@ -140,6 +142,22 @@ export function EventDashboard(props: EventDashboardProps) {
               request={request}
               showSnackbar={showSnackbar}
               detailedAttendance={detailedAttendance}
+            />
+          )}
+
+          {activeView === 'rules' && (
+            <EventRulesView
+              selectedEvent={selectedEvent}
+              request={request}
+              showSnackbar={showSnackbar}
+            />
+          )}
+
+          {activeView === 'attendance_overview' && (
+            <EventAttendanceOverviewView
+              selectedEvent={selectedEvent}
+              request={request}
+              showSnackbar={showSnackbar}
             />
           )}
 

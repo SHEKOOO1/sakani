@@ -1,4 +1,4 @@
-import { UserPlus, Trash2, Wallet, Users } from 'lucide-react';
+import { UserPlus, Trash2, Wallet, Users, ListChecks, FileText } from 'lucide-react';
 import { AppPermission } from '../../types/permissions';
 
 interface EventDashboardSidebarProps {
@@ -35,6 +35,16 @@ export function EventDashboardSidebar({
       )}
       <button onClick={() => setActiveView('sessions')} className={btnClass('sessions', 'bg-ocean-600')}>الأقسام والمحاضرات</button>
       <button onClick={() => setActiveView('attendance_list')} className={btnClass('attendance_list', 'bg-rose-500')}>كشف الحضور والغياب</button>
+      {hasPermission(AppPermission.MANAGE_EVENT_ATTENDANCE) && (
+        <button onClick={() => setActiveView('attendance_overview')} className={btnClass('attendance_overview', 'bg-sky-600')}>
+          <FileText size={14} className="inline ml-2" />ملخص الحضور والأعذار
+        </button>
+      )}
+      {hasPermission(AppPermission.MANAGE_EVENT_ATTENDANCE) && (
+        <button onClick={() => setActiveView('rules')} className={btnClass('rules', 'bg-vibrant-600')}>
+          <ListChecks size={14} className="inline ml-2" />قواعد الحضور والغياب
+        </button>
+      )}
       <button onClick={() => { setActiveView('subscriptions'); fetchSubscriptions(selectedEvent.id); }} className={btnClass('subscriptions', 'bg-primary-600')}>
         <UserPlus size={14} className="inline ml-2" />الاشتراكات
       </button>

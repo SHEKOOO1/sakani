@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
+import { useStudentQr } from '../hooks/useStudentQr';
 
 import { MessagesSection } from './MessagesSection';
 import { DailyReadingsCard } from './DailyReadingsCard';
@@ -40,6 +41,8 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
     finance: { totalInvoice: 0, totalPaid: 0, remaining: 0, roomPrice: 0, source: 'agreed', paymentPercent: 0, billingCycle: null, transactions: [] }
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [myStudentId, setMyStudentId] = useState<string | null>(null);
+  const { qr: studentQr, refresh: refreshQr } = useStudentQr(myStudentId);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -68,6 +71,7 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
         roomInfo: studentRes.data,
         finance: financeRes.data || { totalInvoice: 0, totalPaid: 0, remaining: 0, roomPrice: 0, source: 'agreed', paymentPercent: 0, billingCycle: null, transactions: [] }
       });
+      if (studentRes.data?.id) setMyStudentId(studentRes.data.id);
     } catch (err) {
       console.error('Dashboard fetch error:', err);
     } finally {
@@ -247,7 +251,7 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
               <h3 className="font-black text-sm text-slate-800 dark:text-white">كود الحضور</h3>
             </div>
             <div className="inline-block rounded-xl bg-white p-3 shadow-inner dark:bg-card-dark border-2 border-dashed border-vibrant-200 dark:border-vibrant-500/30">
-              <QRCode value={user?.id || 'unknown'} size={110} viewBox="0 0 256 256" />
+              <QRCode value={studentQr || user?.id || 'unknown'} size={110} viewBox="0 0 256 256" strokeWidth={2} />
             </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-300 font-medium mt-3">استخدمه لتسجيل حضورك في الفعاليات</p>
           </motion.div>

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
+import { useStudentQr } from '../hooks/useStudentQr';
 import { StudentNotesSection } from './StudentNotesSection';
 import { StudentGuardians } from './profiles/StudentGuardians';
 import { StudentFinanceCard } from './student/StudentFinanceCard';
 import { FileViewerModal, type ViewableFile, normalizeFilePath, isImageFile } from './student/FileViewerModal';
+import { AttendanceHistoryCard } from './student/AttendanceHistoryCard';
 import { GeoSpiritualSection } from './profiles/GeoSpiritualSection';
 import QRCode from 'react-qr-code';
 import {
@@ -23,6 +25,7 @@ interface SharedStudentProfileProps {
 export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ studentId, onBack }) => {
   const { request } = useApi();
   const { user } = useAuth();
+  const { qr: studentQr } = useStudentQr(studentId);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -213,7 +216,7 @@ export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ stud
             <div className="flex flex-col items-center gap-4 border-l border-slate-50 dark:border-white/5 pl-8">
               <div className="w-32 h-32 bg-slate-100 dark:bg-white/10 rounded-[2.5rem] overflow-hidden border-4 border-slate-50 dark:border-white/5 shadow-inner">
                 {student.student_photo || student.photo_url ? (
-                  <img src={student.student_photo || student.photo_url} className="w-full h-full object-cover" />
+                  <img src={normalizeFilePath(student.student_photo || student.photo_url)} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-400">
                     <UserCircle size={64} />
@@ -325,6 +328,8 @@ export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ stud
             </div>
           )}
 
+          <AttendanceHistoryCard studentId={student.id} />
+
           {/* Files */}
           <div className="bg-white dark:bg-card-dark p-8 rounded-[3rem] border border-slate-100 dark:border-white/[0.05] shadow-sm">
             <h3 className="text-xl font-black text-slate-800 dark:text-white mb-6 flex items-center gap-3">
@@ -404,7 +409,7 @@ export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ stud
             </h3>
             <div className="flex flex-col items-center space-y-4">
               {student.id && (
-                <QRCode value={student.id} size={200} viewBox="0 0 256 256"
+                <QRCode value={studentQr || student.id} size={200} viewBox="0 0 256 256"
                   className="p-4 bg-white rounded-xl shadow-md" />
               )}
               <p className="text-xs text-slate-500 dark:text-slate-300 font-bold">رمز QR الخاص بالطالب</p>

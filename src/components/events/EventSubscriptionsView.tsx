@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { Check, Clock, X, UserPlus, Eye, RotateCcw, Trash2 } from 'lucide-react';
+import { normalizeFilePath } from '../student/FileViewerModal';
 
 interface EventSubscriptionsViewProps {
   subscriptions: any[];
@@ -80,11 +81,11 @@ export function EventSubscriptionsView({
                 <div className="flex items-center gap-2">
                   {sub.receipt_image && (
                     <div className="flex items-center gap-2">
-                      <img src={sub.receipt_image} alt="Receipt"
+                      <img src={normalizeFilePath(sub.receipt_image)} alt="Receipt"
                         className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => window.open(sub.receipt_image, '_blank')}
+                        onClick={() => window.open(normalizeFilePath(sub.receipt_image), '_blank')}
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                      <button onClick={() => window.open(sub.receipt_image, '_blank')}
+                      <button onClick={() => window.open(normalizeFilePath(sub.receipt_image), '_blank')}
                         className="px-3 py-2 bg-white dark:bg-white/5 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold hover:border-blue-500/30 transition-all">
                         <Eye size={14} className="inline ml-1" />عرض الإيصال
                       </button>

@@ -504,7 +504,7 @@ describe('security-authz: global badge management (canManageBadge)', () => {
     }
   });
 
-  it('bishop CAN edit and delete a global badge (org-level model, mirrors canManageItem)', async () => {
+  it('bishop CANNOT edit/delete a global badge (403 — badge management is supervisor/priest only)', async () => {
     seedActor({ id: 'bisB', role: 'bishop', tenantId: 'A', email: 'bis@test.com' });
     dbMock.setRows('users', [{ id: 'bisB', role: 'bishop', tenant_id: 'A', email: 'bis@test.com' }]);
     dbMock.setRows('tenants', [{ id: 'A', name: 'A', bishop_id: 'bisB' }]);
@@ -513,13 +513,13 @@ describe('security-authz: global badge management (canManageBadge)', () => {
     const token = signToken({ id: 'bisB', role: 'bishop', tenantId: 'A', email: 'bis@test.com' });
 
     const put = await request('/api/badges/bgG', { method: 'PUT', token, body: { title: 'Renamed' } });
-    expect(put.status).toBe(200);
+    expect(put.status).toBe(403);
 
     const del = await request('/api/badges/bgG', { method: 'DELETE', token });
-    expect(del.status).toBe(200);
+    expect(del.status).toBe(403);
   });
 
-  it('admin CAN edit a global badge (200)', async () => {
+  it('admin CANNOT edit a global badge (admin never manages badges — 403)', async () => {
     seedActor({ id: 'adm', role: 'admin', tenantId: null, email: 'adm@test.com' });
     dbMock.setRows('users', [{ id: 'adm', role: 'admin', tenant_id: null, email: 'adm@test.com' }]);
     dbMock.setRows('user_tenant_assignments', []);
@@ -527,6 +527,43 @@ describe('security-authz: global badge management (canManageBadge)', () => {
     const token = signToken({ id: 'adm', role: 'admin', tenantId: null, email: 'adm@test.com' });
 
     const res = await request('/api/badges/bgG', { method: 'PUT', token, body: { title: 'AdminEdit' } });
+    expect(res.status).toBe(403);
+  });
+
+  it('admin CANNOT edit/delete a same-tenant badge, create a badge, or assign one (403)', async () => {
+    seedActor({ id: 'adm', role: 'admin', tenantId: 'A', email: 'adm@test.com' });
+    dbMock.setRows('users', [{ id: 'adm', role: 'admin', tenant_id: 'A', email: 'adm@test.com' }]);
+    dbMock.setRows('tenants', [{ id: 'A', name: 'A' }]);
+    dbMock.setRows('user_tenant_assignments', []);
+    dbMock.setRows('badges', [TENANT_A_BADGE]);
+    const token = signToken({ id: 'adm', role: 'admin', tenantId: 'A', email: 'adm@test.com' });
+
+    const put = await request('/api/badges/bgA', { method: 'PUT', token, body: { title: 'AdminEdit' } });
+    expect(put.status).toBe(403);
+
+    const del = await request('/api/badges/bgA', { method: 'DELETE', token });
+    expect(del.status).toBe(403);
+
+    const create = await request('/api/badges', { method: 'POST', token, body: { title: 'New', category: 'housing' } });
+    expect(create.status).toBe(403);
+
+    dbMock.setRows('students', [{ id: 'sA', tenant_id: 'A' }]);
+    const assign = await request('/api/badges/assign', {
+      method: 'POST',
+      token,
+      body: { badgeId: 'bgA', studentIds: ['sA'], reason: 'good' },
+    });
+    expect(assign.status).toBe(403);
+  });
+
+  it('priest CAN edit a same-tenant badge (200)', async () => {
+    seedActor({ id: 'prA', role: 'priest', tenantId: 'A', email: 'pr@test.com' });
+    dbMock.setRows('users', [{ id: 'prA', role: 'priest', tenant_id: 'A', email: 'pr@test.com' }]);
+    dbMock.setRows('user_tenant_assignments', []);
+    dbMock.setRows('badges', [TENANT_A_BADGE]);
+    const token = signToken({ id: 'prA', role: 'priest', tenantId: 'A', email: 'pr@test.com' });
+
+    const res = await request('/api/badges/bgA', { method: 'PUT', token, body: { title: 'PriestEdit' } });
     expect(res.status).toBe(200);
   });
 
@@ -601,6 +638,23 @@ describe('security-authz: global badge management (canManageBadge)', () => {
       body: { badgeId: 'bgG', studentIds: ['sB'], reason: 'good' },
     });
     expect(res.status).toBe(400);
+  });
+
+  it('supervisor CANNOT assign a cross-tenant badge to an in-scope student (403)', async () => {
+    seedActor({ id: 'supA', role: 'supervisor', tenantId: 'A', email: 'sup@test.com' });
+    dbMock.setRows('users', [{ id: 'supA', role: 'supervisor', tenant_id: 'A', email: 'sup@test.com' }]);
+    dbMock.setRows('tenants', [{ id: 'A', name: 'A' }]);
+    dbMock.setRows('user_tenant_assignments', []);
+    dbMock.setRows('badges', [TENANT_B_BADGE]);
+    dbMock.setRows('students', [{ id: 'sA', tenant_id: 'A' }]);
+    const token = signToken({ id: 'supA', role: 'supervisor', tenantId: 'A', email: 'sup@test.com' });
+
+    const res = await request('/api/badges/assign', {
+      method: 'POST',
+      token,
+      body: { badgeId: 'bgB', studentIds: ['sA'], reason: 'good' },
+    });
+    expect(res.status).toBe(403);
   });
 });
 

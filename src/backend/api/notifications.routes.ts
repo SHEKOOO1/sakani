@@ -350,4 +350,162 @@ export const notifyBehaviorWarning = async (data: {
   }
 };
 
+// ────────────────────────────── Event excuses / penalties ──────────────────────────────
+
+export const getStudentAndGuardiansUserIds = async (studentId: string): Promise<{ student: any; guardianUserIds: string[] }> => {
+  const student = await kdb('students as s')
+    .leftJoin('users as u', 's.user_id', 'u.id')
+    .select('s.id', 's.user_id', 'u.name as user_name')
+    .where('s.id', studentId)
+    .first();
+  if (!student) return { student: null, guardianUserIds: [] };
+  const guardians = await kdb('student_guardians as sg')
+    .join('parents as p', 'sg.guardian_id', 'p.id')
+    .select('p.user_id')
+    .where('sg.student_id', studentId);
+  return { student, guardianUserIds: (guardians as any[]).map((g) => g.user_id).filter(Boolean) };
+};
+
+// مشرف السكن + مساعده + الأب الكاهن المسؤول عن السكن
+export const getTenantStaffUserIds = async (tenantId: string): Promise<string[]> => {
+  const staff = await kdb('users as u')
+    .leftJoin('user_tenant_assignments as uta', 'uta.user_id', 'u.id')
+    .distinct('u.id')
+    .where(function () {
+      this.where('u.tenant_id', tenantId).orWhere('uta.tenant_id', tenantId);
+    })
+    .whereIn('u.role', ['supervisor', 'assistant_supervisor', 'priest']);
+  return (staff as any[]).map((s) => s.id);
+};
+
+// إشعار للمشرف/الكاهن عند تقديم طالب عذراً قبل الموعد النهائي — يحوي زرّي القبول والرفض
+export const notifyExcuseSubmitted = async (data: {
+  tenantId: string;
+  studentId: string;
+  eventId: string;
+  eventTitle: string;
+  reason: string;
+  excuseId: string;
+  submittedByRole?: string | null;
+}) => {
+  try {
+    const { student } = await getStudentAndGuardiansUserIds(data.studentId);
+    if (!student) return;
+    const name = student.user_name || student.name || 'أحد الطلاب';
+    const dateText = new Date().toLocaleString('ar-EG');
+    const staffIds = await getTenantStaffUserIds(data.tenantId);
+    const meta = JSON.stringify({
+      kind: 'excuse_review',
+      excuse_id: data.excuseId,
+      event_id: data.eventId,
+      studentName: name,
+    });
+    const message = `تقدّم الطالب «${name}» بعذر عن حضور «${data.eventTitle}» (${dateText}).\nالرسالة: ${data.reason}`;
+    for (const userId of staffIds) {
+      await createNotification({
+        userId, tenantId: data.tenantId,
+        title: 'عذر حضور جديد ⏳',
+        message,
+        type: 'warning',
+        metadata: meta,
+        event_id: data.eventId,
+      });
+    }
+  } catch (error) {
+    console.error('Error in notifyExcuseSubmitted:', error);
+  }
+};
+
+// إشعار للطالب + ولي أمره عند قبول أو رفض العذر (في كل الحالات)
+export const notifyExcuseDecided = async (data: {
+  tenantId: string;
+  studentId: string;
+  eventId: string;
+  eventTitle: string;
+  decision: 'APPROVED' | 'REJECTED';
+  notes?: string | null;
+}) => {
+  try {
+    const { student, guardianUserIds } = await getStudentAndGuardiansUserIds(data.studentId);
+    if (!student) return;
+    const isApproved = data.decision === 'APPROVED';
+    const outcome = isApproved ? 'قبول' : 'رفض';
+    const notesText = data.notes ? ` ملاحظة: ${data.notes}` : '';
+    const studentMsg = `تم ${outcome} عذرك عن «${data.eventTitle}».${notesText}`;
+    const guardianMsg = `نحيطكم علماً بأنه تم ${outcome} عذر ${student.user_name || student.name} عن «${data.eventTitle}».${notesText}`;
+
+    await createNotification({
+      userId: student.user_id,
+      tenantId: data.tenantId,
+      title: isApproved ? 'تم قبول العذر ✅' : 'تم رفض العذر ❌',
+      message: studentMsg,
+      type: isApproved ? 'success' : 'error',
+      metadata: JSON.stringify({ kind: 'excuse_decision', event_id: data.eventId }),
+      event_id: data.eventId,
+    });
+    for (const userId of guardianUserIds) {
+      await createNotification({
+        userId, tenantId: data.tenantId,
+        title: isApproved ? `قبول عذر الابن/الابنة: ${student.user_name || student.name}` : `رفض عذر الابن/الابنة: ${student.user_name || student.name}`,
+        message: guardianMsg,
+        type: isApproved ? 'success' : 'error',
+        metadata: JSON.stringify({ kind: 'excuse_decision', event_id: data.eventId }),
+        event_id: data.eventId,
+      });
+    }
+  } catch (error) {
+    console.error('Error in notifyExcuseDecided:', error);
+  }
+};
+
+// إشعار للطالب + ولي أمره عند توقيع أي عقوبة أو غرامة مالية، مع السبب
+export const notifyPenaltyApplied = async (data: {
+  tenantId: string;
+  studentId: string;
+  eventId: string;
+  eventTitle: string;
+  sessionTitle?: string | null;
+  financial?: number;
+  points?: number;
+  reason?: string;
+}) => {
+  try {
+    const { student, guardianUserIds } = await getStudentAndGuardiansUserIds(data.studentId);
+    if (!student) return;
+    const financial = Number(data.financial || 0);
+    const points = Number(data.points || 0);
+    if (financial + points <= 0) return;
+    const parts: string[] = [];
+    if (financial > 0) parts.push(`${financial} جنيه`);
+    if (points > 0) parts.push(`${points} نقطة`);
+    const penaltyText = parts.join(' + ');
+    const whereText = data.sessionTitle ? `${data.eventTitle} — ${data.sessionTitle}` : data.eventTitle;
+    const reasonText = data.reason ? ` السبب: ${data.reason}` : '';
+    const studentMsg = `تم توقيع عقوبة عليك (${penaltyText}) في «${whereText}».${reasonText}`;
+    const guardianMsg = `نحيطكم علماً بأنه تم توقيع عقوبة (${penaltyText}) على ${student.user_name || student.name} في «${whereText}».${reasonText}`;
+
+    await createNotification({
+      userId: student.user_id,
+      tenantId: data.tenantId,
+      title: 'غرامة أو عقوبة ⚠️',
+      message: studentMsg,
+      type: 'warning',
+      metadata: JSON.stringify({ page: 'behavior', event_id: data.eventId }),
+      event_id: data.eventId,
+    });
+    for (const userId of guardianUserIds) {
+      await createNotification({
+        userId, tenantId: data.tenantId,
+        title: `عقوبة على الابن/الابنة: ${student.user_name || student.name}`,
+        message: guardianMsg,
+        type: 'error',
+        metadata: JSON.stringify({ page: 'behavior', event_id: data.eventId }),
+        event_id: data.eventId,
+      });
+    }
+  } catch (error) {
+    console.error('Error in notifyPenaltyApplied:', error);
+  }
+};
+
 export default router;

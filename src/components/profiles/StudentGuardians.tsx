@@ -1,4 +1,5 @@
 import { UserCircle, Phone, MessageSquareShare, Mail } from 'lucide-react';
+import { normalizeFilePath } from '../student/FileViewerModal';
 
 interface Guardian {
   id: string;
@@ -23,7 +24,7 @@ export function StudentGuardians({ guardians }: StudentGuardiansProps) {
           <div key={g.id} className="p-5 bg-slate-50 dark:bg-white/5 rounded-[2rem] border border-slate-100 dark:border-white/10">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-white dark:bg-card-dark rounded-2xl flex items-center justify-center text-slate-400 border border-slate-100 dark:border-white/10 overflow-hidden shadow-sm">
-                {g.photo ? <img src={g.photo} className="w-full h-full object-cover" /> : <UserCircle size={24} />}
+                {g.photo ? <img src={normalizeFilePath(g.photo)} className="w-full h-full object-cover" /> : <UserCircle size={24} />}
               </div>
               <div>
                 <p className="font-black text-slate-800 dark:text-white text-sm">{g.name}</p>

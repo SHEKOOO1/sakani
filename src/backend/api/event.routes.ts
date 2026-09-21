@@ -1,4 +1,5 @@
 import express from "express";
+import fs from "node:fs";
 import { v4 as uuidv4 } from "uuid";
 import { kdb, checkUserPermission } from "../infrastructure/db";
 import { authenticate, authorizePermission, requireItemAccess, canManageItem, computeUserTenantIds, sanitizeInput } from "./middleware";
@@ -37,6 +38,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
   const isAdmin = role === 'admin';
 
   try {
+    fs.appendFileSync('C:/Users/QUEENS~1/AppData/Local/Temp/opencode/parbranch.log', 'HANDLER role=' + role + ' url=' + req.originalUrl + '\n');
     // Admin: only see global events (tenant_id IS NULL) — never tenant-level events
     if (isAdmin) {
       const events = await kdb('events').whereNull('tenant_id').orderBy('created_at', 'desc');
@@ -59,15 +61,25 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
 
     // Parent: only see events their children are in + global events targeting their tenant
     if (role === 'parent') {
+      const dbg = (s: string) => fs.appendFileSync('C:/Users/QUEENS~1/AppData/Local/Temp/opencode/parbranch.log', s + '\n');
+      dbg('START tenantId=' + String(tenantId));
+      try {
       const parent = await kdb('parents').select('id').where({ user_id: userId }).first();
+      dbg('parent=' + JSON.stringify(parent));
       if (!parent) return res.json({ success: true, data: [] });
       const children = await kdb('student_guardians').select('student_id').where({ guardian_id: parent.id });
+      dbg('children=' + JSON.stringify(children));
       const childIds = children.map((c: any) => c.student_id);
 
       const childTenants = childIds.length > 0
         ? await kdb('students').whereIn('id', childIds).select('tenant_id')
         : [];
       const childTenantIds = [...new Set(childTenants.map((s: any) => s.tenant_id).filter(Boolean))];
+      dbg('childTenantIds=' + JSON.stringify(childTenantIds));
+    } catch (err: any) {
+      dbg('ERR-BRANCH: ' + (err instanceof Error ? (err as Error).message : String(err)));
+      throw err;
+    }
 
       const events = await kdb('events as e')
         .distinct()
@@ -88,6 +100,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
           }
         })
         .select('e.*');
+      dbg('JOIN-OK rows=' + events.length);
 
       const eventIds = events.map((ev: any) => ev.id);
       let attendanceRecords: any[] = [];
@@ -241,7 +254,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
 
 // Create an event
 router.post("/", authenticate, authorizePermission(AppPermission.CREATE_EVENT), validate(createEventSchema), async (req, res) => {
-  const { title, description, event_date, location, location_lat, location_lng, location_radius, is_paid = false, price = 0, is_competition = false, winning_threshold = 100, max_score = 200, responsibleIds = [], targeting, type: eventType, registration_deadline, available_payment_methods, max_participants } = req.body;
+  const { title, description, event_date, location, location_lat, location_lng, location_radius, is_paid = false, price = 0, is_competition = false, winning_threshold = 100, max_score = 200, responsibleIds = [], targeting, type: eventType, registration_deadline, available_payment_methods, max_participants, start_time, end_time, duration_minutes, is_required_attendance, evaluation_mode, excuse_deadline_minutes, rule: seedRule, rules: eventRules } = req.body;
   const tenantId = req.user.tenantId || (req.user.tenantIds && req.user.tenantIds[0]);
   const id = uuidv4();
   const qrCode = `event-${id}`; 
@@ -261,6 +274,14 @@ router.post("/", authenticate, authorizePermission(AppPermission.CREATE_EVENT), 
         insertData.available_payment_methods = JSON.stringify(available_payment_methods);
       }
       if (max_participants) insertData.max_participants = max_participants;
+      if (start_time) insertData.start_time = new Date(start_time);
+      if (end_time) insertData.end_time = new Date(end_time);
+      if (duration_minutes) insertData.duration_minutes = duration_minutes;
+      if (is_required_attendance !== undefined) insertData.is_required_attendance = is_required_attendance ? 1 : 0;
+      if (evaluation_mode) insertData.rule_evaluation_mode = evaluation_mode;
+      if (excuse_deadline_minutes !== undefined && excuse_deadline_minutes !== null && excuse_deadline_minutes !== '') {
+        insertData.excuse_deadline_minutes = Math.max(0, Math.round(Number(excuse_deadline_minutes)));
+      }
       await trx('events').insert(insertData);
 
       // Event competitions use their own tables (competition_teams, event_criteria, event_scores)
@@ -277,6 +298,51 @@ router.post("/", authenticate, authorizePermission(AppPermission.CREATE_EVENT), 
           });
         }
       }
+
+      // Attendance defaults at creation: seed the legacy tier rule and/or the
+      // independent event rules exactly as configured, so operators have sane
+      // out-of-the-box behavior (إعداد افتراضي).
+      if (seedRule && typeof seedRule === 'object') {
+        const now = new Date();
+        await trx('event_attendance_rules').insert({
+          id: uuidv4(), event_id: id, session_id: null, tenant_id: tenantId || null,
+          grace_period_minutes: seedRule.grace_period_minutes ?? 0,
+          penalty_mode: seedRule.penalty_mode ?? 'NONE',
+          base_penalty: seedRule.base_penalty ?? 0,
+          base_points: seedRule.base_points ?? 0,
+          additional_penalty: seedRule.additional_penalty ?? 0,
+          additional_penalty_unit: seedRule.additional_penalty_unit ?? 'PER_MINUTE',
+          additional_penalty_block_minutes: seedRule.additional_penalty_block_minutes ?? 1,
+          maximum_penalty: seedRule.maximum_penalty ?? null,
+          maximum_points_deduction: seedRule.maximum_points_deduction ?? null,
+          absent_after_minutes: seedRule.absent_after_minutes ?? null,
+          auto_apply_penalty: seedRule.auto_apply_penalty ?? true,
+          enabled: seedRule.enabled ?? true,
+          tiers: seedRule.tiers && Array.isArray(seedRule.tiers) ? JSON.stringify(seedRule.tiers) : null,
+          required_attendance: seedRule.required_attendance ?? true,
+          counts_toward_absence_limit: seedRule.counts_toward_absence_limit ?? true,
+          attendance_weight: seedRule.attendance_weight ?? 1,
+          created_by: req.user.id, created_at: now,
+        });
+      }
+      if (Array.isArray(eventRules) && eventRules.length > 0) {
+        const now = new Date();
+        for (const rule of eventRules) {
+          await trx('event_rules').insert({
+            id: uuidv4(), event_id: id, session_id: null, tenant_id: tenantId || null,
+            condition_status: rule.condition_status,
+            condition_min_late_minutes: rule.condition_min_late_minutes ?? null,
+            condition_max_late_minutes: rule.condition_max_late_minutes ?? null,
+            action_type: rule.action_type ?? 'NONE',
+            points_amount: rule.points_amount ?? 0,
+            fee_amount: rule.fee_amount ?? 0,
+            notification_message: rule.notification_message ?? null,
+            enabled: rule.enabled !== false ? 1 : 0,
+            sort_order: rule.sort_order ?? 0,
+            created_by: req.user.id, created_at: now,
+          });
+        }
+      }
     });
 
     res.status(201).json({ success: true, data: { id, title, qrCode }, message: "تم إنشاء الفعالية بنجاح" });
@@ -288,7 +354,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.CREATE_EVENT), 
 // Update an event (full edit)
 router.put("/:id", authenticate, requireItemAccess('event', AppPermission.EDIT_EVENT), validate(updateEventSchema), async (req, res) => {
   const { id } = req.params;
-  const { title, description, event_date, location, location_lat, location_lng, location_radius, is_paid, price, is_competition, winning_threshold, max_score, responsibleIds = [], targeting, type: eventType, registration_deadline, available_payment_methods, max_participants } = req.body;
+  const { title, description, event_date, location, location_lat, location_lng, location_radius, is_paid, price, is_competition, winning_threshold, max_score, responsibleIds = [], targeting, type: eventType, registration_deadline, available_payment_methods, max_participants, start_time, end_time, duration_minutes, is_required_attendance, evaluation_mode, excuse_deadline_minutes, rule: seedRule, rules: eventRules } = req.body;
   const tenantId = req.user.tenantId;
 
   try {
@@ -334,6 +400,17 @@ router.put("/:id", authenticate, requireItemAccess('event', AppPermission.EDIT_E
       } else {
         updateData.max_participants = null;
       }
+      if (start_time) updateData.start_time = new Date(start_time);
+      if (end_time) updateData.end_time = new Date(end_time);
+      if (duration_minutes && duration_minutes !== null) updateData.duration_minutes = duration_minutes;
+      if (is_required_attendance !== undefined) updateData.is_required_attendance = is_required_attendance ? 1 : 0;
+      if (evaluation_mode) updateData.rule_evaluation_mode = evaluation_mode;
+      if (excuse_deadline_minutes !== undefined) {
+        updateData.excuse_deadline_minutes =
+          (excuse_deadline_minutes === null || excuse_deadline_minutes === '' || Number.isNaN(Number(excuse_deadline_minutes)))
+            ? null
+            : Math.max(0, Math.round(Number(excuse_deadline_minutes)));
+      }
 
       await trx('events').where({ id }).update(updateData);
 
@@ -343,6 +420,56 @@ router.put("/:id", authenticate, requireItemAccess('event', AppPermission.EDIT_E
         for (const user of users) {
           await trx('event_responsible').insert({
             id: uuidv4(), event_id: id, user_id: user.id, type: user.type
+          });
+        }
+      }
+
+      // Attendance defaults: upsert legacy tier rule / replace event_rules when sent.
+      if (seedRule && typeof seedRule === 'object') {
+        const now = new Date();
+        const existing = await trx('event_attendance_rules').where({ event_id: id }).whereNull('session_id').first();
+        const data: any = {
+          event_id: id, session_id: null, tenant_id: event.tenant_id || tenantId || null,
+          grace_period_minutes: seedRule.grace_period_minutes ?? 0,
+          penalty_mode: seedRule.penalty_mode ?? 'NONE',
+          base_penalty: seedRule.base_penalty ?? 0,
+          base_points: seedRule.base_points ?? 0,
+          additional_penalty: seedRule.additional_penalty ?? 0,
+          additional_penalty_unit: seedRule.additional_penalty_unit ?? 'PER_MINUTE',
+          additional_penalty_block_minutes: seedRule.additional_penalty_block_minutes ?? 1,
+          maximum_penalty: seedRule.maximum_penalty ?? null,
+          maximum_points_deduction: seedRule.maximum_points_deduction ?? null,
+          absent_after_minutes: seedRule.absent_after_minutes ?? null,
+          auto_apply_penalty: seedRule.auto_apply_penalty ?? true,
+          enabled: seedRule.enabled ?? true,
+          tiers: seedRule.tiers && Array.isArray(seedRule.tiers) ? JSON.stringify(seedRule.tiers) : null,
+          required_attendance: seedRule.required_attendance ?? true,
+          counts_toward_absence_limit: seedRule.counts_toward_absence_limit ?? true,
+          attendance_weight: seedRule.attendance_weight ?? 1,
+          updated_by: req.user.id, updated_at: now,
+        };
+        if (existing) {
+          await trx('event_attendance_rules').where({ id: existing.id }).update(data);
+        } else {
+          await trx('event_attendance_rules').insert({ id: uuidv4(), created_by: req.user.id, created_at: now, ...data });
+        }
+      }
+      if (Array.isArray(eventRules)) {
+        const now = new Date();
+        await trx('event_rules').where({ event_id: id }).del();
+        for (const rule of eventRules) {
+          await trx('event_rules').insert({
+            id: uuidv4(), event_id: id, session_id: null, tenant_id: event.tenant_id || tenantId || null,
+            condition_status: rule.condition_status,
+            condition_min_late_minutes: rule.condition_min_late_minutes ?? null,
+            condition_max_late_minutes: rule.condition_max_late_minutes ?? null,
+            action_type: rule.action_type ?? 'NONE',
+            points_amount: rule.points_amount ?? 0,
+            fee_amount: rule.fee_amount ?? 0,
+            notification_message: rule.notification_message ?? null,
+            enabled: rule.enabled !== false ? 1 : 0,
+            sort_order: rule.sort_order ?? 0,
+            created_by: req.user.id, created_at: now, updated_by: req.user.id, updated_at: now,
           });
         }
       }
@@ -654,8 +781,9 @@ router.get("/:id/attendance", authenticate, authorizePermission(AppPermission.MA
         id: r.attendance_id || null,
       }));
       res.json({ success: true, data: mapped });
-  } catch (error: any) {
-      res.status(500).json({ success: false, message: "حدث خطأ. لم نتمكن من تحميل البيانات." });
+} catch (error: any) {
+    console.error("[EVENTS-GET-DEBUG] route error:", error?.message || error);
+    res.status(500).json({ success: false, message: "حدث خطأ. لم نتمكن من تحميل البيانات." });
   }
 });
 

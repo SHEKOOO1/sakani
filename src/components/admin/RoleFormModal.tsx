@@ -106,6 +106,7 @@ const PERMISSION_GROUPS: { label: string; perms: { key: string; label: string }[
       { key: 'DELETE_EVENT', label: 'حذف فعاليات' },
       { key: 'ATTEND_EVENT', label: 'حضور فعالية' },
       { key: 'MANAGE_EVENT_ATTENDANCE', label: 'إدارة حضور الفعاليات' },
+      { key: 'OPERATE_EVENT_ATTENDANCE', label: 'تشغيل الفعاليات المكلف بها' },
       { key: 'MANAGE_EVENT_PAYMENTS', label: 'إدارة مدفوعات الفعاليات' },
     ],
   },
@@ -191,7 +192,7 @@ const ROLE_TEMPLATES: { label: string; name: string; perms: string[]; descriptio
       'VIEW_INVENTORY', 'MANAGE_INVENTORY',
       'VIEW_POINTS', 'MANAGE_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
       'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT',
-      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'VIEW_COMPETITIONS', 'MANAGE_COMPETITIONS', 'JOIN_COMPETITIONS',
       'VIEW_DASHBOARD', 'VIEW_REPORTS',
       'VIEW_USERS',
@@ -213,7 +214,7 @@ const ROLE_TEMPLATES: { label: string; name: string; perms: string[]; descriptio
       'VIEW_ATTENDANCE', 'CHECKIN_ATTENDANCE', 'MANAGE_ATTENDANCE',
       'VIEW_POINTS', 'MANAGE_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
       'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT',
-      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'VIEW_COMPETITIONS', 'MANAGE_COMPETITIONS', 'JOIN_COMPETITIONS',
       'VIEW_FINANCE', 'VIEW_FINANCE_REPORTS', 'ADD_EXPENSE',
       'VIEW_DASHBOARD', 'VIEW_REPORTS',
@@ -234,7 +235,7 @@ const ROLE_TEMPLATES: { label: string; name: string; perms: string[]; descriptio
       'VIEW_ATTENDANCE', 'CHECKIN_ATTENDANCE',
       'VIEW_MAINTENANCE', 'HANDLE_MAINTENANCE', 'REQUEST_MAINTENANCE',
       'VIEW_POINTS', 'MANAGE_POINTS',
-      'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE',
+      'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE', 'OPERATE_EVENT_ATTENDANCE',
       'VIEW_DASHBOARD', 'VIEW_REPORTS',
       'VIEW_RADIO'
     ]
@@ -288,7 +289,7 @@ const ROLE_TEMPLATES: { label: string; name: string; perms: string[]; descriptio
     description: 'إنشاء وإدارة الفعاليات والمسابقات',
     perms: [
       'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT',
-      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'VIEW_COMPETITIONS', 'MANAGE_COMPETITIONS', 'JOIN_COMPETITIONS',
       'VIEW_STUDENT',
       'VIEW_DASHBOARD', 'VIEW_REPORTS'

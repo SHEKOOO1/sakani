@@ -7,20 +7,34 @@ import { AppPermission } from "../../types/permissions";
 
 const router = express.Router();
 
+// إدارة الأوسمة حق منفرد لمشرف السكن والأب الكاهن فقط — وداخل سكنهم فقط.
+// (مدير عام التطبيق والأسقف وغيرهما لا يديرون الأوسمة إطلاقًا.)
+export const BADGE_MANAGER_ROLES = ['supervisor', 'priest'] as const;
+export const isBadgeManagerRole = (role?: string): boolean =>
+  !!role && (BADGE_MANAGER_ROLES as readonly string[]).includes(role);
+
+// حارس الدور: يمنع أي دور غير مشرف السكن/الأب الكاهن من الوصول إلى إدارة الأوسمة
+const requireBadgeManagerRole: express.RequestHandler = (req: any, res, next) => {
+  if (!isBadgeManagerRole(req.user?.role)) {
+    return res.status(403).json({ success: false, message: "غير مصرح بالوصول" });
+  }
+  next();
+};
+
 // التحقق من أن الشارة تنتمي لسكن من سكنات المستخدم الحالي
 const canAccessBadge = async (req: any, badge: any): Promise<boolean> => {
-  if (req.user.role === 'admin') return true;
+  if (!isBadgeManagerRole(req.user.role)) return false;
   if (!badge?.tenant_id) return true;
   const allowed = await computeUserTenantIds(req.user);
+  if (allowed.length === 0) return false;
   return allowed.includes(badge.tenant_id);
 };
 
-// تحرير/حذف الشارات العامة (tenant_id IS NULL) مقتصر على مدير التطبيق والأسقف فقط —
-// نفس نموذج إدارة عناصر المؤسسة العامة في requireItemAccess (الميدلوير).
-// الشارات المرتبطة بسكن تبقى ضمن نطاق سكنات المستخدم (computeUserTenantIds).
+// تحرير/حذف الشارات مقتصر على مشرف السكن والأب الكاهن وداخل سكناتهم فقط.
+// الشارات العامة (tenant_id IS NULL) لا يديرها أحد — خارج نطاق أي سكن.
 export const canManageBadge = async (req: any, badge: any): Promise<boolean> => {
-  if (req.user.role === 'admin') return true;
-  if (!badge?.tenant_id) return req.user.role === 'bishop';
+  if (!isBadgeManagerRole(req.user.role)) return false;
+  if (!badge?.tenant_id) return false;
   const allowed = await computeUserTenantIds(req.user);
   if (allowed.length === 0) return false;
   return allowed.includes(badge.tenant_id);
@@ -46,7 +60,7 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // Create badge
-router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
+router.post("/", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { title, description, icon, color, category } = req.body;
   const tenantId = req.user.tenantId;
   const id = uuidv4();
@@ -62,7 +76,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS)
 });
 
 // Update badge
-router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
+router.put("/:id", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { id } = req.params;
   const { title, description, icon, color, category } = req.body;
   try {
@@ -77,7 +91,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_REWARD
 });
 
 // Delete badge
-router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
+router.delete("/:id", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { id } = req.params;
   try {
     const badge = await kdb('badges').where({ id }).first();
@@ -92,7 +106,7 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_REW
 });
 
 // Assign badge to students
-router.post("/assign", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
+router.post("/assign", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { badgeId, studentIds, reason } = req.body;
   try {
     const badge = await kdb('badges').where({ id: badgeId }).first();
@@ -104,7 +118,7 @@ router.post("/assign", authenticate, authorizePermission(AppPermission.MANAGE_RE
         // الطلاب المستهدفون يجب أن يكونوا ضمن سكنات المستخدم الحالي
         const student = await trx('students').select('tenant_id').where({ id: studentId }).first();
         if (!student) throw new Error("أحد الطلاب غير موجود");
-        if (req.user.role !== 'admin') {
+        if (isBadgeManagerRole(req.user.role)) {
           const allowed = await computeUserTenantIds(req.user);
           // الطالب يجب أن يكون مرتبطاً بسكن من سكنات المستخدم (fail-closed لطلاب بلا سكن)
           if (!student.tenant_id || !allowed.includes(student.tenant_id)) throw new Error("أحد الطلاب ليس ضمن سكنك");
@@ -126,12 +140,12 @@ router.post("/assign", authenticate, authorizePermission(AppPermission.MANAGE_RE
 });
 
 // ��� ���� ����� (����� �����)
-router.post("/grant", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
+router.post("/grant", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { studentId, badgeName, pointsBonus } = req.body;
   try {
     const student = await kdb('students').select('tenant_id').where({ id: studentId }).first();
     if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
-    if (req.user.role !== 'admin' && student.tenant_id) {
+    if (isBadgeManagerRole(req.user.role) && student.tenant_id) {
       const allowed = await computeUserTenantIds(req.user);
       if (!allowed.includes(student.tenant_id)) {
         return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
@@ -223,7 +237,7 @@ router.get("/my", authenticate, async (req, res) => {
 });
 
 // Unassign badge
-router.delete("/assign/:id", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
+router.delete("/assign/:id", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { id } = req.params;
   const tenantId = req.user.tenantId;
   try {

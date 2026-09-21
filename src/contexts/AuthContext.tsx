@@ -24,7 +24,7 @@ const rolePermissions: Record<string, AppPermission[]> = {
     AppPermission.SEND_NOTIFICATIONS, AppPermission.VIEW_NOTIFICATIONS,
     AppPermission.VIEW_USERS, AppPermission.MANAGE_USERS, AppPermission.ASSIGN_ROLES,
     AppPermission.SEND_BROADCAST, AppPermission.VIEW_BROADCASTS,
-    AppPermission.VIEW_EVENTS, AppPermission.ATTEND_EVENT, AppPermission.CREATE_EVENT, AppPermission.EDIT_EVENT, AppPermission.DELETE_EVENT, AppPermission.MANAGE_EVENT_ATTENDANCE,
+    AppPermission.VIEW_EVENTS, AppPermission.ATTEND_EVENT, AppPermission.CREATE_EVENT, AppPermission.EDIT_EVENT, AppPermission.DELETE_EVENT, AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.OPERATE_EVENT_ATTENDANCE,
     AppPermission.MANAGE_COMPETITIONS, AppPermission.VIEW_COMPETITIONS, AppPermission.JOIN_COMPETITIONS,
     AppPermission.VIEW_SYSTEM_LOGS,
     AppPermission.VIEW_RADIO, AppPermission.MANAGE_RADIO_BROADCAST, AppPermission.MANAGE_RADIO_VIDEO_LIBRARY,
@@ -42,7 +42,7 @@ const rolePermissions: Record<string, AppPermission[]> = {
     AppPermission.VIEW_MAINTENANCE, AppPermission.HANDLE_MAINTENANCE,
     AppPermission.VIEW_INVENTORY, AppPermission.MANAGE_INVENTORY,
     AppPermission.VIEW_FINANCE, AppPermission.VIEW_FINANCE_REPORTS, AppPermission.ADD_EXPENSE, AppPermission.ADD_REVENUE,
-    AppPermission.CREATE_EVENT, AppPermission.EDIT_EVENT, AppPermission.DELETE_EVENT, AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.VIEW_EVENTS,
+    AppPermission.CREATE_EVENT, AppPermission.EDIT_EVENT, AppPermission.DELETE_EVENT, AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.VIEW_EVENTS, AppPermission.OPERATE_EVENT_ATTENDANCE,
     AppPermission.VIEW_DASHBOARD, AppPermission.VIEW_REPORTS, AppPermission.SEND_NOTIFICATIONS,
     AppPermission.VIEW_NOTIFICATIONS,
     AppPermission.MANAGE_POINTS, AppPermission.VIEW_POINTS, AppPermission.MANAGE_REWARDS, AppPermission.MANAGE_PENALTIES,
@@ -69,7 +69,7 @@ const rolePermissions: Record<string, AppPermission[]> = {
     AppPermission.VIEW_MAINTENANCE, AppPermission.HANDLE_MAINTENANCE, AppPermission.REQUEST_MAINTENANCE,
     AppPermission.VIEW_INVENTORY, AppPermission.MANAGE_INVENTORY,
     AppPermission.VIEW_FINANCE_REPORTS,
-    AppPermission.CREATE_EVENT, AppPermission.EDIT_EVENT, AppPermission.DELETE_EVENT, AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.VIEW_EVENTS,
+    AppPermission.CREATE_EVENT, AppPermission.EDIT_EVENT, AppPermission.DELETE_EVENT, AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.VIEW_EVENTS, AppPermission.OPERATE_EVENT_ATTENDANCE,
     AppPermission.VIEW_DASHBOARD, AppPermission.VIEW_PRIEST_DASHBOARD, AppPermission.VIEW_REPORTS, AppPermission.SEND_NOTIFICATIONS,
     AppPermission.VIEW_NOTIFICATIONS,
     AppPermission.MANAGE_POINTS, AppPermission.VIEW_POINTS, AppPermission.MANAGE_REWARDS, AppPermission.MANAGE_PENALTIES,
@@ -84,7 +84,7 @@ const rolePermissions: Record<string, AppPermission[]> = {
     AppPermission.VIEW_MAINTENANCE, AppPermission.HANDLE_MAINTENANCE,
     AppPermission.VIEW_LAUNDRY_QUEUE, AppPermission.VIEW_DASHBOARD, AppPermission.VIEW_REPORTS,
     AppPermission.VIEW_POINTS, AppPermission.VIEW_COMPETITIONS, AppPermission.VIEW_EVENTS,
-    AppPermission.MANAGE_EVENT_ATTENDANCE
+    AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.OPERATE_EVENT_ATTENDANCE
   ],
   student: [
     AppPermission.VIEW_DASHBOARD, AppPermission.VIEW_STUDENT, AppPermission.CHECKIN_ATTENDANCE, AppPermission.JOIN_LAUNDRY,

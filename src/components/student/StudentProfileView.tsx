@@ -8,6 +8,7 @@ import {
   GraduationCap, UserCog, Loader2
 } from 'lucide-react';
 import { QRCode } from 'react-qr-code';
+import { useStudentQr } from '../../hooks/useStudentQr';
 import { StudentNotesSection } from '../StudentNotesSection';
 import { StudentFinanceCard } from './StudentFinanceCard';
 import { FileViewerModal, type ViewableFile, normalizeFilePath, isImageFile } from './FileViewerModal';
@@ -18,6 +19,7 @@ import { ArchiveModal } from './modals/ArchiveModal';
 import { EditStudentModal } from './modals/EditStudentModal';
 import { SendProfileModal } from './modals/SendProfileModal';
 import { PriestEditModal } from './modals/PriestEditModal';
+import { AttendanceHistoryCard } from './AttendanceHistoryCard';
 
 interface Guardian {
   id: string;
@@ -278,6 +280,7 @@ export function StudentProfileView({
 }: StudentProfileViewProps) {
   const [pendingFiles, setPendingFiles] = useState<{ file: File; name: string }[]>([]);
   const [viewerFile, setViewerFile] = useState<ViewableFile | null>(null);
+  const { qr: studentQr } = useStudentQr(selectedStudent?.id ?? null);
 
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500" dir="rtl">
@@ -364,7 +367,7 @@ export function StudentProfileView({
             <div className="flex flex-col items-center gap-4 border-l border-slate-50 dark:border-white/10 pl-8">
               <div className="w-32 h-32 bg-slate-100 dark:bg-white/10 rounded-[2.5rem] overflow-hidden border-4 border-slate-50 dark:border-white/10 shadow-inner relative group">
                 {selectedStudent.student_photo || selectedStudent.photo_url ? (
-                  <img src={selectedStudent.student_photo || selectedStudent.photo_url} className="w-full h-full object-cover" />
+                  <img src={normalizeFilePath(selectedStudent.student_photo || selectedStudent.photo_url)} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-500">
                     <UserCircle size={64} />
@@ -556,7 +559,7 @@ export function StudentProfileView({
                 <div key={guardian.id} className="p-5 bg-slate-50 dark:bg-white/5 rounded-[2rem] border border-slate-100 dark:border-white/10 relative group">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-white dark:bg-card-dark rounded-2xl flex items-center justify-center text-slate-400 dark:text-slate-300 border border-slate-100 dark:border-white/10 overflow-hidden shadow-sm">
-                      {guardian.photo ? <img src={guardian.photo} className="w-full h-full object-cover" /> : <UserCircle size={24} />}
+                      {guardian.photo ? <img src={normalizeFilePath(guardian.photo)} className="w-full h-full object-cover" /> : <UserCircle size={24} />}
                     </div>
                     <div>
                       <p className="font-black text-slate-800 dark:text-white text-sm">{guardian.name}</p>
@@ -788,6 +791,8 @@ export function StudentProfileView({
               </div>
             </div>
           )}
+
+          <AttendanceHistoryCard studentId={selectedStudent.id} />
         </div>
 
         {/* Student QR Code */}
@@ -799,7 +804,7 @@ export function StudentProfileView({
           <div className="flex flex-col items-center justify-center space-y-4">
             {selectedStudent.id && (
               <QRCode
-                value={selectedStudent.id}
+                value={studentQr || selectedStudent.id}
                 size={256}
                 viewBox={`0 0 256 256`}
                 className="p-4 bg-white rounded-xl shadow-md"

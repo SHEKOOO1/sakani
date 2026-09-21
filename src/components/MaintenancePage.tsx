@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { MaintenanceRequestModal } from './maintenance/MaintenanceRequestModal';
 import { UpdateStatusModal } from './maintenance/UpdateStatusModal';
+import { normalizeFilePath } from './student/FileViewerModal';
 
 export function MaintenancePage() {
   const { request } = useApi();
@@ -267,19 +268,19 @@ export function MaintenancePage() {
               {(req.photo_url || (req.attachments && req.attachments.length > 0)) && (
                 <div className="mb-6 grid grid-cols-2 gap-2">
                   {req.photo_url && (
-                    <img src={req.photo_url} className="w-full h-32 object-cover rounded-2xl cursor-pointer" onClick={() => window.open(req.photo_url, '_blank')} />
+                    <img src={normalizeFilePath(req.photo_url)} className="w-full h-32 object-cover rounded-2xl cursor-pointer" onClick={() => window.open(normalizeFilePath(req.photo_url), '_blank')} />
                   )}
                   {req.attachments?.map((att: any, idx: number) => (
-                    <div key={idx} className="relative h-32 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/10 group/att border border-slate-50 dark:border-white/5">
+                    <div key={att.id || `att-${idx}`} className="relative h-32 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/10 group/att border border-slate-50 dark:border-white/5">
                       {att.file_type?.includes('video') || att.file_path?.match(/\.(mp4|mov|webm)$/i) ? (
-                        <div className="w-full h-full flex items-center justify-center cursor-pointer" onClick={() => window.open(att.file_path, '_blank')}>
-                           <video src={att.file_path} className="w-full h-full object-cover opacity-60" />
+                        <div className="w-full h-full flex items-center justify-center cursor-pointer" onClick={() => window.open(normalizeFilePath(att.file_path), '_blank')}>
+                           <video src={normalizeFilePath(att.file_path)} className="w-full h-full object-cover opacity-60" />
                            <div className="absolute inset-0 flex items-center justify-center text-white bg-black/20">
                               <Play size={20} fill="currentColor" />
                            </div>
                         </div>
                       ) : (
-                        <img src={att.file_path} className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => window.open(att.file_path, '_blank')} />
+                        <img src={normalizeFilePath(att.file_path)} className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => window.open(normalizeFilePath(att.file_path), '_blank')} />
                       )}
                     </div>
                   ))}

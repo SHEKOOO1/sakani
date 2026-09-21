@@ -276,6 +276,12 @@ CREATE TABLE events (
     targeting NVARCHAR(MAX),
     available_payment_methods NVARCHAR(MAX),
     created_by NVARCHAR(128),
+    start_time DATETIME2 NULL,
+    end_time DATETIME2 NULL,
+    duration_minutes INT NULL,
+    is_required_attendance BIT NOT NULL DEFAULT 1,
+    rule_evaluation_mode NVARCHAR(30) NOT NULL DEFAULT 'ALL_APPLICABLE' CHECK (rule_evaluation_mode IN ('FIRST_APPLICABLE','ALL_APPLICABLE')),
+    excuse_deadline_minutes INT NULL,
     created_at DATETIME2 DEFAULT GETDATE()
 );
 END
@@ -609,6 +615,10 @@ CREATE TABLE event_attendance_detailed (
     created_by NVARCHAR(128) NULL,
     tenant_id NVARCHAR(128) NULL,
     is_paid BIT DEFAULT 0,
+    final_status NVARCHAR(30) NULL CHECK (final_status IN ('PENDING_REVIEW','UNEXCUSED','EXCUSED','TRAVEL')),
+    reviewed_by NVARCHAR(128) NULL,
+    reviewed_at DATETIME2 NULL,
+    applied_rules_snapshot NVARCHAR(MAX) NULL,
     created_at DATETIME2 DEFAULT GETDATE()
 );
 END
@@ -916,4 +926,186 @@ CREATE TABLE payment_methods (
     created_at DATETIME2 DEFAULT GETDATE(),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+END
+
+-- =================== EVENT / SESSION ATTENDANCE MANAGEMENT ===================
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'event_attendance_rules')
+BEGIN
+CREATE TABLE event_attendance_rules (
+    id NVARCHAR(128) PRIMARY KEY,
+    event_id NVARCHAR(128) NOT NULL,
+    session_id NVARCHAR(128) NULL,
+    tenant_id NVARCHAR(128) NOT NULL,
+    grace_period_minutes INT NOT NULL DEFAULT 0,
+    penalty_mode NVARCHAR(20) NOT NULL DEFAULT 'NONE' CHECK (penalty_mode IN ('NONE','FINANCIAL','POINTS','BOTH')),
+    base_penalty DECIMAL(10,2) NOT NULL DEFAULT 0,
+    base_points INT NOT NULL DEFAULT 0,
+    additional_penalty DECIMAL(10,2) NOT NULL DEFAULT 0,
+    additional_penalty_unit NVARCHAR(20) NOT NULL DEFAULT 'PER_MINUTE' CHECK (additional_penalty_unit IN ('PER_MINUTE','PER_BLOCK','FIXED')),
+    additional_penalty_block_minutes INT NOT NULL DEFAULT 1,
+    maximum_penalty DECIMAL(10,2) NULL,
+    maximum_points_deduction INT NULL,
+    absent_after_minutes INT NULL,
+    auto_apply_penalty BIT NOT NULL DEFAULT 1,
+    enabled BIT NOT NULL DEFAULT 1,
+    tiers NVARCHAR(MAX) NULL,
+    required_attendance BIT NOT NULL DEFAULT 1,
+    counts_toward_absence_limit BIT NOT NULL DEFAULT 1,
+    attendance_weight DECIMAL(5,2) NOT NULL DEFAULT 1,
+    created_by NVARCHAR(128) NULL,
+    updated_by NVARCHAR(128) NULL,
+    created_at DATETIME2 DEFAULT GETDATE(),
+    updated_at DATETIME2 DEFAULT GETDATE(),
+    CONSTRAINT UQ_Event_Attendance_Rule UNIQUE (event_id, session_id)
+);
+CREATE UNIQUE INDEX UQ_event_attendance_rule_default ON event_attendance_rules (event_id) WHERE session_id IS NULL;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'event_rules')
+BEGIN
+CREATE TABLE event_rules (
+    id NVARCHAR(128) PRIMARY KEY,
+    event_id NVARCHAR(128) NOT NULL,
+    session_id NVARCHAR(128) NULL,
+    tenant_id NVARCHAR(128) NOT NULL,
+    condition_status NVARCHAR(30) NOT NULL CHECK (condition_status IN ('late','absent','unexcused')),
+    condition_min_late_minutes INT NULL,
+    condition_max_late_minutes INT NULL,
+    action_type NVARCHAR(40) NOT NULL CHECK (action_type IN ('NONE','DEDUCT_POINTS','FINANCIAL_FEE','SEND_NOTIFICATION','EXCLUDE_FROM_RESIDENCE')),
+    points_amount INT NULL,
+    fee_amount DECIMAL(10,2) NULL,
+    notification_message NVARCHAR(MAX) NULL,
+    enabled BIT NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_by NVARCHAR(128) NULL,
+    updated_by NVARCHAR(128) NULL,
+    created_at DATETIME2 DEFAULT GETDATE(),
+    updated_at DATETIME2 DEFAULT GETDATE(),
+    FOREIGN KEY (event_id) REFERENCES events(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+CREATE INDEX IX_event_rules_event_enabled ON event_rules (event_id, enabled);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_attendance_detailed_final_status' AND object_id = OBJECT_ID('event_attendance_detailed'))
+  AND EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'final_status')
+CREATE INDEX IX_event_attendance_detailed_final_status ON event_attendance_detailed (event_id, final_status);
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'attendance_penalties')
+BEGIN
+CREATE TABLE attendance_penalties (
+    id NVARCHAR(128) PRIMARY KEY,
+    attendance_id NVARCHAR(128) NOT NULL,
+    student_id NVARCHAR(128) NOT NULL,
+    event_id NVARCHAR(128) NOT NULL,
+    session_id NVARCHAR(128) NULL,
+    tenant_id NVARCHAR(128) NOT NULL,
+    mode NVARCHAR(20) NOT NULL CHECK (mode IN ('FINANCIAL','POINTS','BOTH')),
+    financial_amount DECIMAL(10,2) NULL,
+    points_deduction INT NULL,
+    status NVARCHAR(20) NOT NULL DEFAULT 'APPLIED' CHECK (status IN ('APPLIED','REVERSED','ADJUSTED')),
+    reversal_of_id NVARCHAR(128) NULL,
+    rule_snapshot NVARCHAR(MAX) NULL,
+    policy_version INT NULL,
+    reason NVARCHAR(MAX) NULL,
+    finance_id NVARCHAR(128) NULL,
+    points_ledger_id NVARCHAR(128) NULL,
+    created_by NVARCHAR(128) NULL,
+    created_at DATETIME2 DEFAULT GETDATE(),
+    reversed_by NVARCHAR(128) NULL,
+    reversed_at DATETIME2 NULL,
+    reversal_reason NVARCHAR(MAX) NULL
+);
+CREATE UNIQUE INDEX UQ_attendance_penalties_active ON attendance_penalties (attendance_id) WHERE status = 'APPLIED';
+CREATE INDEX IX_attendance_penalties_student_id ON attendance_penalties (student_id);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'attendance_excuses')
+BEGIN
+CREATE TABLE attendance_excuses (
+    id NVARCHAR(128) PRIMARY KEY,
+    student_id NVARCHAR(128) NOT NULL,
+    event_id NVARCHAR(128) NOT NULL,
+    session_id NVARCHAR(128) NULL,
+    attendance_id NVARCHAR(128) NULL,
+    tenant_id NVARCHAR(128) NOT NULL,
+    reason NVARCHAR(MAX) NOT NULL,
+    notes NVARCHAR(MAX) NULL,
+    submitted_by NVARCHAR(128) NOT NULL,
+    submitted_by_role NVARCHAR(50) NULL,
+    submitted_at DATETIME2 DEFAULT GETDATE(),
+    status NVARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    decided_by NVARCHAR(128) NULL,
+    decided_at DATETIME2 NULL,
+    decided_notes NVARCHAR(MAX) NULL
+);
+CREATE UNIQUE INDEX UQ_attendance_excuse_per_attendance ON attendance_excuses (attendance_id) WHERE attendance_id IS NOT NULL;
+CREATE INDEX IX_attendance_excuses_student_id ON attendance_excuses (student_id);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'attendance_policy')
+BEGIN
+CREATE TABLE attendance_policy (
+    tenant_id NVARCHAR(128) PRIMARY KEY,
+    enforce_absence_thresholds BIT NOT NULL DEFAULT 1,
+    weighted_attendance_enabled BIT NOT NULL DEFAULT 0,
+    warning_1_threshold INT NOT NULL DEFAULT 1,
+    warning_2_threshold INT NOT NULL DEFAULT 2,
+    final_warning_threshold INT NOT NULL DEFAULT 3,
+    disciplinary_review_threshold INT NOT NULL DEFAULT 4,
+    residence_termination_review_threshold INT NOT NULL DEFAULT 5,
+    excuse_time_limit_hours INT NOT NULL DEFAULT 48,
+    parent_notify_on_absence BIT NOT NULL DEFAULT 1,
+    parent_notify_on_late BIT NOT NULL DEFAULT 0,
+    parent_notify_on_warning BIT NOT NULL DEFAULT 1,
+    version INT NOT NULL DEFAULT 1,
+    created_by NVARCHAR(128) NULL,
+    updated_by NVARCHAR(128) NULL,
+    created_at DATETIME2 DEFAULT GETDATE(),
+    updated_at DATETIME2 DEFAULT GETDATE()
+);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'attendance_policy_versions')
+BEGIN
+CREATE TABLE attendance_policy_versions (
+    id NVARCHAR(128) PRIMARY KEY,
+    tenant_id NVARCHAR(128) NOT NULL,
+    version INT NOT NULL,
+    snapshot NVARCHAR(MAX) NOT NULL,
+    changed_by NVARCHAR(128) NULL,
+    changed_at DATETIME2 DEFAULT GETDATE(),
+    note NVARCHAR(MAX) NULL,
+    CONSTRAINT UQ_Attendance_Policy_Version UNIQUE (tenant_id, version)
+);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'disciplinary_cases')
+BEGIN
+CREATE TABLE disciplinary_cases (
+    id NVARCHAR(128) PRIMARY KEY,
+    tenant_id NVARCHAR(128) NOT NULL,
+    student_id NVARCHAR(128) NOT NULL,
+    case_type NVARCHAR(50) NOT NULL CHECK (case_type IN ('DISCIPLINARY_REVIEW','RESIDENCE_TERMINATION_REVIEW')),
+    status NVARCHAR(30) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','UNDER_REVIEW','APPROVED','REJECTED','CLOSED')),
+    unexcused_absence_count INT NULL,
+    attended_sessions INT NULL,
+    total_sessions INT NULL,
+    weighted_attendance_rate DECIMAL(5,2) NULL,
+    summary NVARCHAR(MAX) NULL,
+    policy_version INT NULL,
+    related_data NVARCHAR(MAX) NULL,
+    created_by NVARCHAR(128) NULL,
+    created_at DATETIME2 DEFAULT GETDATE(),
+    decided_by NVARCHAR(128) NULL,
+    decided_at DATETIME2 NULL,
+    decision NVARCHAR(MAX) NULL,
+    reason NVARCHAR(MAX) NULL,
+    effective_date DATE NULL,
+    notes NVARCHAR(MAX) NULL,
+    affected_by_correction BIT NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX UQ_open_disciplinary_cases ON disciplinary_cases (student_id, case_type) WHERE status IN ('OPEN','UNDER_REVIEW');
+CREATE INDEX IX_disciplinary_cases_student_id ON disciplinary_cases (student_id);
 END

@@ -61,6 +61,12 @@ export function EventDetailsView({
                 registration_deadline: selectedEvent.registration_deadline ? selectedEvent.registration_deadline.split('T')[0] : '',
                 available_payment_methods: availMethods,
                 max_participants: selectedEvent.max_participants?.toString() || '',
+                start_time: selectedEvent.start_time ? selectedEvent.start_time.split('Z')[0] : '',
+                end_time: selectedEvent.end_time ? selectedEvent.end_time.split('Z')[0] : '',
+                duration_minutes: selectedEvent.duration_minutes?.toString() || '',
+                is_required_attendance: selectedEvent.is_required_attendance !== 0 && selectedEvent.is_required_attendance !== false,
+                evaluation_mode: selectedEvent.rule_evaluation_mode || 'ALL_APPLICABLE',
+                rules: [],
               });
               setTargeting(targetingData);
 

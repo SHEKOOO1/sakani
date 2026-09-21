@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useMounted } from '../../hooks/useMounted';
 import { useApi } from '../../hooks/useApi';
 import { useAuth } from '../../contexts/AuthContext';
+import { useStudentQr } from '../../hooks/useStudentQr';
 import {
   Home, Mail, Shield, Building, MapPin, Hash, Star,
   AlertTriangle, DollarSign, QrCode, Calendar, Clock,
@@ -24,6 +25,7 @@ export function StudentProfile() {
   const [badges, setBadges] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const mounted = useMounted();
+  const { qr: studentQr } = useStudentQr((profile as any)?.student?.id ?? null);
 
   
 
@@ -192,7 +194,7 @@ export function StudentProfile() {
           <div className="mt-4 flex flex-col items-center">
             <div className="p-4 bg-white rounded-2xl border-2 border-slate-200">
               <div className="w-48 h-48 bg-white flex items-center justify-center">
-                <QRCode value={qrData || user?.id || ''} size={160} />
+                <QRCode value={studentQr || qrData || user?.id || ''} size={160} />
               </div>
             </div>
             <p className="text-[9px] text-slate-400 mt-2">امسح QR Code لتسجيل حضورك في الأنشطة</p>

@@ -90,6 +90,7 @@ export const ALL_PERMISSIONS: PermissionInfo[] = [
   { key: 'ATTEND_EVENT', label: 'حضور حدث', description: 'تسجيل حضور في حدث أو نشاط (المشاركة في الفعالية)', group: 'الأحداث' },
   { key: 'VIEW_EVENTS', label: 'عرض الأحداث', description: 'مشاهدة قائمة الأحداث والأنشطة القادمة والسابقة مع التفاصيل', group: 'الأحداث' },
   { key: 'MANAGE_EVENT_ATTENDANCE', label: 'إدارة حضور الأحداث', description: 'متابعة وتسجيل حضور وانصراف المشاركين في الأحداث والأنشطة', group: 'الأحداث' },
+  { key: 'OPERATE_EVENT_ATTENDANCE', label: 'تشغيل الفعاليات المكلف بها', description: 'فتح جلسات الفعاليات المكلف بها ومسح أكواد الحضور وتسجيل نتائج المسح للمسؤولين المعينين فقط', group: 'الأحداث' },
 
   // ====== الإعدادات ======
   { key: 'VIEW_SETTINGS', label: 'عرض الإعدادات', description: 'مشاهدة إعدادات النظام وقواعد السكن (موعد الإغلاق، نطاق الموقع الجغرافي)', group: 'الإعدادات' },
@@ -572,7 +573,7 @@ const ROLE_VISIBLE_PERMISSION_KEYS: Record<string, string[]> = {
     'VIEW_MAINTENANCE', 'REQUEST_MAINTENANCE', 'HANDLE_MAINTENANCE',
     'VIEW_INVENTORY', 'MANAGE_INVENTORY',
     'VIEW_FINANCE', 'ADD_EXPENSE', 'ADD_REVENUE', 'VIEW_FINANCE_REPORTS',
-    'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'ATTEND_EVENT', 'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+    'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'ATTEND_EVENT', 'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
     'VIEW_SETTINGS', 'MANAGE_SETTINGS',
     'VIEW_NOTIFICATIONS', 'SEND_NOTIFICATIONS',
     'VIEW_DASHBOARD', 'VIEW_REPORTS',
@@ -602,7 +603,7 @@ const ROLE_VISIBLE_PERMISSION_KEYS: Record<string, string[]> = {
     'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS',
     'VIEW_DECISION_LOG', 'UNDO_DECISION',
     'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT',
-    'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+    'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
     'VIEW_FINANCE_REPORTS',
     'VIEW_SETTINGS', 'MANAGE_SETTINGS',
     'SEND_BROADCAST', 'VIEW_BROADCASTS',
@@ -619,7 +620,7 @@ const ROLE_VISIBLE_PERMISSION_KEYS: Record<string, string[]> = {
     'VIEW_POINTS',
     'VIEW_COMPETITIONS',
     'VIEW_MAINTENANCE', 'HANDLE_MAINTENANCE',
-    'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE',
+    'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE', 'OPERATE_EVENT_ATTENDANCE',
   ],
   employee: [],
   student: [

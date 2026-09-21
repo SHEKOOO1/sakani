@@ -8,7 +8,8 @@ import {
   LogOut, Bell, Search, Wrench, MapPin, Waves, BarChart3, UserCog,
   Package, Trophy, Target, History as HistoryIcon, ClipboardList,
   UserCheck, LayoutGrid, Sun, Moon, Menu, X, Gift, Award, Wallet,
-  ShieldCheck, Church, UserCircle, Radio, Film, Tv, ChevronLeft, Sparkles
+  ShieldCheck, Church, UserCircle, Radio, Film, Tv, ChevronLeft, Sparkles,
+  QrCode, ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Suspense, lazy } from 'react';
@@ -56,6 +57,8 @@ const AdminGuard = lazy(() => import('./AdminGuard').then(m => ({ default: m.Adm
 const Radio514 = lazy(() => import('./Radio').then(m => ({ default: m.Radio514 })));
 const AdminRadio514 = lazy(() => import('./AdminRadio514').then(m => ({ default: m.AdminRadio514 })));
 const BroadcastTicker = lazy(() => import('./BroadcastTicker').then(m => ({ default: m.BroadcastTicker })));
+const EventAttendanceOperatorPage = lazy(() => import('./events/EventAttendanceOperatorPage').then(m => ({ default: m.EventAttendanceOperatorPage })));
+const AttendanceAdminPage = lazy(() => import('./events/AttendanceAdminPage').then(m => ({ default: m.AttendanceAdminPage })));
 
 export function Layout({ children }: { children?: React.ReactNode }) {
   const { user, logout, hasPermission, refreshPermissions } = useAuth();
@@ -115,9 +118,10 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     { id: 'all_activities', icon: Trophy, label: 'الأنشطة والمسابقات', permission: AppPermission.VIEW_EVENTS, path: '/all-activities', hide: !isStudent },
     { id: 'competition_results', icon: Award, label: 'نتائج المسابقات', permission: AppPermission.VIEW_EVENTS, path: '/competition-results', hide: !isStudent },
 
-    { id: 'events', icon: Calendar, label: 'إدارة الأنشطة', permission: AppPermission.VIEW_EVENTS, path: '/admin/activities', hide: isStudent || isParent },
+    { id: 'events', icon: Calendar, label: 'إدارة الفعاليات', permission: AppPermission.VIEW_EVENTS, path: '/admin/activities', hide: isStudent || isParent },
     { id: 'competitions', icon: Trophy, label: 'إدارة المسابقات', permission: AppPermission.VIEW_COMPETITIONS, path: '/admin/competitions', hide: isStudent || isParent },
     { id: 'broadcasts', icon: Target, label: 'الإعلانات', permission: AppPermission.SEND_BROADCAST, path: '/admin/broadcasts', hide: isStudent || isParent },
+    { id: 'operator_attendance', icon: QrCode, label: 'تسجيل حضور الفعاليات', permission: AppPermission.OPERATE_EVENT_ATTENDANCE, path: '/operator-attendance', hide: isStudent || isParent || user?.role === 'bishop' },
 
     { id: 'behavior', icon: Target, label: 'المكافآت والجزاءات', permission: AppPermission.VIEW_POINTS, path: '/behavior', hide: !['supervisor', 'assistant_supervisor', 'priest'].includes(user?.role?.toLowerCase() || '') },
     { id: 'rewards', icon: Gift, label: 'الجوائز والأوسمة', permission: AppPermission.VIEW_POINTS, path: '/rewards', hide: isParent || user?.role === 'admin' },
@@ -183,6 +187,8 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     users: 'المستخدمون', rooms: 'الغرف', shared_profiles: 'الملفات المشتركة',
     radio: 'الراديو', admin_radio: 'إدارة الراديو',
     shared_profile: 'الملف المشترك',
+    operator_attendance: 'تسجيل حضور الفعاليات',
+    attendance_admin: 'إدارة حضور الفعاليات',
   };
 
   const renderView = () => {
@@ -212,6 +218,8 @@ export function Layout({ children }: { children?: React.ReactNode }) {
       case 'decisions': return hasPermission(AppPermission.VIEW_DECISION_LOG) ? <DecisionsLog /> : defaultDashboard;
       case 'events': return hasPermission(AppPermission.VIEW_EVENTS) ? <EventsPage /> : defaultDashboard;
       case 'events_attendance': return hasPermission(AppPermission.MANAGE_EVENT_ATTENDANCE) ? <EventsPage defaultView="attendance" /> : defaultDashboard;
+      case 'operator_attendance': return hasPermission(AppPermission.OPERATE_EVENT_ATTENDANCE) ? <EventAttendanceOperatorPage /> : defaultDashboard;
+      case 'attendance_admin': return hasPermission(AppPermission.MANAGE_EVENT_ATTENDANCE) ? <AttendanceAdminPage /> : defaultDashboard;
       case 'students': return hasPermission(AppPermission.VIEW_STUDENT) ? <StudentsPage /> : defaultDashboard;
       case 'attendance': return hasPermission(AppPermission.CHECKIN_ATTENDANCE) ? <AttendancePage /> : defaultDashboard;
       case 'maintenance': return (hasPermission(AppPermission.VIEW_MAINTENANCE) || (isStudent && hasPermission(AppPermission.REQUEST_MAINTENANCE))) ? <MaintenancePage /> : defaultDashboard;
@@ -220,7 +228,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
       case 'laundry': return hasPermission(AppPermission.VIEW_LAUNDRY_QUEUE) ? <LaundryPage /> : defaultDashboard;
       case 'admin_management': return hasPermission(AppPermission.MANAGE_GLOBAL_TENANTS) ? <AdminGuard onBack={() => setCurrentView(initialView)} allowedRoles={['admin', 'bishop']}><AdminSystemPage /></AdminGuard> : defaultDashboard;
       case 'employees': return hasPermission(AppPermission.MANAGE_EMPLOYEES) ? <EmployeesPage /> : defaultDashboard;
-      case 'badges_admin': return hasPermission(AppPermission.MANAGE_REWARDS) ? <AdminBadgesPage /> : defaultDashboard;
+      case 'badges_admin': return (['supervisor', 'priest'].includes(user?.role?.toLowerCase() || '') && hasPermission(AppPermission.MANAGE_REWARDS)) ? <AdminBadgesPage /> : defaultDashboard;
       case 'payment_methods': return hasPermission(AppPermission.MANAGE_SETTINGS) ? <div className="max-w-3xl mx-auto"><PaymentMethodsManager /></div> : defaultDashboard;
       case 'bishop_reports': return hasPermission(AppPermission.VIEW_GLOBAL_REPORTS) ? <BishopReportsPage /> : defaultDashboard;
       case 'settings': return hasPermission(AppPermission.VIEW_SETTINGS) ? <SettingsPage /> : defaultDashboard;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from './useApi';
 import { useSnackbar } from '../contexts/SnackbarContext';
@@ -20,6 +20,10 @@ export function useEventCrud() {
     responsibleIds: [] as any[], location_lat: '', location_lng: '', location_radius: 50,
     qr_code: '', type: 'event', registration_deadline: '',
     available_payment_methods: [] as string[], max_participants: '',
+    start_time: '', end_time: '', duration_minutes: '',
+    is_required_attendance: true, evaluation_mode: 'ALL_APPLICABLE',
+    excuse_deadline_minutes: null as number | null,
+    rules: [] as any[],
   });
   const pendingEventRef = { current: null as string | null };
 
@@ -30,9 +34,10 @@ export function useEventCrud() {
       return resp.data || [];
     },
     staleTime: 30000,
+    retry: false,
   });
 
-  const fetchBaseData = async (user: any) => {
+  const fetchBaseData = useCallback(async (user: any) => {
     try {
       const calls: any[] = [request('/api/students')];
       if (user?.role !== 'student' && user?.role !== 'parent') {
@@ -42,7 +47,7 @@ export function useEventCrud() {
       setStudentsList(sRes.data || []);
       setEmployeeList((eRes?.data || []).filter((u: any) => u.role !== 'student'));
     } catch (err) { console.error(err); showSnackbar('فشل تحميل البيانات الأساسية', 'error'); }
-  };
+  }, [request, showSnackbar]);
 
   const saveMutation = useMutation({
     mutationFn: async (opts: { isEdit: boolean; targeting: Record<string, any>; data?: any }) => {
@@ -59,6 +64,13 @@ export function useEventCrud() {
         location_lat: d.location_lat ? parseFloat(d.location_lat) : undefined,
         location_lng: d.location_lng ? parseFloat(d.location_lng) : undefined,
         max_participants: d.max_participants ? parseInt(d.max_participants) : undefined,
+        duration_minutes: d.duration_minutes ? parseInt(d.duration_minutes) : undefined,
+        start_time: d.start_time || undefined,
+        end_time: d.end_time || undefined,
+        is_required_attendance: d.is_required_attendance !== false,
+        evaluation_mode: d.evaluation_mode === 'FIRST_APPLICABLE' ? 'FIRST_APPLICABLE' : 'ALL_APPLICABLE',
+        excuse_deadline_minutes: d.excuse_deadline_minutes ?? null,
+        rules: Array.isArray(d.rules) ? d.rules : undefined,
       };
       if (!opts.isEdit) body.qr_code = `EVENT-${Date.now()}`;
       await request(url, { method: opts.isEdit ? 'PUT' : 'POST', body: JSON.stringify(body) });
@@ -72,6 +84,8 @@ export function useEventCrud() {
         responsibleIds: [], location_lat: '', location_lng: '', location_radius: 50,
         qr_code: '', type: 'event', registration_deadline: '',
         available_payment_methods: [], max_participants: '',
+        start_time: '', end_time: '', duration_minutes: '',
+        is_required_attendance: true, evaluation_mode: 'ALL_APPLICABLE', excuse_deadline_minutes: null, rules: [],
       });
       setSelectedEvent(null);
       queryClient.invalidateQueries({ queryKey: ['events'] });
@@ -131,8 +145,14 @@ export function useEventCrud() {
       responsibleIds: [], location_lat: '', location_lng: '', location_radius: 50,
       qr_code: '', type: 'event', registration_deadline: '',
       available_payment_methods: [], max_participants: '',
+      start_time: '', end_time: '', duration_minutes: '',
+      is_required_attendance: true, evaluation_mode: 'ALL_APPLICABLE', excuse_deadline_minutes: null, rules: [],
     });
   };
+
+  const fetchEvents = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['events'] });
+  }, [queryClient]);
 
   return {
     events, loading, modalOpen, setModalOpen,
@@ -140,7 +160,7 @@ export function useEventCrud() {
     formData, setFormData, saving,
     studentsList, employeeList, eventSearch, setEventSearch,
     pendingEventRef,
-    fetchBaseData, fetchEvents: () => queryClient.invalidateQueries({ queryKey: ['events'] }),
+    fetchBaseData, fetchEvents,
     handleAddEvent, handleUpdateEvent, handleSave, handleDeleteEvent,
     resetForm,
   };

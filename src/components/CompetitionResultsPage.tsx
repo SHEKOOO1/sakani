@@ -200,8 +200,8 @@ export default function CompetitionResultsPage() {
                       <div className="mt-4">
                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">أعضاء الفريق</p>
                         <div className="flex flex-wrap gap-2">
-                          {comp.my_team.members.map((m) => (
-                            <span key={m.student_id} className="px-2.5 py-1 bg-white dark:bg-white/5 rounded-lg text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-100 dark:border-white/5">
+                          {comp.my_team.members.map((m, idx) => (
+                            <span key={m.student_id || `member-${idx}`} className="px-2.5 py-1 bg-white dark:bg-white/5 rounded-lg text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-100 dark:border-white/5">
                               {m.member_name}
                             </span>
                           ))}
@@ -230,8 +230,8 @@ export default function CompetitionResultsPage() {
                                   <span className="text-sm font-black text-slate-900 dark:text-white">{team.name}</span>
                                   {isMyTeam && <span className="mr-2 text-[9px] font-black text-amber-400">(أنت)</span>}
                                   <div className="flex flex-wrap gap-1 mt-1">
-                                    {team.members.map((m) => (
-                                      <span key={m.student_id} className="text-[9px] text-slate-400 font-medium">{m.member_name}</span>
+                                    {team.members.map((m, idx) => (
+                                      <span key={m.student_id || `member-${idx}`} className="text-[9px] text-slate-400 font-medium">{m.member_name}</span>
                                     ))}
                                   </div>
                                 </div>

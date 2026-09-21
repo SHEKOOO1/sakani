@@ -81,13 +81,6 @@ export function EventsPageHeader({ selectedEvent, user, activeTab, onBack, onTab
                 الحضور
               </button>
             </div>
-            {activeTab === 'management' && (
-              <button onClick={onNewEvent}
-                className="flex items-center gap-2 px-6 py-3 bg-white text-primary-600 rounded-2xl hover:bg-primary-50 transition-all font-black text-xs shadow-lg"
-              >
-                فعالية جديدة <Plus size={16} />
-              </button>
-            )}
           </div>
         )}
         {!selectedEvent && user?.role === 'parent' && (

@@ -241,6 +241,117 @@ export async function initializeDb() {
       ALTER TABLE [dbo].[finances] ADD [payment_method_id] NVARCHAR(128) NULL;
     `);
 
+    // ─── Event/Session Attendance Management (boot-time column guards) ───
+    // Mirrors migrations/034 (runtime reconciliation for already-running DBs).
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_sessions') AND name = 'status') ALTER TABLE [dbo].[event_sessions] ADD [status] NVARCHAR(20) NOT NULL CONSTRAINT DF_event_sessions_status DEFAULT 'scheduled';
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_sessions') AND name = 'opened_by') ALTER TABLE [dbo].[event_sessions] ADD [opened_by] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_sessions') AND name = 'opened_at') ALTER TABLE [dbo].[event_sessions] ADD [opened_at] DATETIME2;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_sessions') AND name = 'closed_by') ALTER TABLE [dbo].[event_sessions] ADD [closed_by] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_sessions') AND name = 'closed_at') ALTER TABLE [dbo].[event_sessions] ADD [closed_at] DATETIME2;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_sessions') AND name = 'updated_at') ALTER TABLE [dbo].[event_sessions] ADD [updated_at] DATETIME2;
+
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'checked_in_at') ALTER TABLE [dbo].[event_attendance_detailed] ADD [checked_in_at] DATETIME2;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'scheduled_at') ALTER TABLE [dbo].[event_attendance_detailed] ADD [scheduled_at] DATETIME2;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'late_minutes') ALTER TABLE [dbo].[event_attendance_detailed] ADD [late_minutes] INT;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'grace_minutes') ALTER TABLE [dbo].[event_attendance_detailed] ADD [grace_minutes] INT;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'rule_snapshot') ALTER TABLE [dbo].[event_attendance_detailed] ADD [rule_snapshot] NVARCHAR(MAX);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'penalty_mode') ALTER TABLE [dbo].[event_attendance_detailed] ADD [penalty_mode] NVARCHAR(20);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'penalty_amount') ALTER TABLE [dbo].[event_attendance_detailed] ADD [penalty_amount] DECIMAL(10,2);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'penalty_points') ALTER TABLE [dbo].[event_attendance_detailed] ADD [penalty_points] INT;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'penalty_applied') ALTER TABLE [dbo].[event_attendance_detailed] ADD [penalty_applied] BIT DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'penalty_status') ALTER TABLE [dbo].[event_attendance_detailed] ADD [penalty_status] NVARCHAR(20);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'check_in_method') ALTER TABLE [dbo].[event_attendance_detailed] ADD [check_in_method] NVARCHAR(50);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'is_required_attendance') ALTER TABLE [dbo].[event_attendance_detailed] ADD [is_required_attendance] BIT DEFAULT 1;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'attendance_weight') ALTER TABLE [dbo].[event_attendance_detailed] ADD [attendance_weight] DECIMAL(5,2) DEFAULT 1;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'counts_toward_absence_limit') ALTER TABLE [dbo].[event_attendance_detailed] ADD [counts_toward_absence_limit] BIT DEFAULT 1;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'absence_processed') ALTER TABLE [dbo].[event_attendance_detailed] ADD [absence_processed] BIT DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'absence_processed_at') ALTER TABLE [dbo].[event_attendance_detailed] ADD [absence_processed_at] DATETIME2;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'unexcused') ALTER TABLE [dbo].[event_attendance_detailed] ADD [unexcused] BIT DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'updated_at') ALTER TABLE [dbo].[event_attendance_detailed] ADD [updated_at] DATETIME2;
+
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_warnings') AND name = 'warning_type') ALTER TABLE [dbo].[student_warnings] ADD [warning_type] NVARCHAR(30);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_warnings') AND name = 'threshold') ALTER TABLE [dbo].[student_warnings] ADD [threshold] INT;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_warnings') AND name = 'unexcused_absence_count_at_time') ALTER TABLE [dbo].[student_warnings] ADD [unexcused_absence_count_at_time] INT;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_warnings') AND name = 'policy_version') ALTER TABLE [dbo].[student_warnings] ADD [policy_version] INT;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_warnings') AND name = 'attendance_id') ALTER TABLE [dbo].[student_warnings] ADD [attendance_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_warnings') AND name = 'is_attendance_warning') ALTER TABLE [dbo].[student_warnings] ADD [is_attendance_warning] BIT DEFAULT 0;
+
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_points') AND name = 'event_id') ALTER TABLE [dbo].[student_points] ADD [event_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_points') AND name = 'session_id') ALTER TABLE [dbo].[student_points] ADD [session_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_points') AND name = 'attendance_id') ALTER TABLE [dbo].[student_points] ADD [attendance_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_points') AND name = 'reference') ALTER TABLE [dbo].[student_points] ADD [reference] NVARCHAR(255);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_points') AND name = 'is_reversal') ALTER TABLE [dbo].[student_points] ADD [is_reversal] BIT DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_points') AND name = 'reversal_of_id') ALTER TABLE [dbo].[student_points] ADD [reversal_of_id] NVARCHAR(128);
+
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('finances') AND name = 'event_id') ALTER TABLE [dbo].[finances] ADD [event_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('finances') AND name = 'session_id') ALTER TABLE [dbo].[finances] ADD [session_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('finances') AND name = 'attendance_id') ALTER TABLE [dbo].[finances] ADD [attendance_id] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('finances') AND name = 'reference') ALTER TABLE [dbo].[finances] ADD [reference] NVARCHAR(255);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('finances') AND name = 'is_reversal') ALTER TABLE [dbo].[finances] ADD [is_reversal] BIT DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('finances') AND name = 'reversal_of_id') ALTER TABLE [dbo].[finances] ADD [reversal_of_id] NVARCHAR(128);
+
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_responsible') AND name = 'attendance_operator') ALTER TABLE [dbo].[event_responsible] ADD [attendance_operator] BIT DEFAULT 1;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_responsible') AND name = 'assigned_by') ALTER TABLE [dbo].[event_responsible] ADD [assigned_by] NVARCHAR(128);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_responsible') AND name = 'created_at') ALTER TABLE [dbo].[event_responsible] ADD [created_at] DATETIME2 DEFAULT GETDATE();
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_rules') AND name = 'base_points') ALTER TABLE [dbo].[event_attendance_rules] ADD [base_points] INT NULL;
+    `);
+
+    // Attendance-management indexes (idempotent)
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_attendance_detailed_event_id' AND object_id = OBJECT_ID('event_attendance_detailed')) CREATE INDEX IX_event_attendance_detailed_event_id ON event_attendance_detailed (event_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_attendance_detailed_student_id' AND object_id = OBJECT_ID('event_attendance_detailed')) CREATE INDEX IX_event_attendance_detailed_student_id ON event_attendance_detailed (student_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_sessions_event_id' AND object_id = OBJECT_ID('event_sessions')) CREATE INDEX IX_event_sessions_event_id ON event_sessions (event_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_responsible_event_user' AND object_id = OBJECT_ID('event_responsible')) CREATE INDEX IX_event_responsible_event_user ON event_responsible (event_id, user_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UQ_warnings_attendance_trigger' AND object_id = OBJECT_ID('student_warnings')) CREATE UNIQUE INDEX UQ_warnings_attendance_trigger ON student_warnings (student_id, warning_type, attendance_id) WHERE is_attendance_warning = 1 AND attendance_id IS NOT NULL;
+    `);
+
+    // ─── Event rules + absence review workflow (mirrors migrations/035) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('events') AND name = 'rule_evaluation_mode') ALTER TABLE [dbo].[events] ADD [rule_evaluation_mode] NVARCHAR(30) NOT NULL CONSTRAINT DF_events_rule_eval_mode DEFAULT 'ALL_APPLICABLE' CONSTRAINT CK_events_rule_eval_mode CHECK (rule_evaluation_mode IN ('FIRST_APPLICABLE','ALL_APPLICABLE'));
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('events') AND name = 'excuse_deadline_minutes') ALTER TABLE [dbo].[events] ADD [excuse_deadline_minutes] INT NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('events') AND name = 'start_time') ALTER TABLE [dbo].[events] ADD [start_time] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('events') AND name = 'end_time') ALTER TABLE [dbo].[events] ADD [end_time] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('events') AND name = 'duration_minutes') ALTER TABLE [dbo].[events] ADD [duration_minutes] INT NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('events') AND name = 'is_required_attendance') ALTER TABLE [dbo].[events] ADD [is_required_attendance] BIT NOT NULL CONSTRAINT DF_events_is_required_attendance DEFAULT 1;
+
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'final_status') ALTER TABLE [dbo].[event_attendance_detailed] ADD [final_status] NVARCHAR(30) NULL CONSTRAINT CK_eatd_final_status CHECK (final_status IN ('PENDING_REVIEW','UNEXCUSED','EXCUSED','TRAVEL'));
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'reviewed_by') ALTER TABLE [dbo].[event_attendance_detailed] ADD [reviewed_by] NVARCHAR(128) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'reviewed_at') ALTER TABLE [dbo].[event_attendance_detailed] ADD [reviewed_at] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('event_attendance_detailed') AND name = 'applied_rules_snapshot') ALTER TABLE [dbo].[event_attendance_detailed] ADD [applied_rules_snapshot] NVARCHAR(MAX) NULL;
+    `);
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'event_rules')
+      BEGIN
+        CREATE TABLE event_rules (
+          id NVARCHAR(128) PRIMARY KEY,
+          event_id NVARCHAR(128) NOT NULL,
+          session_id NVARCHAR(128) NULL,
+          tenant_id NVARCHAR(128) NOT NULL,
+          condition_status NVARCHAR(30) NOT NULL CHECK (condition_status IN ('late','absent','unexcused')),
+          condition_min_late_minutes INT NULL,
+          condition_max_late_minutes INT NULL,
+          action_type NVARCHAR(40) NOT NULL CHECK (action_type IN ('NONE','DEDUCT_POINTS','FINANCIAL_FEE','SEND_NOTIFICATION','EXCLUDE_FROM_RESIDENCE')),
+          points_amount INT NULL,
+          fee_amount DECIMAL(10,2) NULL,
+          notification_message NVARCHAR(MAX) NULL,
+          enabled BIT NOT NULL DEFAULT 1,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_by NVARCHAR(128) NULL,
+          updated_by NVARCHAR(128) NULL,
+          created_at DATETIME2 DEFAULT GETDATE(),
+          updated_at DATETIME2 DEFAULT GETDATE(),
+          FOREIGN KEY (event_id) REFERENCES events(id),
+          FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        );
+        CREATE INDEX IX_event_rules_event_enabled ON event_rules (event_id, enabled);
+      END
+    `);
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_rules_event_enabled' AND object_id = OBJECT_ID('event_rules')) CREATE INDEX IX_event_rules_event_enabled ON event_rules (event_id, enabled);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_attendance_detailed_final_status' AND object_id = OBJECT_ID('event_attendance_detailed')) CREATE INDEX IX_event_attendance_detailed_final_status ON event_attendance_detailed (event_id, final_status);
+    `);
+
     // تنظيف الرموز منتهية الصلاحية
     await kdb.raw("DELETE FROM [dbo].[token_blacklist] WHERE expires_at < GETDATE()");
 
@@ -264,7 +375,7 @@ async function seedPermissions() {
       'MANAGE_EMPLOYEES',
       'MANAGE_USERS', 'VIEW_USERS',
       'ASSIGN_ROLES', 'SEND_NOTIFICATIONS', 'VIEW_NOTIFICATIONS', 'VIEW_SETTINGS', 'MANAGE_SETTINGS',
-      'VIEW_EVENTS', 'ATTEND_EVENT', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+      'VIEW_EVENTS', 'ATTEND_EVENT', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS',
       'SEND_BROADCAST', 'VIEW_BROADCASTS',
       'VIEW_RADIO', 'MANAGE_RADIO_BROADCAST', 'MANAGE_RADIO_VIDEO_LIBRARY',
@@ -289,8 +400,8 @@ async function seedPermissions() {
       'JOIN_LAUNDRY', 'VIEW_LAUNDRY_QUEUE', 'MANAGE_LAUNDRY',
       'MANAGE_LAUNDRY_OPERATORS', 'START_LAUNDRY_SESSION', 'CLOSE_LAUNDRY_SESSION',
       'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT',
-      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
-      'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
+      'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
+      'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_PENALTIES',
       'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS',
       'VIEW_DECISION_LOG', 'UNDO_DECISION',
       'VIEW_DASHBOARD', 'VIEW_PRIEST_DASHBOARD', 'VIEW_REPORTS',
@@ -308,7 +419,7 @@ async function seedPermissions() {
       'VIEW_ROOMS', 'ADD_ROOM', 'EDIT_ROOM', 'DELETE_ROOM',
       'VIEW_ATTENDANCE', 'CHECKIN_ATTENDANCE', 'MANAGE_ATTENDANCE', 'VIEW_MAINTENANCE', 'REQUEST_MAINTENANCE', 'HANDLE_MAINTENANCE',
       'JOIN_LAUNDRY', 'VIEW_LAUNDRY_QUEUE', 'MANAGE_LAUNDRY', 'MANAGE_LAUNDRY_OPERATORS', 'START_LAUNDRY_SESSION', 'CLOSE_LAUNDRY_SESSION',
-      'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS',
+      'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
       'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS', 'VIEW_DECISION_LOG', 'UNDO_DECISION',
       'VIEW_DASHBOARD', 'VIEW_REPORTS', 'VIEW_FINANCE', 'VIEW_FINANCE_REPORTS', 'ADD_EXPENSE', 'ADD_REVENUE',
@@ -326,7 +437,7 @@ async function seedPermissions() {
       'VIEW_MAINTENANCE', 'HANDLE_MAINTENANCE',
       'VIEW_LAUNDRY_QUEUE', 'VIEW_DASHBOARD', 'VIEW_REPORTS',
       'VIEW_POINTS', 'VIEW_COMPETITIONS', 'VIEW_EVENTS',
-      'MANAGE_EVENT_ATTENDANCE'
+      'MANAGE_EVENT_ATTENDANCE', 'OPERATE_EVENT_ATTENDANCE'
     ],
     student: [
       'VIEW_STUDENT',
