@@ -24,7 +24,7 @@ router.get("/machines", authenticate, async (req, res) => {
     const machines = await kdb('laundry_machines').where('tenant_id', tenantId);
     res.json({ success: true, data: machines });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -41,7 +41,7 @@ router.post("/machines", authenticate, authorizePermission(AppPermission.MANAGE_
     }
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -53,7 +53,7 @@ router.patch("/machines/:id/status", authenticate, authorizePermission(AppPermis
       await kdb('laundry_machines').where({ id, tenant_id: tenantId }).update({ status });
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -67,7 +67,7 @@ router.get("/operators", authenticate, authorizePermission(AppPermission.MANAGE_
         .where('lo.tenant_id', tenantId);
     res.json({ success: true, data: operators });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -97,7 +97,7 @@ router.delete("/operators/:userId", authenticate, authorizePermission(AppPermiss
     await kdb('laundry_operators').where({ user_id: userId, tenant_id: tenantId }).del();
     res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -132,7 +132,7 @@ router.get("/session/active", authenticate, async (req, res) => {
         .first();
     res.json({ success: true, data: session });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -157,7 +157,7 @@ router.post("/session/start", authenticate, async (req, res) => {
 
       res.json({ success: true, data: { id } });
   } catch(error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -179,7 +179,7 @@ router.post("/session/close", authenticate, async (req, res) => {
 
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -194,7 +194,7 @@ router.get("/settings", authenticate, async (req, res) => {
         }
         res.json({ success: true, data: settings });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+        res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
     }
 });
 
@@ -210,7 +210,7 @@ router.post("/settings", authenticate, authorizePermission(AppPermission.MANAGE_
         }
         res.json({ success: true });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+        res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
     }
 });
 
@@ -258,7 +258,7 @@ router.get("/queue", authenticate, authorizePermission(AppPermission.VIEW_LAUNDR
     const queue = await query.orderBy('lq.joined_at', 'asc');
     res.json({ success: true, data: queue });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -291,7 +291,7 @@ router.post("/queue/join", authenticate, authorizePermission(AppPermission.JOIN_
       await kdb('laundry_queue').insert({ id: uuidv4(), tenant_id: tenantId, student_id: student.id });
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -338,7 +338,7 @@ router.post("/queue/call", authenticate, validate(queueCallSchema), async (req, 
 
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -361,7 +361,7 @@ router.post("/queue/complete", authenticate, validate(queueActionSchema), async 
       await kdb('laundry_queue').where({ id: queueId, tenant_id: tenantId }).update({ status: 'completed', finished_at: kdb.fn.now() });
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -385,7 +385,7 @@ router.post("/queue/cancel", authenticate, validate(queueActionSchema), async (r
       await kdb('laundry_queue').where({ id: queueId, tenant_id: tenantId }).update({ status: 'cancelled' });
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -397,7 +397,7 @@ router.post("/queue/clear-all", authenticate, authorizePermission(AppPermission.
       await kdb('laundry_machines').where({ tenant_id: tenantId }).update({ status: 'available' });
       res.json({ success: true });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

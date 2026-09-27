@@ -1,7 +1,7 @@
 import express from "express";
 import { kdb } from "../infrastructure/db";
 import { authenticate, authorizePermission } from "./middleware";
-import { AppPermission } from "../../types/permissions";
+import { AppPermission, isStaffRole } from "../../types/permissions";
 
 const router = express.Router();
 
@@ -9,8 +9,7 @@ router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_DASH
   const tenantId = req.user.tenantId;
 
   // الملخص المالي والغيابات خاص بالكوادر الإدارية فقط، وليس الطلبة أو أولياء الأمور أو الموظفين
-  const staffTiers = ['admin', 'bishop', 'supervisor', 'assistant_supervisor', 'priest'];
-  if (!staffTiers.includes(req.user.role)) {
+  if (!isStaffRole(req.user.role)) {
     return res.status(403).json({ success: false, message: "غير مصرح بالاطلاع على الملخص" });
   }
 
@@ -72,7 +71,7 @@ router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_DASH
       }
     });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 

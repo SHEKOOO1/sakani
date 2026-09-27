@@ -84,7 +84,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEES
     res.json({ success: true, ...result });
   } catch (error: any) {
     console.error("Employees GET error:", error?.message || error);
-    res.status(500).json({ success: false, message: "�� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -264,7 +264,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOY
 
     res.json({ success: true, message: "تم تحديث بيانات الموظف بنجاح" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -296,7 +296,41 @@ router.get("/:id/audit", authenticate, authorizePermission(AppPermission.MANAGE_
 
     res.json({ success: true, data: logs });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
+  }
+});
+
+// حذف موظف: يمنع حذف حساب المستخدم الحالي نفسه أو أدمن آخر
+router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEES), async (req, res) => {
+  const { id } = req.params;
+  const creatorRole = req.user.role;
+  const tenantIds = await resolveTenantIds(req);
+
+  try {
+    let existingUserQuery = kdb("users").where({ id });
+    if (creatorRole !== 'admin') {
+      existingUserQuery = existingUserQuery.whereIn('tenant_id', tenantIds);
+    }
+    const existingUser = await existingUserQuery.first();
+
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: "الموظف غير موجود" });
+    }
+
+    if (id === req.user.id) {
+      return res.status(403).json({ success: false, message: "لا يمكنك حذف حسابك بنفسك. اطلب من مديرك." });
+    }
+    if (existingUser.role === 'admin') {
+      return res.status(403).json({ success: false, message: "لا يمكن حذف حساب مدير التطبيق" });
+    }
+
+    await kdb("user_tenant_assignments").where({ user_id: id }).del();
+    await kdb("users").where({ id }).del();
+    invalidateUserPermissionCache(id);
+
+    res.json({ success: true, message: "تم حذف الموظف بنجاح" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

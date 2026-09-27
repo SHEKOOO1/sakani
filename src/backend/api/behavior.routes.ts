@@ -76,7 +76,7 @@ router.post('/points', authenticate, behaviorStaffOnly, authorizePermission(AppP
 // إصدار إنذار للطالب
 router.post('/warnings', authenticate, behaviorStaffOnly, authorizePermission(AppPermission.MANAGE_PENALTIES), BehaviorController.issueWarning);
 
-// ��� ���� ���� ���� (����� + ������)
+// جلب نقاط وإنذارات الطالب (نقاط + إنذارات)
 router.get('/points/:studentId', authenticate, behaviorStaffOnly, authorizePermission(AppPermission.VIEW_POINTS), async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -114,7 +114,7 @@ router.get("/my-history", authenticate, async (req: AuthenticatedRequest, res) =
       .orderBy('created_at', 'desc')
       .limit(50);
     res.json({ success: true, data: history });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 router.get("/my-warnings", authenticate, async (req: AuthenticatedRequest, res) => {
@@ -127,10 +127,10 @@ router.get("/my-warnings", authenticate, async (req: AuthenticatedRequest, res) 
       .orderBy('created_at', 'desc')
       .limit(50);
     res.json({ success: true, data: warnings });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
-// ��� ������� ���� ����
+// جلب إنذارات الطالب
 router.get("/warnings/:studentId", authenticate, behaviorStaffOnly, authorizePermission(AppPermission.VIEW_POINTS), async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -145,7 +145,7 @@ router.get("/warnings/:studentId", authenticate, behaviorStaffOnly, authorizePer
   } catch (error: any) { res.status(500).json({ success: false, message: 'حدث خطأ' }); }
 });
 
-// ���/����� �����
+// عكس/إلغاء الإنذار
 router.post("/warnings/:id/reverse", authenticate, behaviorStaffOnly, authorizePermission(AppPermission.UNDO_DECISION), async (req, res) => {
   try {
     const { id } = req.params;

@@ -87,7 +87,7 @@ router.get("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), asyn
 
     res.json({ success: true, data });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -127,7 +127,7 @@ router.post("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), val
     await kdb('tenants').insert(dataToInsert);
     res.status(201).json({ success: true, data: { id, name, location, location_lat, location_lng, location_radius } });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -240,7 +240,7 @@ router.get("/:id", authenticate, async (req, res) => {
 
     res.json({ success: true, data: tenant });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -360,7 +360,7 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
 
     res.json({ success: true, message: "Tenant updated successfully" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -555,7 +555,7 @@ router.get("/:id/export", authenticate, authorize([UserRole.Admin, UserRole.Bish
 
     res.json({ success: true, data });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -674,7 +674,7 @@ router.post("/:id/import", authenticate, authorize([UserRole.Admin, UserRole.Bis
 
     res.json({ success: true, message: "Data imported successfully" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -715,7 +715,7 @@ router.get("/available-users/list", authenticate, authorize([UserRole.Admin, Use
     });
     res.json({ success: true, data: deduped });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -728,7 +728,7 @@ router.get("/bishops/list", authenticate, authorize([UserRole.Admin]), async (re
       .orderBy('name');
     res.json({ success: true, data: bishops });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

@@ -222,7 +222,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
 
     res.status(201).json({ success: true, data: { id, email, name, role } });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -434,7 +434,7 @@ router.get("/custom-roles", authenticate, authorizePermission(AppPermission.MANA
     const formattedRoles = roles.map(r => ({ ...r, permissions: JSON.parse(r.permissions) }));
     res.json({ success: true, data: formattedRoles });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -484,7 +484,7 @@ router.post("/custom-roles", authenticate, authorizePermission(AppPermission.MAN
       res.json({ success: true, data: { id: newId }, message: "تم إنشاء الدور بنجاح" });
     }
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -673,7 +673,7 @@ router.get("/student/activities-and-competitions", authenticate, async (req, res
 
     res.json({ success: true, data: unified });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -695,7 +695,7 @@ router.get("/check-item-management/:itemId", authenticate, async (req, res) => {
 
     res.json({ success: true, canManage: !!management });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -726,7 +726,7 @@ router.delete("/custom-roles/:id", authenticate, authorizePermission(AppPermissi
     await kdb("tenant_custom_roles").where({ id, tenant_id: tenantId }).del();
     res.json({ success: true, message: "تم حذف الدور بنجاح" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -774,7 +774,7 @@ router.get("/refresh-permissions", authenticate, async (req, res) => {
       radio_514_enabled: radio514Enabled
     } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -864,7 +864,7 @@ router.get("/profile", authenticate, async (req, res) => {
 
     res.json({ success: true, data: profileData });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -895,7 +895,7 @@ router.put("/profile", authenticate, async (req, res) => {
     const user = await kdb('users').where({ id: req.user.id }).first();
     res.json({ success: true, data: { user: safeUser(user) } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -905,15 +905,15 @@ router.get("/rewards-store", authenticate, async (req, res) => {
     const rewards = await kdb("rewards_definitions").where({ tenant_id: tenantId });
     res.json({ success: true, data: rewards });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
-// ����� ������ ����� ������
+// إدارة متجر المكافآت
 router.post("/rewards-store", authenticate, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { title, description, cost, category, stock } = req.body;
   const tenantId = req.user.tenantId;
-  if (!title || !cost) return res.status(400).json({ success: false, message: "������� �������� �������" });
+  if (!title || !cost) return res.status(400).json({ success: false, message: "اسم المكافأة ومصاريفها مطلوبان" });
   try {
     const id = uuidv4();
     await kdb("rewards_definitions").insert({
@@ -922,7 +922,7 @@ router.post("/rewards-store", authenticate, authorizePermission(AppPermission.MA
     });
     res.status(201).json({ success: true, data: { id } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -994,7 +994,7 @@ router.post("/redeem-reward", authenticate, async (req, res) => {
 
     res.json({ success: true, message: "تم تقديم طلب الاستبدال وخصم النقاط بنجاح" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -1028,7 +1028,7 @@ router.get("/reward-requests", authenticate, async (req, res) => {
     const data = await query.orderBy('sr.created_at', 'desc');
     res.json({ success: true, data });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -1086,7 +1086,7 @@ router.patch("/process-reward/:requestId", authenticate, authorizePermission(App
 
     res.json({ success: true, message: `تم ${status === 'approved' ? 'قبول' : 'رفض'} الطلب بنجاح` });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 

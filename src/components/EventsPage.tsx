@@ -37,7 +37,7 @@ export function EventsPage({ defaultView = 'management' }: { defaultView?: 'mana
   const attendance = useEventAttendance(crud.selectedEvent, crud.fetchEvents);
   const subscriptions = useEventSubscriptions(crud.selectedEvent, crud.fetchEvents, (updated) => crud.setSelectedEvent(updated));
 
-  const [activeView, setActiveView] = useState<'details' | 'sessions' | 'attendance_list' | 'report' | 'competition' | 'payments' | 'subscriptions'>('details');
+  const [activeView, setActiveView] = useState<'details' | 'sessions' | 'attendance_list' | 'attendance_overview' | 'report' | 'competition' | 'payments' | 'subscriptions'>('details');
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [modalData, setModalData] = useState<any>({});
   const [managersItem, setManagersItem] = useState<{ itemType: 'event'; itemId: string; itemTitle?: string } | null>(null);
@@ -72,13 +72,27 @@ export function EventsPage({ defaultView = 'management' }: { defaultView?: 'mana
   }, [crud.fetchBaseData, crud.fetchEvents]);
 
   useEffect(() => {
-    if (!crud.pendingEventRef.current || crud.events.length === 0) return;
-    const ev = crud.events.find((ev: any) => ev.id === crud.pendingEventRef.current);
+    if (!crud.pendingEventRef.current) return;
+    const pendingId = crud.pendingEventRef.current;
+    const ev = crud.events.find((ev: any) => ev.id === pendingId);
     if (ev) {
       crud.pendingEventRef.current = null;
       openEventFromNotification(ev);
+      return;
     }
-  }, [crud.events]);
+    if (crud.loading) return;
+    // الحدث من سكن آخر غير السكن النشط حالياً — نجلبه مباشرة بالمعرف
+    // (الخادم يسمح للمشرف/الكاهن بالوصول لكل السكنات المرتبطة به)
+    crud.pendingEventRef.current = null;
+    (async () => {
+      try {
+        const res = await request(`/api/events/${pendingId}`);
+        if (res?.data && mounted.current) openEventFromNotification(res.data);
+      } catch (err) {
+        console.error('Failed to open event from notification:', err);
+      }
+    })();
+  }, [crud.events, crud.loading]);
 
   const openEventFromNotification = (ev: any) => {
     if (user?.role === 'parent' || user?.role === 'student') {
@@ -90,8 +104,7 @@ export function EventsPage({ defaultView = 'management' }: { defaultView?: 'mana
       subscriptions.setReceiptPreview('');
     } else {
       crud.setSelectedEvent(ev);
-      setActiveView('subscriptions');
-      subscriptions.fetchSubscriptions(ev.id);
+      setActiveView('attendance_overview');
     }
   };
 

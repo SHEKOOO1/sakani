@@ -2,52 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import {
   X, Calendar, Target, Search, Wallet, Smartphone, Check, Plus, Send,
-  ShieldCheck, Trash2, ListChecks
+  ShieldCheck, Info
 } from 'lucide-react';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { useApi } from '../../hooks/useApi';
 import { useSnackbar } from '../../contexts/SnackbarContext';
-
-const RULE_CONDITIONS = [
-  { value: 'late', label: 'تأخر' },
-  { value: 'absent', label: 'غياب (مبرر أو غير مبرر)' },
-  { value: 'unexcused', label: 'غياب غير مبرر' },
-];
-const RULE_ACTIONS = [
-  { value: 'NONE', label: 'لا يوجد إجراء' },
-  { value: 'DEDUCT_POINTS', label: 'خصم نقاط سلوكية' },
-  { value: 'FINANCIAL_FEE', label: 'غرامة مالية' },
-  { value: 'SEND_NOTIFICATION', label: 'إرسال إشعار' },
-  { value: 'EXCLUDE_FROM_RESIDENCE', label: 'مراجعة إنهاء السكن' },
-];
-const ruleRow = (sort_order: number) => ({
-  id: undefined as string | undefined,
-  condition_status: 'unexcused',
-  condition_min_late_minutes: null as number | null,
-  condition_max_late_minutes: null as number | null,
-  action_type: 'FINANCIAL_FEE',
-  points_amount: 0,
-  fee_amount: 0,
-  notification_message: null as string | null,
-  enabled: true,
-  sort_order,
-});
-
-// حقل رقمي تُعرض بجانبه وحدة القياس دائمًا (دقيقة / نقطة / جنيه)
-function UnitInput({ value, onChange, unit, placeholder, min = 0, step = 1 }: any) {
-  return (
-    <div className="relative">
-      <input type="number" dir="ltr" min={min} step={step} placeholder={placeholder}
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full pl-16 pr-3 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none text-right placeholder:text-right placeholder:font-bold"
-        inputMode="decimal" />
-      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-[10px] font-black text-slate-400 pointer-events-none">
-        {unit}
-      </span>
-    </div>
-  );
-}
+import { ExcuseDeadlineInput } from './ExcuseDeadlineInput';
 
 interface EventCreateModalProps {
   isOpen: boolean;
@@ -82,9 +42,7 @@ const defaultFormData = {
   end_time: '',
   duration_minutes: '',
   is_required_attendance: true,
-  evaluation_mode: 'ALL_APPLICABLE',
   excuse_deadline_minutes: null as number | null,
-  rules: [] as any[],
 };
 
 export function EventCreateModal({
@@ -139,8 +97,6 @@ export function EventCreateModal({
             if (res?.data) {
               setFormData((prev: any) => ({
                 ...prev,
-                rules: Array.isArray(res.data.eventRules) ? res.data.eventRules : [],
-                evaluation_mode: res.data.evaluationMode || prev.evaluation_mode,
                 excuse_deadline_minutes: res.data.excuseDeadlineMinutes ?? prev.excuse_deadline_minutes ?? null,
               }));
             }
@@ -228,25 +184,6 @@ export function EventCreateModal({
       const willExclude = !prev[excludeField];
       return { ...prev, [excludeField]: willExclude, ...(willExclude ? { [field]: undefined } : {}) };
     });
-  };
-
-  const updateRule = (idx: number, patch: any) => {
-    setFormData((prev: any) => ({
-      ...prev,
-      rules: (prev.rules || []).map((r: any, i: number) => (i === idx ? { ...r, ...patch } : r)),
-    }));
-  };
-  const addRule = () => {
-    setFormData((prev: any) => {
-      const rules: any[] = prev.rules || [];
-      return { ...prev, rules: [...rules, ruleRow(rules.length)] };
-    });
-  };
-  const removeRule = (idx: number) => {
-    setFormData((prev: any) => ({
-      ...prev,
-      rules: (prev.rules || []).filter((_: any, i: number) => i !== idx).map((r: any, i: number) => ({ ...r, sort_order: i })),
-    }));
   };
 
   const searchStudentsTarget = useCallback(async (q: string) => {
@@ -609,11 +546,11 @@ export function EventCreateModal({
             )}
           </div>
 
-          {/* === نظام الحضور والقواعد الذكية === */}
+          {/* === نظام الحضور === */}
           <div className="p-4 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/[0.02] space-y-4">
             <div className="flex items-center gap-2">
               <ShieldCheck size={16} className="text-neon-primary" />
-              <h4 className="font-bold text-sm text-slate-900 dark:text-white">نظام الحضور والقواعد الذكية</h4>
+              <h4 className="font-bold text-sm text-slate-900 dark:text-white">نظام الحضور</h4>
             </div>
 
             <label className="flex items-center gap-3 cursor-pointer">
@@ -645,111 +582,22 @@ export function EventCreateModal({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5">
-                <ListChecks size={14} /> ترتيب تطبيق القواعد
-              </label>
-              <select value={formData.evaluation_mode || 'ALL_APPLICABLE'}
-                onChange={e => setFormData({ ...formData, evaluation_mode: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-neon-primary/50">
-                <option value="ALL_APPLICABLE">كل القواعد المطبّقة تُنفَّذ (تراكمي)</option>
-                <option value="FIRST_APPLICABLE">أول قاعدة تنطبق فقط (الأولوية بالأرقام)</option>
-              </select>
+            <div className="mb-1 p-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20">
+              <p className="text-xs font-black text-violet-700 dark:text-violet-300 leading-tight mb-1.5">
+                موعد تقديم الأعذار (قبل بدء الفعالية) — يصلك إشعار عند تقديم طالب عذراً قبل هذا الموعد للقبول أو الرفض
+              </p>
+              <ExcuseDeadlineInput
+                valueMinutes={formData.excuse_deadline_minutes}
+                onChange={(m) => setFormData({ ...formData, excuse_deadline_minutes: m })}
+              />
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400">قواعد الفعالية (تُنفَّذ عند الحضور/الغياب)</label>
-                <button type="button" onClick={addRule}
-                  className="flex items-center gap-1 text-xs font-black text-neon-primary hover:text-neon-primary/80 transition-colors">
-                  <Plus size={14} /> إضافة قاعدة
-                </button>
-              </div>
-
-              <div className="mb-3 p-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20">
-                <p className="text-xs font-black text-violet-700 dark:text-violet-300 leading-tight mb-1.5">
-                  موعد تقديم الأعذار (قبل بدء الفعالية) — يصلك إشعار عند تقديم طالب عذراً قبل هذا الموعد للقبول أو الرفض
-                </p>
-                <div className="flex items-center gap-2">
-                  <UnitInput
-                    value={formData.excuse_deadline_minutes}
-                    onChange={(v: string) => setFormData({ ...formData, excuse_deadline_minutes: v === '' ? null : Math.max(0, parseInt(v) || 0) })}
-                    unit="دقيقة"
-                    placeholder="عدد الدقائق قبل الفعالية"
-                  />
-                  {formData.excuse_deadline_minutes === null ? (
-                    <button type="button" onClick={() => setFormData({ ...formData, excuse_deadline_minutes: 120 })}
-                      className="shrink-0 text-[10px] font-black text-violet-600 dark:text-violet-300 hover:underline">
-                      تفعيل
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => setFormData({ ...formData, excuse_deadline_minutes: null })}
-                      className="shrink-0 text-[10px] font-black text-rose-500 hover:underline">
-                      إلغاء تفعيل
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {(formData.rules || []).length === 0 ? (
-                <p className="text-[10px] leading-relaxed text-slate-400">لا توجد قواعد بعد. أضف قاعدة مثل: "الغياب غير المبرر → غرامة مالية" أو "التأخر أكثر من 15 دقيقة → خصم نقاط".</p>
-              ) : (
-                <div className="space-y-2">
-                  {(formData.rules || []).map((r: any, idx: number) => (
-                    <div key={idx} className="p-3 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-2">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <select value={r.condition_status || 'unexcused'}
-                          onChange={e => updateRule(idx, { condition_status: e.target.value as any })}
-                          className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-neon-primary/50">
-                          {RULE_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                        </select>
-                        <select value={r.action_type || 'NONE'}
-                          onChange={e => updateRule(idx, { action_type: e.target.value as any })}
-                          className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-neon-primary/50">
-                          {RULE_ACTIONS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
-                        </select>
-                      </div>
-                      {r.condition_status === 'late' && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <UnitInput value={r.condition_min_late_minutes ?? null}
-                            onChange={(v: string) => updateRule(idx, { condition_min_late_minutes: v === '' ? null : Math.max(0, parseInt(v)) })}
-                            unit="دقيقة" placeholder="من تأخر" />
-                          <UnitInput value={r.condition_max_late_minutes ?? null}
-                            onChange={(v: string) => updateRule(idx, { condition_max_late_minutes: v === '' ? null : Math.max(0, parseInt(v)) })}
-                            unit="دقيقة" placeholder="حتى" />
-                        </div>
-                      )}
-                      {r.action_type === 'DEDUCT_POINTS' && (
-                        <UnitInput value={r.points_amount ?? 0}
-                          onChange={(v: string) => updateRule(idx, { points_amount: Math.max(0, parseInt(v) || 0) })}
-                          unit="نقطة" placeholder="عدد النقاط المخصومة" />
-                      )}
-                      {r.action_type === 'FINANCIAL_FEE' && (
-                        <UnitInput value={r.fee_amount ?? 0}
-                          onChange={(v: string) => updateRule(idx, { fee_amount: Math.max(0, parseFloat(v) || 0) })}
-                          unit="جنيه" placeholder="مبلغ الغرامة" step="0.5" />
-                      )}
-                      {r.action_type === 'SEND_NOTIFICATION' && (
-                        <input type="text" placeholder="نص الإشعار..." value={r.notification_message ?? ''}
-                          onChange={e => updateRule(idx, { notification_message: e.target.value })}
-                          className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none" />
-                      )}
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={r.enabled !== false}
-                            onChange={e => updateRule(idx, { enabled: e.target.checked })}
-                            className="w-4 h-4 accent-neon-primary rounded" />
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">مفعّلة</span>
-                        </label>
-                        <button type="button" onClick={() => removeRule(idx)}
-                          className="flex items-center gap-1 text-[10px] font-bold text-rose-500 hover:text-rose-600 transition-colors">
-                          <Trash2 size={13} /> حذف
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-neon-primary/10 border border-neon-primary/20">
+              <Info size={15} className="text-neon-primary shrink-0 mt-0.5" />
+              <p className="text-[10px] leading-relaxed text-slate-600 dark:text-slate-300 font-bold">
+                شرائح قواعد الحضور (غرامة مالية، خصم نقاط، احتساب غياب بعد حدّ من التأخر) تُضبط بعد إنشاء الفعالية
+                من صفحة «قواعد الحضور والغياب» الخاصة بها.
+              </p>
             </div>
           </div>
 

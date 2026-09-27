@@ -21,9 +21,8 @@ export function useEventCrud() {
     qr_code: '', type: 'event', registration_deadline: '',
     available_payment_methods: [] as string[], max_participants: '',
     start_time: '', end_time: '', duration_minutes: '',
-    is_required_attendance: true, evaluation_mode: 'ALL_APPLICABLE',
+    is_required_attendance: true,
     excuse_deadline_minutes: null as number | null,
-    rules: [] as any[],
   });
   const pendingEventRef = { current: null as string | null };
 
@@ -68,9 +67,7 @@ export function useEventCrud() {
         start_time: d.start_time || undefined,
         end_time: d.end_time || undefined,
         is_required_attendance: d.is_required_attendance !== false,
-        evaluation_mode: d.evaluation_mode === 'FIRST_APPLICABLE' ? 'FIRST_APPLICABLE' : 'ALL_APPLICABLE',
         excuse_deadline_minutes: d.excuse_deadline_minutes ?? null,
-        rules: Array.isArray(d.rules) ? d.rules : undefined,
       };
       if (!opts.isEdit) body.qr_code = `EVENT-${Date.now()}`;
       await request(url, { method: opts.isEdit ? 'PUT' : 'POST', body: JSON.stringify(body) });
@@ -85,7 +82,7 @@ export function useEventCrud() {
         qr_code: '', type: 'event', registration_deadline: '',
         available_payment_methods: [], max_participants: '',
         start_time: '', end_time: '', duration_minutes: '',
-        is_required_attendance: true, evaluation_mode: 'ALL_APPLICABLE', excuse_deadline_minutes: null, rules: [],
+        is_required_attendance: true, excuse_deadline_minutes: null,
       });
       setSelectedEvent(null);
       queryClient.invalidateQueries({ queryKey: ['events'] });
@@ -146,7 +143,7 @@ export function useEventCrud() {
       qr_code: '', type: 'event', registration_deadline: '',
       available_payment_methods: [], max_participants: '',
       start_time: '', end_time: '', duration_minutes: '',
-      is_required_attendance: true, evaluation_mode: 'ALL_APPLICABLE', excuse_deadline_minutes: null, rules: [],
+      is_required_attendance: true, excuse_deadline_minutes: null,
     });
   };
 

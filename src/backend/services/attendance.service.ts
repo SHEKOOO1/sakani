@@ -469,11 +469,11 @@ export async function recordCheckIn(args: {
       late_minutes: lateMinutes,
       grace_minutes: rule.grace_period_minutes,
       rule_snapshot: snapshot,
-      penalty_mode: evaluation.penalty.mode,
-      penalty_amount: evaluation.penalty.financial_amount || null,
-      penalty_points: evaluation.penalty.points_deduction || null,
-      penalty_applied: evaluation.penalty.financial_amount > 0 || evaluation.penalty.points_deduction > 0 ? 1 : 0,
-      penalty_status: evaluation.penalty.financial_amount > 0 || evaluation.penalty.points_deduction > 0 ? 'APPLIED' : null,
+      penalty_mode: status === STATUS_ABSENT ? null : evaluation.penalty.mode,
+      penalty_amount: status === STATUS_ABSENT ? null : evaluation.penalty.financial_amount || null,
+      penalty_points: status === STATUS_ABSENT ? null : evaluation.penalty.points_deduction || null,
+      penalty_applied: status !== STATUS_ABSENT && (evaluation.penalty.financial_amount > 0 || evaluation.penalty.points_deduction > 0) ? 1 : 0,
+      penalty_status: status !== STATUS_ABSENT && (evaluation.penalty.financial_amount > 0 || evaluation.penalty.points_deduction > 0) ? 'APPLIED' : null,
       check_in_method: method,
       is_required_attendance: rule.required_attendance ? 1 : 0,
       attendance_weight: rule.attendance_weight,
@@ -508,7 +508,8 @@ export async function recordCheckIn(args: {
     }
 
     // Penalty ledger (idempotent: one APPLIED row per attendance row).
-    if (rule.auto_apply_penalty && evaluation.penalty.financial_amount + evaluation.penalty.points_deduction > 0) {
+    // الغياب المحسوب (وصل بعد حد الغياب) حالة غياب وليس تأخرًا: لا تُفرض غرامة فيه.
+    if (status !== STATUS_ABSENT && rule.auto_apply_penalty && evaluation.penalty.financial_amount + evaluation.penalty.points_deduction > 0) {
       penalty = await applyPenaltyLedger({ trx, event, session, student, attendanceId: attendance.id, evaluation, rule, userId, tenantId: event.tenant_id, snapshot, now });
     }
 
@@ -1260,8 +1261,9 @@ const STATUS_PRIORITY: Record<string, number> = {
 export async function getEventOverview(event: MaybeRow): Promise<{
   counts: Record<string, number>;
   rows: any[];
+  rules: any;
 }> {
-  const [detailed, summary, penalties, excuses] = await Promise.all([
+  const [detailed, summary, penalties, excuses, allStudents, eventRuleRow] = await Promise.all([
     kdb('event_attendance_detailed as ead')
       .leftJoin('students as s', 'ead.student_id', 's.id')
       .leftJoin('users as u', 's.user_id', 'u.id')
@@ -1272,22 +1274,36 @@ export async function getEventOverview(event: MaybeRow): Promise<{
     kdb('attendance_excuses').where({ event_id: event.id }).orderBy('submitted_at', 'desc').select(
       'id', 'student_id', 'reason', 'notes', 'status', 'submitted_at', 'decided_at', 'decided_notes', 'decided_by'
     ),
+    // كل طلاب السكن (حتى من لم يسجل حضوراً ولا قدّم عذراً) — يظهرون في الكشف
+    // بحالة «بلا تسجيل» مع بياناتهم. الفعاليات العامة (بدون سكن) تعتمد على المسجلين فقط.
+    event.tenant_id
+      ? kdb('students as s')
+          .leftJoin('users as u', 's.user_id', 'u.id')
+          .select('s.id as student_id', 'u.name as student_name', 's.student_id_number', 's.class_name')
+          .where('s.tenant_id', event.tenant_id)
+      : Promise.resolve([] as any[]),
+    // قواعد الفعالية (على مستوى الفعالية) لعرض ملخص القوانين المطبقة في الكشف
+    kdb('event_attendance_rules').where({ event_id: event.id }).whereNull('session_id').first(),
   ]);
 
   const counts: Record<string, number> = { present: 0, late: 0, absent: 0, excused: 0, travel: 0, none: 0 };
-  const byStudent = new Map<string, { student_id: string; name: string; student_id_number: string; rows: any[]; summary: any | null }>();
-  const putStudent = (studentId: string, name: string, idx: string) => {
+  const byStudent = new Map<string, { student_id: string; name: string; student_id_number: string; class_name: string; rows: any[]; summary: any | null }>();
+  const putStudent = (studentId: string, name: string, idx: string, className?: string) => {
     if (!byStudent.has(studentId)) {
-      byStudent.set(studentId, { student_id: studentId, name: name || '', student_id_number: idx || '', rows: [], summary: null });
+      byStudent.set(studentId, { student_id: studentId, name: name || '', student_id_number: idx || '', class_name: className || '', rows: [], summary: null });
     }
   };
   for (const r of detailed as any[]) {
-    putStudent(r.student_id, r.student_name, r.student_id_number);
+    putStudent(r.student_id, r.student_name, r.student_id_number, r.class_name);
     byStudent.get(r.student_id)!.rows.push(r);
   }
   for (const r of summary as any[]) {
     putStudent(r.student_id, '', '');
     byStudent.get(r.student_id)!.summary = r;
+  }
+  // كل طلاب السكن يظهرون في الكشف حتى لو لم يسجلوا حضوراً ولم يقدموا عذراً
+  for (const st of allStudents as any[]) {
+    putStudent(st.student_id, st.student_name, st.student_id_number, st.class_name);
   }
 
   const penaltiesByStudent = new Map<string, { financial: number; points: number; reasons: Set<string> }>();
@@ -1327,12 +1343,20 @@ export async function getEventOverview(event: MaybeRow): Promise<{
       student_id: s.student_id,
       name: s.name || s.student_id,
       student_id_number: s.student_id_number || '',
+      class_name: s.class_name || '',
       status: rollStatus,
       late_minutes: lateMax,
       penalty_financial: Math.round(pen.financial * 100) / 100,
       penalty_points: pen.points,
       penalty_reasons: Array.from(pen.reasons),
       excuse,
+      // تفاصيل الوجود الفعلي في كل تسجيل (الجلسات) لكل طالب
+      presence: has.map((r: any) => ({
+        status: norm(r.status),
+        late_minutes: Number(r.late_minutes || 0),
+        absence_reason: r.absence_reason || '',
+        attendance_weight: Number(r.attendance_weight || 0),
+      })),
     });
   }
   // أضف من لديه عذر لكن لم يسجل حضور فعلي (قدم العذر قبل الفعالية)
@@ -1350,11 +1374,27 @@ export async function getEventOverview(event: MaybeRow): Promise<{
         penalty_points: 0,
         penalty_reasons: [],
         excuse,
+        presence: [],
       });
     }
   }
 
-  return { counts, rows };
+  const ruleSummary = eventRuleRow && eventRuleRow.enabled !== false ? {
+    enabled: eventRuleRow.enabled !== false,
+    required_attendance: eventRuleRow.required_attendance !== false,
+    grace_period_minutes: Number(eventRuleRow.grace_period_minutes || 0),
+    absent_after_minutes: eventRuleRow.absent_after_minutes ? Number(eventRuleRow.absent_after_minutes) : null,
+    penalty_mode: eventRuleRow.penalty_mode || 'NONE',
+    base_penalty: Number(eventRuleRow.base_penalty || 0),
+    base_points: Number(eventRuleRow.base_points || 0),
+    additional_penalty: Number(eventRuleRow.additional_penalty || 0),
+    additional_penalty_unit: eventRuleRow.additional_penalty_unit || 'PER_MINUTE',
+    additional_penalty_block_minutes: Number(eventRuleRow.additional_penalty_block_minutes || 1),
+    maximum_penalty: eventRuleRow.maximum_penalty ? Number(eventRuleRow.maximum_penalty) : null,
+    maximum_points_deduction: eventRuleRow.maximum_points_deduction ? Number(eventRuleRow.maximum_points_deduction) : null,
+  } : null;
+
+  return { counts, rows, rules: ruleSummary };
 }
 
 // ────────────────────────────── Student QR ──────────────────────────────

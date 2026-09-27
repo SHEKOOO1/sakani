@@ -56,7 +56,7 @@ router.get("/search", authenticate, authorizePermission(AppPermission.ADD_STUDEN
 
     res.json({ success: true, data: parentsWithCount });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -98,7 +98,7 @@ router.get("/children", authenticate, async (req, res) => {
 
     res.json({ success: true, data: children.map(sanitizeChildRow) });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -148,7 +148,7 @@ router.get("/child/:id/finance", authenticate, async (req, res) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -187,7 +187,7 @@ router.get("/child/:id/report", authenticate, async (req, res) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

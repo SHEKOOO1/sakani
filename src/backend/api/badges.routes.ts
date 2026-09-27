@@ -55,7 +55,7 @@ router.get("/", authenticate, async (req, res) => {
     const badges = await query;
     res.json({ success: true, data: badges });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -71,7 +71,7 @@ router.post("/", authenticate, requireBadgeManagerRole, authorizePermission(AppP
     });
     res.status(201).json({ success: true, data: { id, title } });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -86,7 +86,7 @@ router.put("/:id", authenticate, requireBadgeManagerRole, authorizePermission(Ap
     const result = await kdb('badges').where({ id }).update({ title, description, icon, color, category });
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -101,7 +101,7 @@ router.delete("/:id", authenticate, requireBadgeManagerRole, authorizePermission
     await kdb('badges').where({ id }).del();
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -135,11 +135,11 @@ router.post("/assign", authenticate, requireBadgeManagerRole, authorizePermissio
     });
     res.json({ success: true, message: "تم منح الشارة بنجاح" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
-// ��� ���� ����� (����� �����)
+// منح شارة لطالب (مع نقاط إضافية)
 router.post("/grant", authenticate, requireBadgeManagerRole, authorizePermission(AppPermission.MANAGE_REWARDS), async (req, res) => {
   const { studentId, badgeName, pointsBonus } = req.body;
   try {
@@ -178,9 +178,9 @@ router.post("/grant", authenticate, requireBadgeManagerRole, authorizePermission
         });
       }
     });
-    res.json({ success: true, message: "�� ��� ������ �����" });
+    res.json({ success: true, message: "تم منح الشارة بنجاح" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -214,7 +214,7 @@ router.get("/student/:studentId", authenticate, async (req, res) => {
       .orderBy('sb.awarded_at', 'desc');
     res.json({ success: true, data: studentBadges });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -232,7 +232,7 @@ router.get("/my", authenticate, async (req, res) => {
       .orderBy('sb.awarded_at', 'desc');
     res.json({ success: true, data: studentBadges });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

@@ -288,3 +288,36 @@ describe('E: approved excuse reverses the penalty and clears the absence', () =>
     expect(dbMock.inserts('student_points').length).toBe(0);
   });
 });
+
+describe('F: boundary absence (late >= absent_after_minutes) never gets fined', () => {
+  it('scanning past the absence threshold records ABSENT with no penalty ledger nor finances', async () => {
+    const PAST_SESSION = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+    dbMock.setRows('events', [{ id: 'ev1', tenant_id: 'A' }]);
+    dbMock.setRows('event_responsible', [{ event_id: 'ev1', user_id: 'op1', attendance_operator: 1 }]);
+    dbMock.setRows('event_sessions', [{ id: 's1', event_id: 'ev1', status: 'open', start_time: PAST_SESSION }]);
+    dbMock.setRows('students', [{ id: 'stu1', tenant_id: 'A', name: 'طالب' }]);
+    // قاعدة: غرامة 50 على أي تأخر، لكن بعد 30 دقيقة يصبح غياب محسوبًا (بلا غرامة)
+    dbMock.setRows('event_attendance_rules', [{
+      event_id: 'ev1', session_id: null, grace_period_minutes: 0, penalty_mode: 'FINANCIAL',
+      base_penalty: 50, base_points: 0, additional_penalty: 0, additional_penalty_unit: 'PER_MINUTE',
+      additional_penalty_block_minutes: 1, maximum_penalty: null, maximum_points_deduction: null,
+      absent_after_minutes: 30, auto_apply_penalty: 1, enabled: 1, tiers: null,
+      required_attendance: 1, counts_toward_absence_limit: 1, attendance_weight: 1,
+    }]);
+
+    const qr = service.generateStudentQr({ id: 'stu1' }, 'A');
+    const res = makeRes();
+    await invoke({ method: 'POST', url: '/ev1/attendance-scan/sessions/s1/scan', params: { id: 'ev1', sessionId: 's1' }, body: { qr, method: 'qr' }, query: {}, user: operator }, res);
+    expect(res.statusCode).toBe(200);
+
+    const detailed = dbMock.inserts('event_attendance_detailed');
+    expect(detailed.length).toBe(1);
+    expect(detailed[0].status).toBe('absent');
+    expect(detailed[0].penalty_applied).toBe(0);
+    expect(detailed[0].penalty_amount).toBe(null);
+    // الغياب المحسوب = غياب حقيقي وليس تأخرًا: لا قيد مالي ولا خصم نقاط
+    expect(dbMock.inserts('attendance_penalties').length).toBe(0);
+    expect(dbMock.inserts('finances').length).toBe(0);
+    expect(dbMock.inserts('student_points').length).toBe(0);
+  });
+});

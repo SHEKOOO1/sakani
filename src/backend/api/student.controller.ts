@@ -128,7 +128,7 @@ export const StudentController = {
             res.send(Buffer.from(pdfBytes));
         } catch (error: any) {
             console.error('PDF Export Error:', error);
-            res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+            res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
         }
     }
 };

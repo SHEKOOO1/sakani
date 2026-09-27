@@ -19,7 +19,7 @@ router.get("/methods", authenticate, async (req, res) => {
       .orderBy('created_at', 'desc');
     res.json({ success: true, data: methods });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -59,7 +59,7 @@ router.delete("/methods/:id", authenticate, authorizePermission(AppPermission.MA
     await kdb('payment_methods').where({ id, tenant_id: tenantId }).del();
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -163,7 +163,7 @@ router.get("/event/:eventId", authenticate, authorizePermission(AppPermission.MA
       .orderBy('ep.created_at', 'desc');
     res.json({ success: true, data: payments });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -181,7 +181,7 @@ router.get("/my", authenticate, async (req, res) => {
       .orderBy('ep.created_at', 'desc');
     res.json({ success: true, data: payments });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

@@ -135,6 +135,20 @@ export enum UserRole {
   Priest = 'priest',
 }
 
+// الأدوار التي تُظهر بيانات إدارية حساسة (ملخص الداشبورد، سجل التدقيق، إلخ) —
+// تُستثنى الطلبة وأولياء الأمور والموظفون
+export const STAFF_ROLES: readonly string[] = [
+  UserRole.Admin,
+  UserRole.Bishop,
+  UserRole.Priest,
+  UserRole.Supervisor,
+  UserRole.AssistantSupervisor,
+];
+
+export function isStaffRole(role: string): boolean {
+  return STAFF_ROLES.includes(role);
+}
+
 // Allowed permission values — used to validate permission assignments and prevent privilege escalation
 const _VALID_PERMISSIONS: Record<string, true> = {} as any;
 for (const perm of Object.values(AppPermission)) {

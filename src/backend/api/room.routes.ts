@@ -88,7 +88,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING)
     await kdb('rooms').insert(dataToInsert);
     res.status(201).json({ success: true, data: { id, apartmentId, roomNumber, capacity, tenantId } });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -110,7 +110,7 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOU
     await kdb('rooms').where({ id }).where('tenant_id', tenantId).del();
     res.json({ success: true, message: "تم حذف الغرفة بنجاح" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -152,7 +152,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOUSIN
 
     res.json({ success: true, message: "تم تحديث بيانات الغرفة بنجاح" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 

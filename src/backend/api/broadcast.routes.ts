@@ -47,7 +47,7 @@ router.get("/ticker", authenticate, async (req, res) => {
     const broadcasts = await getUserBroadcasts(user, "news");
     res.json({ success: true, data: broadcasts });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -58,7 +58,7 @@ router.get("/messages", authenticate, async (req, res) => {
     const broadcasts = await getUserBroadcasts(user, "messages");
     res.json({ success: true, data: broadcasts });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -81,7 +81,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_BROADCASTS)
     }
     res.json({ success: true, data: result });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -130,7 +130,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.SEND_BROADCAST)
 
     res.json({ success: true, message: "تم إرسال الإعلان بنجاح", data: { id } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -177,7 +177,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.SEND_BROADCAS
 
     res.json({ success: true, message: "تم تحديث الإعلان بنجاح" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -260,7 +260,7 @@ router.patch("/:id/toggle", authenticate, authorizePermission(AppPermission.SEND
 
     res.json({ success: true, message: newStatus === "active" ? "تم تفعيل الإعلان" : "تم إيقاف الإعلان", data: { status: newStatus } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -279,7 +279,7 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.SEND_BROAD
     await kdb("broadcast_attachments").where({ broadcast_id: req.params.id }).del();
     res.json({ success: true, message: "تم حذف الإعلان نهائياً" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -300,7 +300,7 @@ router.post("/:id/read", authenticate, async (req, res) => {
     }
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -313,7 +313,7 @@ router.get("/targets/tenants", authenticate, authorizePermission(AppPermission.S
     const tenants = await getScopedTenants(user);
     res.json({ success: true, data: tenants });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -325,7 +325,7 @@ router.get("/targets/colleges", authenticate, authorizePermission(AppPermission.
     const colleges = await getScopedColleges(user, tenantIds);
     res.json({ success: true, data: colleges });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -337,7 +337,7 @@ router.get("/targets/governorates", authenticate, authorizePermission(AppPermiss
     const governorates = await getScopedGovernorates(user, tenantIds);
     res.json({ success: true, data: governorates });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -349,7 +349,7 @@ router.get("/targets/churches", authenticate, authorizePermission(AppPermission.
     const churches = await getScopedChurches(user, tenantIds);
     res.json({ success: true, data: churches });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -361,7 +361,7 @@ router.get("/targets/bishops", authenticate, authorizePermission(AppPermission.S
     const bishops = await getScopedBishops(user, tenantIds);
     res.json({ success: true, data: bishops });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -373,7 +373,7 @@ router.get("/targets/priests", authenticate, authorizePermission(AppPermission.S
     const priests = await getScopedPriests(user, tenantIds);
     res.json({ success: true, data: priests });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -385,7 +385,7 @@ router.get("/targets/supervisors", authenticate, authorizePermission(AppPermissi
     const supervisors = await getScopedSupervisors(user, tenantIds);
     res.json({ success: true, data: supervisors });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -397,7 +397,7 @@ router.get("/targets/employees", authenticate, authorizePermission(AppPermission
     const employees = await getScopedEmployees(user, tenantIds);
     res.json({ success: true, data: employees });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -409,7 +409,7 @@ router.get("/targets/guardian-relations", authenticate, authorizePermission(AppP
     const relations = await getScopedGuardianRelations(user, tenantIds);
     res.json({ success: true, data: relations });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -423,7 +423,7 @@ router.get("/targets/students", authenticate, authorizePermission(AppPermission.
     const students = await getScopedStudents(user, search, tenantIds);
     res.json({ success: true, data: students });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -581,7 +581,7 @@ router.post("/recipients-count", authenticate, authorizePermission(AppPermission
     const count = await estimateRecipientCount(clamped || {});
     res.json({ success: true, data: { count } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -601,7 +601,7 @@ router.post("/upload", authenticate, authorizePermission(AppPermission.SEND_BROA
       },
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -626,7 +626,7 @@ router.post("/:id/attachments", authenticate, authorizePermission(AppPermission.
     });
     res.json({ success: true, message: "تم إضافة المرفق" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

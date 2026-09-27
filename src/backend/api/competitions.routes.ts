@@ -34,7 +34,7 @@ router.get("/", authenticate, async (req, res) => {
     })));
     res.json({ success: true, data: competitions });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -60,7 +60,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_COMPETIT
     });
     res.json({ success: true, data: { id, title } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -74,7 +74,7 @@ router.patch("/:id/status", authenticate, requireItemAccess('competition', AppPe
     await kdb('competitions').where({ id, tenant_id: tenantId }).update({ status });
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -199,7 +199,7 @@ router.post(
         tenant_id: tenantId,
         student_id: studentId,
         amount: points,
-        reason: `���� ������ �������: ${team.name}`,
+        reason: `نقاط منافسة الفريق: ${team.name}`,
         category: 'competition',
         created_by: req.user.id
       });

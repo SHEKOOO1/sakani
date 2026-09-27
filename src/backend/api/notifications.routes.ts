@@ -36,8 +36,10 @@ router.get("/", authenticate, async (req, res) => {
     const [countResult, notifications] = await Promise.all([
       kdb("notifications").where("user_id", userId).count("* as total").first(),
       kdb("notifications")
-        .where("user_id", userId)
-        .orderBy("created_at", "desc")
+        .leftJoin("tenants", "notifications.tenant_id", "tenants.id")
+        .where("notifications.user_id", userId)
+        .select("notifications.*", "tenants.name as tenant_name")
+        .orderBy("notifications.created_at", "desc")
         .offset(offset)
         .limit(limit),
     ]);
@@ -112,7 +114,7 @@ router.post("/subscribe", authenticate, validate(pushSubscriptionSchema), async 
 
     res.json({ success: true, message: "Subscribed for push notifications" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -393,6 +395,8 @@ export const notifyExcuseSubmitted = async (data: {
     if (!student) return;
     const name = student.user_name || student.name || 'أحد الطلاب';
     const dateText = new Date().toLocaleString('ar-EG');
+    const tenant = await kdb('tenants').select('name').where({ id: data.tenantId }).first();
+    const tenantName = tenant?.name ? ` — ${tenant.name}` : '';
     const staffIds = await getTenantStaffUserIds(data.tenantId);
     const meta = JSON.stringify({
       kind: 'excuse_review',
@@ -400,7 +404,7 @@ export const notifyExcuseSubmitted = async (data: {
       event_id: data.eventId,
       studentName: name,
     });
-    const message = `تقدّم الطالب «${name}» بعذر عن حضور «${data.eventTitle}» (${dateText}).\nالرسالة: ${data.reason}`;
+    const message = `تقدّم الطالب «${name}» بعذر عن حضور «${data.eventTitle}»${tenantName} (${dateText}).\nالرسالة: ${data.reason}`;
     for (const userId of staffIds) {
       await createNotification({
         userId, tenantId: data.tenantId,

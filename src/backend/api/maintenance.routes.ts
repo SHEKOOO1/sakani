@@ -33,7 +33,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_MAINTENANCE
     const total = Number((totalResult as any)?.total || 0);
     res.json({ success: true, data: requests, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (error: any) {
-      res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+      res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -62,7 +62,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.REQUEST_MAINTEN
 
     res.status(201).json({ success: true, data: { id, description } });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -91,7 +91,7 @@ router.patch("/:id/status", authenticate, authorizePermission(AppPermission.HAND
 
     res.json({ success: true, message: "Request updated" });
   } catch (error: any) {
-    res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
 
@@ -107,7 +107,7 @@ router.get("/my", authenticate, async (req, res) => {
       .limit(50);
     res.json({ success: true, data: requests });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

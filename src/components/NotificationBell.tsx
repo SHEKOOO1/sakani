@@ -1,4 +1,4 @@
-import { Bell, Check, Clock, Info, AlertTriangle, XCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Bell, Check, Clock, Info, AlertTriangle, XCircle, CheckCircle2, ArrowLeft, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApi } from '../hooks/useApi';
@@ -221,11 +221,17 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
                                 <ArrowLeft size={11} className="rotate-180" /> اضغط للانتقال إلى {meta.page === 'laundry' ? 'المغسلة' : meta.page === 'attendance' ? 'الحضور' : meta.page === 'maintenance' ? 'الصيانة' : meta.page === 'behavior' ? 'السلوك' : 'الصفحة المعنية'}
                               </p>
                             )}
-                            <div className="flex items-center justify-between pt-1">
-                              <div className="flex items-center gap-1 text-[10px] text-slate-400 font-medium">
+<div className="flex items-center justify-between pt-1">
+                               <div className="flex items-center gap-1 text-[10px] text-slate-400 font-medium">
                                  <Clock size={10} />
                                  <span>{new Date(n.created_at).toLocaleTimeString('ar-EG')}</span>
-                              </div>
+                               </div>
+                               {n.tenant_name && (
+                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[9px] font-black max-w-[140px] truncate" title={n.tenant_name}>
+                                   <Building2 size={9} className="shrink-0" />
+                                   {n.tenant_name}
+                                 </span>
+                               )}
                               {!n.is_read && (
                                 <span className="text-[9px] font-black text-blue-600 bg-blue-100 dark:bg-blue-500/20 dark:text-blue-300 px-2 py-0.5 rounded-full">
                                   جديد

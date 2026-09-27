@@ -69,7 +69,7 @@ router.get("/setup-status", async (req, res) => {
     const userCount = Number(result?.count || 0);
     res.json({ success: true, needsSetup: userCount === 0 });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -123,7 +123,7 @@ router.post("/register", rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: 
 
     const existingUser = await kdb('users').where({ email }).first();
     if (existingUser) {
-      return res.status(400).json({ success: false, message: '���� ����� ������. ������ ������ �� �������� ��������� ��� ����.' });
+      return res.status(400).json({ success: false, message: 'البريد الإلكتروني مستخدم بالفعل. حاول استخدام بريد آخر.' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -165,7 +165,7 @@ router.post("/register", rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: 
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -263,7 +263,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

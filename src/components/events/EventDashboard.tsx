@@ -120,7 +120,6 @@ export function EventDashboard(props: EventDashboardProps) {
         user={user}
         hasPermission={hasPermission}
         onManageManagers={onManageManagers}
-        fetchSubscriptions={fetchSubscriptions}
         fetchEventPayments={fetchEventPayments}
         handleDeleteEvent={handleDeleteEvent}
       />
@@ -158,6 +157,7 @@ export function EventDashboard(props: EventDashboardProps) {
               selectedEvent={selectedEvent}
               request={request}
               showSnackbar={showSnackbar}
+              hasPermission={hasPermission}
             />
           )}
 

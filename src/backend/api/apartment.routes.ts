@@ -70,9 +70,9 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING)
     await kdb('apartments').insert(dataToInsert);
     res.status(201).json({ success: true, data: { id, name, building, tenantId, is_active } });
   } catch (error: any) {
-    let message = "��� �� ����� �����. ���� �� ��� ��������.";
+    let message = "حدث خطأ أثناء إنشاء السكن. من فضلك حاول مرة أخرى.";
     if (error.message.includes("FOREIGN KEY constraint failed") || error.message.includes("REFERENCE constraint")) {
-      message = "��� �� ��� ��������: ����� ����� (������) ��� ����� �� �� ���� �� ������. ���� ����� ����� ������ �� ������ ������ ������.";
+      message = "تعذر ربط المشرف: المشرف المحدد (المُدرج) غير موجود في هذا السكن. تأكد من اختيار مشرف تابع للسكن ثم أعد المحاولة.";
     }
     res.status(400).json({ success: false, message });
   }
@@ -129,7 +129,7 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOU
     console.error("Critical Delete Apartment Error:", error);
     res.status(400).json({ 
       success: false, 
-      message: "���� ��� ����� ����� ������ ������ ��"
+      message: "حدث خطأ أثناء حذف السكن. من فضلك حاول مرة أخرى."
     });
   }
 });
@@ -155,12 +155,12 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOUSIN
     .where({ id }).where('tenant_id', tenantId)
     .update(dataToUpdate)
     .then(() => {
-      res.json({ success: true, message: "�� ����� ������ ����� �����" });
+      res.json({ success: true, message: "تم تحديث بيانات السكن بنجاح" });
     })
     .catch(error => {
-      let message = "��� �� ����� �����. ���� �� ��� ��������.";
+      let message = "حدث خطأ أثناء تحديث السكن. من فضلك حاول مرة أخرى.";
       if (error.message.includes("FOREIGN KEY constraint failed") || error.message.includes("REFERENCE constraint")) {
-        message = "��� �� ��� ��������: ����� ����� (������) ��� ����� �� �� ���� �� ������.";
+        message = "تعذر ربط المشرف: المشرف المحدد غير موجود في هذا السكن.";
       }
       res.status(400).json({ success: false, message });
     });

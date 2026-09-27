@@ -21,7 +21,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 }
 
-// ���� ����� ������ ������� (�������� ���)
+// إشعار أولياء الأمور بالطلاب المتأخرين عن تسجيل الحضور
 router.post("/notify-missing", authenticate, authorizePermission(AppPermission.MANAGE_ATTENDANCE), async (req, res) => {
   const tenantId = req.user.tenantId;
   const now = new Date();
@@ -40,12 +40,12 @@ router.post("/notify-missing", authenticate, authorizePermission(AppPermission.M
       .select("s.id", "u.name", "s.tenant_id");
 
     if (missingStudents.length === 0) {
-      return res.json({ success: true, message: "�� ���� �����ʺ ���� ������ ����� ������ ������ ?" });
+      return res.json({ success: true, message: "لا يوجد طلاب متأخرون عن تسجيل الحضور اليوم" });
     }
 
     await kdb.transaction(async (trx) => {
       for (const student of missingStudents) {
-        const message = `����� ����: ������ ${student.name} �� ���� ������ �� ����� ��� ������ ${now.toLocaleTimeString('ar-EG')}. ���� ������� ��� �����.`;
+        const message = `تنبيه تأخر: الطالب ${student.name} لم يسجل حضوراً حتى الساعة ${now.toLocaleTimeString('ar-EG')}. برجاء التواصل مع المشرف.`;
 
         const parents = await trx("student_guardians as sg")
           .join("parents as p", "sg.guardian_id", "p.id")
@@ -57,7 +57,7 @@ await trx("notifications").insert({
             id: uuidv4(),
             user_id: parent.user_id,
             tenant_id: tenantId,
-            title: "������ ���� ����� ??",
+            title: "تنبيه تأخر الطالب عن الحضور",
             message,
             type: "error",
             metadata: JSON.stringify({ page: 'attendance' }),
@@ -70,17 +70,17 @@ await trx("notifications").insert({
           tenant_id: tenantId,
           student_id: student.id,
           level: 'high',
-          reason: `���� �� ����� �� ������ ������ (��� ����� ���) - ${now.toLocaleTimeString()}`,
+          reason: `لم يقم الطالب بتسجيل الحضور اليوم (حالة غياب) - ${now.toLocaleTimeString()}`,
           notify_parent: 1,
           status: 'active'
         });
       }
     });
 
-    res.json({ success: true, message: `�� ����� ������� ������ �� ��� ������ �����.` });
+    res.json({ success: true, message: `تم إرسال الإشعارات بنجاح لأولياء الأمور` });
   } catch (error: any) {
     console.error("Bulk Notification Error:", error);
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -90,7 +90,7 @@ router.post("/check-in", authenticate, authorizePermission(AppPermission.CHECKIN
 
   try {
     await kdb.transaction(async (trx) => {
-      // 1. ��� ������ ������ ��������� �����
+      // 1. التحقق من أن الطالب مرتبط بالمستخدم
       const student = await trx("students as s")
         .join("users as u", "s.user_id", "u.id")
         .join("tenants as t", "s.tenant_id", "t.id")
@@ -110,9 +110,9 @@ router.post("/check-in", authenticate, authorizePermission(AppPermission.CHECKIN
         )
         .first();
 
-      if (!student) throw new Error("��� ������ ��� �����");
-      if (student.is_traveling) throw new Error("�� ����� ����� ������/�������� ����� ���� �����.");
-      // 2. ������ �������� ������ (Geofencing)
+      if (!student) throw new Error("لم يتم العثور على حساب الطالب");
+      if (student.is_traveling) throw new Error("لا يمكن تسجيل الحضور/الانصراف خلال مدة السفر الحالية");
+      // 2. التحقق من الموقع الجغرافي (Geofencing)
       const latNum = Number(lat);
       const lngNum = Number(lng);
       // منع تجاوز الموقع الجغرافي بإرسال قيم غير رقمية (NaN تتجاوز كل المقارنات)
@@ -145,17 +145,17 @@ router.post("/check-in", authenticate, authorizePermission(AppPermission.CHECKIN
 
       // If trying to check-in and far from entry point, reject
       if (type === 'check-in' && distance > entryRadius) {
-        throw new Error(`��� ���� ��� �� ���� ������ (${Math.round(distance)} ���)`);
+        throw new Error(`أنت بعيد جداً عن نقطة الدخول (${Math.round(distance)} متر)`);
       }
 
-      // ������ �� ��� ����� ��� ������� �� ��� ���� (Debounce 5 mins)
+      // منع تكرار تسجيل نفس النوع خلال 5 دقائق (Debounce 5 mins)
       const lastAction = await trx("attendance")
         .where({ student_id: student.id, type })
         .whereRaw("created_at > DATEADD(minute, -5, GETDATE())")
         .first();
 
       if (lastAction) {
-        throw new Error("�� ����� ������ ������ ��������");
+        throw new Error("تم تسجيل الحضور بالفعل خلال الخمس دقائق الأخيرة");
       }
 
       const now = new Date();
@@ -165,7 +165,7 @@ router.post("/check-in", authenticate, authorizePermission(AppPermission.CHECKIN
       const curfewM = parseInt(curfewParts[1] || '59', 10);
       const curfewMinutes = curfewH * 60 + curfewM;
 
-      // 3. ����� ������ �������
+      // 3. تسجيل الحضور في قاعدة البيانات
       const attendanceId = uuidv4();
       await trx("attendance").insert({
         id: attendanceId,
@@ -267,24 +267,24 @@ router.post("/check-in", authenticate, authorizePermission(AppPermission.CHECKIN
       }
     });
 
-    res.json({ success: true, message: "�� ����� ������ �����" });
+    res.json({ success: true, message: "تم تسجيل الحضور بنجاح" });
   } catch (error: any) {
     const knownErrors = [
-      "��� ������ ��� �����",
-      "�� ����� ����� ������/�������� ����� ���� �����.",
-      "�� ����� ������ ������ ��������"
+      "لم يتم العثور على حساب الطالب",
+      "لا يمكن تسجيل الحضور/الانصراف خلال مدة السفر الحالية",
+      "تم تسجيل الحضور بالفعل خلال الخمس دقائق الأخيرة"
     ];
     if (knownErrors.includes(error.message)) {
       return res.status(400).json({ success: false, message: error.message });
     }
-    if (error.message?.includes("����")) {
+    if (error.message?.includes("بعيد")) {
       return res.status(400).json({ success: false, message: error.message });
     }
     if (error.message?.indexOf("إحداثيات") === 0 || error.message?.indexOf("الغرفة") === 0) {
       return res.status(400).json({ success: false, message: error.message });
     }
     console.error("Attendance Error:", error);
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -318,7 +318,7 @@ router.get("/hourly-stats", authenticate, authorizePermission(AppPermission.MANA
     res.json({ success: true, data: fullHourlyData });
   } catch (error: any) {
     console.error("Hourly Stats Error:", error);
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -346,7 +346,7 @@ router.get("/history/:userId", authenticate, authorizePermission(AppPermission.V
       .limit(50);
     res.json({ success: true, data: history });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

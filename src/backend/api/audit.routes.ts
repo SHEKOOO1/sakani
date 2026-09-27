@@ -1,13 +1,13 @@
 import express from "express";
 import { kdb } from "../infrastructure/db";
 import { authenticate, computeUserTenantIds } from "./middleware";
+import { isStaffRole } from "../../types/permissions";
 
 const router = express.Router();
 
 router.get("/", authenticate, async (req, res) => {
   // سجل التدقيق خاص بالكوادر الإدارية فقط (لا أولياء أمور ولا طلاب ولا موظفين)
-  const staffTiers = ['admin', 'bishop', 'supervisor', 'assistant_supervisor', 'priest'];
-  if (!staffTiers.includes(req.user.role)) {
+  if (!isStaffRole(req.user.role)) {
     return res.status(403).json({ success: false, message: "غير مصرح بالوصول إلى سجل التدقيق" });
   }
   const tenantId = req.user.tenantId;
@@ -55,7 +55,7 @@ router.get("/", authenticate, async (req, res) => {
 
     res.json({ success: true, data: parsedLogs });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

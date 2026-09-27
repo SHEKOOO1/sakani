@@ -26,7 +26,7 @@ router.get("/contacts", authenticate, authorizePermission(AppPermission.VIEW_DAS
 
     res.json({ success: true, data: contact || null });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -75,7 +75,7 @@ router.put("/contacts", authenticate, authorizePermission(AppPermission.VIEW_DAS
 
     res.json({ success: true, data: updated });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -128,7 +128,7 @@ router.get("/:tenantId/contact", authenticate, async (req, res) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

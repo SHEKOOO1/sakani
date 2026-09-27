@@ -38,7 +38,6 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
   const isAdmin = role === 'admin';
 
   try {
-    fs.appendFileSync('C:/Users/QUEENS~1/AppData/Local/Temp/opencode/parbranch.log', 'HANDLER role=' + role + ' url=' + req.originalUrl + '\n');
     // Admin: only see global events (tenant_id IS NULL) — never tenant-level events
     if (isAdmin) {
       const events = await kdb('events').whereNull('tenant_id').orderBy('created_at', 'desc');
@@ -61,25 +60,15 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
 
     // Parent: only see events their children are in + global events targeting their tenant
     if (role === 'parent') {
-      const dbg = (s: string) => fs.appendFileSync('C:/Users/QUEENS~1/AppData/Local/Temp/opencode/parbranch.log', s + '\n');
-      dbg('START tenantId=' + String(tenantId));
-      try {
       const parent = await kdb('parents').select('id').where({ user_id: userId }).first();
-      dbg('parent=' + JSON.stringify(parent));
       if (!parent) return res.json({ success: true, data: [] });
       const children = await kdb('student_guardians').select('student_id').where({ guardian_id: parent.id });
-      dbg('children=' + JSON.stringify(children));
       const childIds = children.map((c: any) => c.student_id);
 
       const childTenants = childIds.length > 0
         ? await kdb('students').whereIn('id', childIds).select('tenant_id')
         : [];
       const childTenantIds = [...new Set(childTenants.map((s: any) => s.tenant_id).filter(Boolean))];
-      dbg('childTenantIds=' + JSON.stringify(childTenantIds));
-    } catch (err: any) {
-      dbg('ERR-BRANCH: ' + (err instanceof Error ? (err as Error).message : String(err)));
-      throw err;
-    }
 
       const events = await kdb('events as e')
         .distinct()
@@ -100,7 +89,6 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_EVENTS), as
           }
         })
         .select('e.*');
-      dbg('JOIN-OK rows=' + events.length);
 
       const eventIds = events.map((ev: any) => ev.id);
       let attendanceRecords: any[] = [];

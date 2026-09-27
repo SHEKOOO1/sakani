@@ -491,7 +491,7 @@ router.get('/:id/attendance/report', authenticate, authorizePermission(AppPermis
 
 // GET /api/events/:id/attendance/overview → كشف حضور/غياب/أعذار مجمّع على مستوى
 // الفعالية للمشرف/الكاهن، يشمل مدة التأخير والغرامات الموقعة وحالة العذر.
-router.get('/:id/attendance/overview', authenticate, authorizePermission(AppPermission.MANAGE_EVENT_ATTENDANCE), async (req, res) => {
+router.get('/:id/attendance/overview', authenticate, async (req, res) => {
   try {
     const event = await loadEvent(req, res);
     if (!event) return;

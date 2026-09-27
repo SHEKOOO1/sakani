@@ -49,7 +49,7 @@ router.get("/stats", authenticate, authorizePermission(AppPermission.VIEW_PRIEST
             }
         });
     } catch (error: any) {
-        res.status(400).json({ success: false, message: "��� �������. ���� �� �������� ����� ��� ����." });
+        res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
     }
 });
 

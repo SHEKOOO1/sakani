@@ -48,14 +48,14 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_DECISION_LO
     }
     res.json({ success: true, data: logs });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
 // Create a decision log entry
 router.post("/", authenticate, authorizePermission(AppPermission.UNDO_DECISION), async (req, res) => {
   const { action_type, details } = req.body;
-  if (!action_type) return res.status(400).json({ success: false, message: "��� ������� �����" });
+  if (!action_type) return res.status(400).json({ success: false, message: "نوع العملية مطلوب" });
 
   const id = uuidv4();
   const tenantId = req.user.tenantId;
@@ -74,7 +74,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.UNDO_DECISION),
     });
     res.status(201).json({ success: true, data: { id } });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -126,7 +126,7 @@ router.post("/:id/undo", authenticate, authorizePermission(AppPermission.UNDO_DE
 
     res.json({ success: true, message: "تم التراجع عن القرار بنجاح" });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 

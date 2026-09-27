@@ -4,6 +4,7 @@ import {
   ListChecks, Loader2, RefreshCw, CheckCircle2, XCircle, CalendarClock,
   Users, AlarmClock, Banknote, FileText, BadgeCheck,
 } from 'lucide-react';
+import { AppPermission } from '../../types/permissions';
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
   present: { label: 'حاضر', cls: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
@@ -32,9 +33,10 @@ interface EventAttendanceOverviewViewProps {
   selectedEvent: any;
   request: (url: string, options?: any) => Promise<any>;
   showSnackbar: (message: string, type?: any) => void;
+  hasPermission?: (perm: AppPermission) => boolean;
 }
 
-export function EventAttendanceOverviewView({ selectedEvent, request, showSnackbar }: EventAttendanceOverviewViewProps) {
+export function EventAttendanceOverviewView({ selectedEvent, request, showSnackbar, hasPermission }: EventAttendanceOverviewViewProps) {
   const [data, setData] = useState<any>({ counts: {}, rows: [], event: null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -80,14 +82,34 @@ export function EventAttendanceOverviewView({ selectedEvent, request, showSnackb
     ? `آخر موعد لتقديم العذر: قبل الفعالية بـ ${data.event.excuseDeadlineMinutes} دقيقة`
     : 'لا يوجد موعد محدد للأعذار (ممكن تقديم عذر في أي وقت قبل الفعالية)';
 
+  const rules = data.rules;
+  const ruleSummary = rules ? (() => {
+    const parts: string[] = [];
+    if (rules.required_attendance) parts.push('الحضور إلزامي');
+    if (rules.grace_period_minutes > 0) parts.push(`مهلة سماح ${rules.grace_period_minutes} دقيقة`);
+    if (rules.absent_after_minutes) parts.push(`يُعد غائباً بعد ${rules.absent_after_minutes} دقيقة`);
+    if (rules.penalty_mode && rules.penalty_mode !== 'NONE') {
+      const extra = rules.additional_penalty
+        ? rules.additional_penalty_unit === 'PER_MINUTE'
+          ? ` + ${rules.additional_penalty} ج/${rules.additional_penalty_block_minutes} دقيقة`
+          : ` + ${rules.additional_penalty} ج/دقيقة`
+        : '';
+      parts.push(`الغرامة الأساسية ${rules.base_penalty} ج${extra}${rules.maximum_penalty ? ` (السقف ${rules.maximum_penalty} ج)` : ''}`);
+      if (rules.base_points > 0) parts.push(`خصم ${rules.base_points} نقطة${rules.maximum_points_deduction ? ` (سقف ${rules.maximum_points_deduction})` : ''}`);
+    }
+    return parts.length > 0 ? parts.join(' • ') : 'بعمل وفق قوانين الفعالية المخصصة';
+  })() : null;
+
   const total = Object.keys(data.counts).reduce((s, k) => s + (typeof data.counts[k] === 'number' ? data.counts[k] : 0), 0);
+
+  const canDecide = hasPermission ? hasPermission(AppPermission.MANAGE_EVENT_ATTENDANCE) : true;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} key="overview" className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white leading-none">كشف الحضور والأعذار</h2>
         <p className="text-slate-500 dark:text-slate-400 font-bold mt-3 max-w-2xl leading-relaxed">
-          نظرة مجمّعة على حضور «{selectedEvent.title}» — الحالة والمدة المتأخرة والغرامات الموقعة حسب قوانين الفعالية، وأعذار الطلاب مع القبول أو الرفض.
+          نظرة مجمّعة على كل طلاب السكن في «{selectedEvent.title}» — الحالة (حاضر/متأخر/غائب/معتذر) وفق قوانين الفعالية، والغرامات الموقعة، وأعذار الطلاب مع القبول أو الرفض.
         </p>
       </div>
 
@@ -95,6 +117,16 @@ export function EventAttendanceOverviewView({ selectedEvent, request, showSnackb
         <CalendarClock size={18} className="text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" />
         <div className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-relaxed">{deadline}</div>
       </div>
+
+      {ruleSummary && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-ocean-50 dark:bg-ocean-500/10 border border-ocean-200 dark:border-ocean-500/20">
+          <ListChecks size={18} className="text-ocean-600 dark:text-ocean-400 shrink-0 mt-0.5" />
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
+            <span className="text-ocean-700 dark:text-ocean-300 font-black">قوانين الفعالية: </span>
+            {ruleSummary}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 w-full sm:w-auto">
@@ -127,7 +159,7 @@ export function EventAttendanceOverviewView({ selectedEvent, request, showSnackb
             <Loader2 size={22} className="animate-spin text-primary-600" />
           </div>
         ) : data.rows.length === 0 ? (
-          <p className="py-10 text-center text-[11px] font-bold text-slate-400">لا توجد سجلات حضور أو أعذار لهذه الفعالية بعد.</p>
+          <p className="py-10 text-center text-[11px] font-bold text-slate-400">لا يوجد طلاب مسجلون في هذا السكن بعد — الكشف يعرض كل طلاب السكن حتى لو لم يسجلوا حضوراً.</p>
         ) : (
           <div className="space-y-2">
             {data.rows.map((row: any, idx: number) => {
@@ -177,6 +209,21 @@ export function EventAttendanceOverviewView({ selectedEvent, request, showSnackb
                     </div>
                   )}
 
+                  {Array.isArray(row.presence) && row.presence.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[9px] font-black text-slate-400">تفاصيل الوجود:</span>
+                      {row.presence.map((p: any, i: number) => {
+                        const pm = STATUS_META[p.status] || STATUS_META.none;
+                        return (
+                          <span key={i} className={`px-2 py-0.5 rounded-lg text-[9px] font-black ${pm.cls}`}>
+                            {pm.label}
+                            {Number(p.late_minutes || 0) > 0 ? ` (+${p.late_minutes})` : ''}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {excuse && (
                     <div className={`p-3 rounded-xl border ${excuse.status === 'PENDING' ? 'bg-amber-50/60 dark:bg-amber-500/5 border-amber-200 dark:border-amber-500/20' : 'bg-white dark:bg-white/5 border-slate-100 dark:border-white/10'}`}>
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -187,7 +234,7 @@ export function EventAttendanceOverviewView({ selectedEvent, request, showSnackb
                             {excuse.submitted_at ? ` — ${new Date(excuse.submitted_at).toLocaleString('ar-EG')}` : ''}
                           </p>
                         </div>
-                        {excuse.status === 'PENDING' && (
+                        {excuse.status === 'PENDING' && canDecide && (
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button onClick={() => decide(excuse, 'APPROVED')} disabled={busy === `exc-${excuse.id}`}
                               className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-black hover:bg-emerald-700 disabled:opacity-50 transition-colors">
@@ -217,7 +264,8 @@ export function EventAttendanceOverviewView({ selectedEvent, request, showSnackb
 
       <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400">
         <Users size={13} className="shrink-0" />
-        يظهر هنا كل طالب سجّل حضوراً أو تغيّب في أي جلسة، أو قدّم عذراً — مع الغرامات الموقعة وفق قوانين الفعالية وأزرار قبول/رفض الأعذار المعلقة.
+        يعرض الكشف كل طلاب السكن (حاضر/متأخر/غائب/معتذر) مع الغرامات الموقعة وفق قوانين الفعالية. الطلاب الذين لم يسجلوا حضوراً ولا قدموا عذراً تظهر حالتهم «بلا تسجيل».
+        {canDecide && ' — أزرار قبول/رفض الأعذار تظهر لمن يملك صلاحية إدارة الحضور.'}
       </div>
     </motion.div>
   );

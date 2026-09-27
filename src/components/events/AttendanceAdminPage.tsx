@@ -2,35 +2,11 @@ import { useState, useCallback, useEffect } from 'react';
 import { useApi } from '../../hooks/useApi';
 import {
   ShieldCheck, Settings2, AlertTriangle, Loader2, RefreshCw, Save, CheckCircle2,
-  XCircle, Gavel, FileText, Calendar, Users, Filter, ChevronDown, Plus, Trash2, ListChecks
+  XCircle, Gavel, FileText, Calendar, Users, Filter, ChevronDown, Plus, Trash2, ListChecks, Info, CalendarClock
 } from 'lucide-react';
+import { ExcuseDeadlineInput } from './ExcuseDeadlineInput';
 
 type Tab = 'risk' | 'policy' | 'rules';
-
-const RULE_CONDITIONS = [
-  { value: 'late', label: 'تأخر' },
-  { value: 'absent', label: 'غياب (مبرر أو غير مبرر)' },
-  { value: 'unexcused', label: 'غياب غير مبرر' },
-];
-const RULE_ACTIONS = [
-  { value: 'NONE', label: 'لا يوجد إجراء' },
-  { value: 'DEDUCT_POINTS', label: 'خصم نقاط سلوكية' },
-  { value: 'FINANCIAL_FEE', label: 'غرامة مالية' },
-  { value: 'SEND_NOTIFICATION', label: 'إرسال إشعار' },
-  { value: 'EXCLUDE_FROM_RESIDENCE', label: 'مراجعة إنهاء السكن' },
-];
-const ruleRow = (sort_order: number) => ({
-  id: undefined as string | undefined,
-  condition_status: 'unexcused',
-  condition_min_late_minutes: null as number | null,
-  condition_max_late_minutes: null as number | null,
-  action_type: 'FINANCIAL_FEE',
-  points_amount: 0,
-  fee_amount: 0,
-  notification_message: null as string | null,
-  enabled: true,
-  sort_order,
-});
 
 // حقل رقمي تُعرض بجانبه وحدة القياس دائمًا (دقيقة / نقطة / جنيه)
 function UnitInput({ value, onChange, unit, placeholder, min = 0, step = 1 }: any) {
@@ -211,12 +187,10 @@ export function AttendanceAdminPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
-  const [rules, setRules] = useState<{ eventRule: any; sessionRules: any[] } | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
-  const [ruleForm, setRuleForm] = useState<any>(null);
   const [sessionOverrides, setSessionOverrides] = useState<Record<string, any>>({});
-  const [eventRules, setEventRules] = useState<any[]>([]);
-  const [evaluationMode, setEvaluationMode] = useState('ALL_APPLICABLE');
+  const [tiers, setTiers] = useState<any[]>([]);
+  const [gracePeriod, setGracePeriod] = useState<number>(0);
   const [excuseDeadlineMinutes, setExcuseDeadlineMinutes] = useState<number | null>(null);
   const [reviewQueue, setReviewQueue] = useState<any[]>([]);
   const [reviewNote, setReviewNote] = useState('');
@@ -235,32 +209,40 @@ export function AttendanceAdminPage() {
 
   const loadRules = useCallback(async (ev: any) => {
     setSelectedEvent(ev);
-    setRules(null);
-    setRuleForm(null);
-    setEventRules([]);
+    setTiers([]);
+    setSessionOverrides({});
     setReviewQueue([]);
     setExcuseDeadlineMinutes(null);
     try {
       const res = await request(`/api/events/${ev.id}/attendance/rules`);
       const r = res?.data || { eventRule: null, sessionRules: [] };
-      setRules(r);
-      setEventRules(Array.isArray(r.eventRules) ? r.eventRules : []);
-      setEvaluationMode(r.evaluationMode || 'ALL_APPLICABLE');
-      setExcuseDeadlineMinutes(r.excuseDeadlineMinutes ?? null);
-      setRuleForm(r.eventRule || {
+      const eventRule = r.eventRule || {
         grace_period_minutes: 0, penalty_mode: 'NONE', base_penalty: 0, base_points: 0,
         additional_penalty: 0, additional_penalty_unit: 'PER_MINUTE', additional_penalty_block_minutes: 1,
         maximum_penalty: null, maximum_points_deduction: null, absent_after_minutes: null,
         auto_apply_penalty: true, enabled: true, tiers: null, required_attendance: true,
         counts_toward_absence_limit: true, attendance_weight: 1,
-      });
-      const sRes = await request(`/api/events/${ev.id}/sessions`);
-      setSessions(sRes?.data || []);
+      };
+      const rows: any[] = [];
+      if (Array.isArray(eventRule.tiers)) {
+        for (const t of eventRule.tiers) {
+          if (t.penalty > 0) rows.push({ type: 'FEE', minMinutes: t.minMinutes, maxMinutes: t.maxMinutes, amount: t.penalty });
+          if (t.points > 0) rows.push({ type: 'POINTS', minMinutes: t.minMinutes, maxMinutes: t.maxMinutes, amount: t.points });
+        }
+      }
+      if (eventRule.absent_after_minutes != null) {
+        rows.push({ type: 'ABSENT', minMinutes: eventRule.absent_after_minutes, maxMinutes: null, amount: 0 });
+      }
+      setTiers(rows);
+      setGracePeriod(eventRule.grace_period_minutes ?? 0);
+      setExcuseDeadlineMinutes(res.data?.excuseDeadlineMinutes ?? null);
       const overrides: Record<string, any> = {};
       for (const sr of r.sessionRules || []) {
         overrides[sr.session_id] = sr;
       }
       setSessionOverrides(overrides);
+      const sRes = await request(`/api/events/${ev.id}/sessions`);
+      setSessions(sRes?.data || []);
       const revRes = await request(`/api/events/${ev.id}/attendance/review`);
       setReviewQueue(revRes?.data || []);
     } catch (e: any) {
@@ -268,15 +250,77 @@ export function AttendanceAdminPage() {
     }
   }, [request]);
 
+  const emptyTierRow = () => ({ type: 'FEE', minMinutes: 5, maxMinutes: null, amount: 5 });
+
+  const addTierRow = () => setTiers((prev) => [...prev, emptyTierRow()]);
+  const updateTierRow = (idx: number, patch: any) => {
+    setTiers((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+  const removeTierRow = (idx: number) => {
+    setTiers((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const saveEventRules = async () => {
     if (!selectedEvent) return;
+    for (const [i, r] of tiers.entries()) {
+      if (r.minMinutes == null || String(r.minMinutes).trim() === '') {
+        flash(false, `حدد «من (دقيقة)» في الشريحة ${i + 1}`);
+        return;
+      }
+      if (r.maxMinutes != null && r.maxMinutes < r.minMinutes) {
+        flash(false, `«حتى» في الشريحة ${i + 1} أقل من «من»`);
+        return;
+      }
+      if ((r.type === 'FEE' || r.type === 'POINTS') && (r.amount == null || r.amount <= 0)) {
+        flash(false, `حدد قيمة الجزاء في الشريحة ${i + 1}`);
+        return;
+      }
+    }
+
+    const absentAfter = Math.min(...tiers.filter((r: any) => r.type === 'ABSENT').map((r: any) => r.minMinutes ?? Infinity));
+    const cut = absentAfter !== Infinity ? absentAfter - 1 : Infinity;
+
+    const tierPayload = tiers
+      .filter((r: any) => r.type === 'FEE' || r.type === 'POINTS')
+      .map((r: any) => ({
+        minMinutes: Math.max(0, Math.floor(Number(r.minMinutes) || 0)),
+        maxMinutes: r.maxMinutes != null ? Math.min(Math.max(0, Math.floor(Number(r.maxMinutes) || 0)), cut) : null,
+        penalty: r.type === 'FEE' ? Number(r.amount) || 0 : 0,
+        points: r.type === 'POINTS' ? Math.floor(Number(r.amount) || 0) : 0,
+      }))
+      .sort((a, b) => a.minMinutes - b.minMinutes);
+
+    const hasFees = tierPayload.some((t) => t.penalty > 0);
+    const hasPoints = tierPayload.some((t) => t.points > 0);
+
     setBusy('eventrules');
     try {
       await request(`/api/events/${selectedEvent.id}/attendance/rules`, {
         method: 'PUT',
-        body: JSON.stringify({ evaluation_mode: evaluationMode, rules: eventRules, excuseDeadlineMinutes }),
+        body: JSON.stringify({
+          rule: {
+            grace_period_minutes: Math.max(0, Math.floor(Number(gracePeriod) || 0)),
+            penalty_mode: hasFees && hasPoints ? 'BOTH' : hasFees ? 'FINANCIAL' : hasPoints ? 'POINTS' : 'NONE',
+            base_penalty: 0,
+            base_points: 0,
+            additional_penalty: 0,
+            additional_penalty_unit: 'PER_MINUTE',
+            additional_penalty_block_minutes: 1,
+            maximum_penalty: null,
+            maximum_points_deduction: null,
+            absent_after_minutes: absentAfter !== Infinity ? absentAfter : null,
+            auto_apply_penalty: true,
+            enabled: true,
+            tiers: tierPayload,
+            required_attendance: true,
+            counts_toward_absence_limit: true,
+            attendance_weight: 1,
+          },
+          rules: [],
+          excuseDeadlineMinutes,
+        }),
       });
-      flash(true, 'تم حفظ قواعد الفعالية الذكية');
+      flash(true, 'تم حفظ قواعد الفعالية');
       await loadRules(selectedEvent);
     } catch (e: any) {
       flash(false, e.message || 'تعذر حفظ القواعد');
@@ -298,33 +342,6 @@ export function AttendanceAdminPage() {
       await loadRules(selectedEvent);
     } catch (e: any) {
       flash(false, e.message || 'تعذر تصنيف الغياب');
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const updateEventRule = (idx: number, patch: any) => {
-    setEventRules((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-  };
-  const addEventRule = () => {
-    setEventRules((prev) => [...prev, ruleRow(prev.length)]);
-  };
-  const removeEventRule = (idx: number) => {
-    setEventRules((prev) => prev.filter((_, i) => i !== idx).map((r, i) => ({ ...r, sort_order: i })));
-  };
-
-  const saveEventRule = async () => {
-    if (!selectedEvent || !ruleForm) return;
-    setBusy('rule');
-    try {
-      await request(`/api/events/${selectedEvent.id}/attendance/rules`, {
-        method: 'PUT',
-        body: JSON.stringify(ruleForm),
-      });
-      flash(true, 'تم حفظ قواعد الفعالية');
-      await loadRules(selectedEvent);
-    } catch (e: any) {
-      flash(false, e.message || 'تعذر حفظ قواعد الفعالية');
     } finally {
       setBusy(null);
     }
@@ -591,7 +608,7 @@ export function AttendanceAdminPage() {
     if (!selectedEvent) return renderEventsPicker();
     return (
       <div className="space-y-5">
-        <button onClick={() => { setSelectedEvent(null); setRules(null); }} className="flex items-center gap-2 text-xs font-black text-slate-500 dark:text-slate-300 hover:text-primary-600 transition-colors">
+        <button onClick={() => { setSelectedEvent(null); setTiers([]); setSessionOverrides({}); }} className="flex items-center gap-2 text-xs font-black text-slate-500 dark:text-slate-300 hover:text-primary-600 transition-colors">
           <ChevronDown size={14} className="rotate-90" /> العودة لاختيار الفعالية
         </button>
         <div className="flex items-center justify-between">
@@ -599,125 +616,96 @@ export function AttendanceAdminPage() {
           <button onClick={() => loadRules(selectedEvent)} className="p-2 rounded-lg text-slate-400 hover:text-slate-600"><RefreshCw size={15} /></button>
         </div>
 
-        <div className="p-5 rounded-2xl bg-white dark:bg-card-dark border border-slate-100 dark:border-white/[0.05]">
-          <p className="text-sm font-black text-slate-700 dark:text-white mb-3">قاعدة الفعالية الافتراضية</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <NumberField label="مهلة التأخير (دقيقة)" value={ruleForm?.grace_period_minutes} onChange={(v) => setRuleForm((f: any) => ({ ...f, grace_period_minutes: v }))} />
-            <NumberField label="عدم الحضور بعد (دقيقة)" value={ruleForm?.absent_after_minutes} onChange={(v) => setRuleForm((f: any) => ({ ...f, absent_after_minutes: v === '' ? null : v }))} />
-            <NumberField label="الوزن (أهمية الحضور)" value={ruleForm?.attendance_weight} onChange={(v) => setRuleForm((f: any) => ({ ...f, attendance_weight: v }))} />
-            <NumberField label="الغرامة الأساسية (ج)" value={ruleForm?.base_penalty} onChange={(v) => setRuleForm((f: any) => ({ ...f, base_penalty: v }))} />
-            <NumberField label="خصم النقاط الأساسي (نقطة)" value={ruleForm?.base_points} onChange={(v) => setRuleForm((f: any) => ({ ...f, base_points: v }))} />
-            <NumberField label="غرامة إضافية" value={ruleForm?.additional_penalty} onChange={(v) => setRuleForm((f: any) => ({ ...f, additional_penalty: v }))} />
-            <NumberField label="الحد الأقصى للغرامة (ج)" value={ruleForm?.maximum_penalty} onChange={(v) => setRuleForm((f: any) => ({ ...f, maximum_penalty: v === '' ? null : v }))} />
-            <NumberField label="الحد الأقصى لخصم النقاط" value={ruleForm?.maximum_points_deduction} onChange={(v) => setRuleForm((f: any) => ({ ...f, maximum_points_deduction: v === '' ? null : v }))} />
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-neon-primary/10 border border-neon-primary/20">
+          <Info size={18} className="text-neon-primary shrink-0 mt-0.5" />
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
+            عند تسجيل الحضور يُحسب التأخر بالدقائق، وتُطبق الشريحة التي تنتمي إليها: من 5 حتى 10 دقائق ← الغرامة الأولى، من 10 حتى 30 ← الثانية، وهكذا.
+            والوقت الواقع بين شريحتين يظل على الشريحة الأقل حتى الوصول للشريحة الأعلى. وعند الوصول لشريحة «يُحتسب غياباً» يُعد الطالب غائبًا ولا تُفرض عليه أي غرامة.
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-            <Toggle label="الحضور إلزامي" value={!!ruleForm?.required_attendance} onChange={(v) => setRuleForm((f: any) => ({ ...f, required_attendance: v }))} />
-            <Toggle label="يُحتسب في حد الغياب" value={!!ruleForm?.counts_toward_absence_limit} onChange={(v) => setRuleForm((f: any) => ({ ...f, counts_toward_absence_limit: v }))} />
-            <Toggle label="تطبيق الغرامة تلقائياً" value={!!ruleForm?.auto_apply_penalty} onChange={(v) => setRuleForm((f: any) => ({ ...f, auto_apply_penalty: v }))} />
-            <Toggle label="مفعّلة" value={!!ruleForm?.enabled} onChange={(v) => setRuleForm((f: any) => ({ ...f, enabled: v }))} />
-          </div>
-          <button onClick={saveEventRule} disabled={busy === 'rule' || !ruleForm} className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-primary-600 to-vibrant-600 text-white text-xs font-black hover:opacity-90 transition-opacity disabled:opacity-50">
-            {busy === 'rule' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} حفظ قاعدة الفعالية
-          </button>
         </div>
 
         <div className="p-5 rounded-2xl bg-white dark:bg-card-dark border border-slate-100 dark:border-white/[0.05]">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-black text-slate-700 dark:text-white flex items-center gap-2">
-              <ListChecks size={15} className="text-neon-primary" /> قواعد الفعالية الذكية (متعددة الحالات)
+              <ListChecks size={15} className="text-neon-primary" /> شرائح التأخير والجزاءات
             </p>
-            <button type="button" onClick={addEventRule} className="flex items-center gap-1 text-xs font-black text-primary-600 hover:text-primary-700 transition-colors">
+            <button type="button" onClick={addTierRow} className="flex items-center gap-1 text-xs font-black text-primary-600 hover:text-primary-700 transition-colors">
               <Plus size={14} /> إضافة قاعدة
             </button>
           </div>
-          <label className="block mb-3">
-            <span className="text-[11px] font-black text-slate-500 dark:text-slate-400">ترتيب تطبيق القواعد</span>
-            <select value={evaluationMode} onChange={(e) => setEvaluationMode(e.target.value)}
-              className="mt-1 w-full p-2.5 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:border-primary-500/40 outline-none">
-              <option value="ALL_APPLICABLE">كل القواعد المطبّقة تُنفَّذ (تراكمي)</option>
-              <option value="FIRST_APPLICABLE">أول قاعدة تنطبق فقط (الأولوية بالترتيب)</option>
-            </select>
+          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 leading-relaxed mb-4">
+            كل قاعدة = نوع الجزاء فقط + النطاق الزمني للتأخير الذي تُطبَّق فيه. أضف عدة قواعد لتغطية التأخير المتصاعد، وآخرها غالبًا «يُحتسب غياباً».
+          </p>
+
+          <label className="block mb-4">
+            <span className="text-[11px] font-black text-slate-500 dark:text-slate-400">مهلة سماح قبل احتساب التأخير (دقيقة)</span>
+            <UnitInput value={gracePeriod} onChange={(v: string) => setGracePeriod(v === '' ? 0 : Math.max(0, parseInt(v) || 0))} unit="دقيقة" placeholder="مثلاً 5 = لا غرامة قبل مرور 5 دقائق" />
+            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 leading-relaxed mt-1.5">
+              التأخير الأقل من هذه المهلة يُعد حضورًا في الموعد: لا غرامة ولا يُسجل متأخرًا. اتركها 0 لتفعيل القواعد من أول دقيقة.
+            </p>
           </label>
-          <div className="mb-4 p-3.5 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20">
+
+          <div className="mb-5 p-3.5 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20">
             <div className="flex items-center gap-2 mb-1.5">
-              <Calendar size={15} className="text-violet-600 dark:text-violet-400 shrink-0" />
+              <CalendarClock size={15} className="text-violet-600 dark:text-violet-400 shrink-0" />
               <p className="text-xs font-black text-violet-700 dark:text-violet-300 leading-tight">موعد تقديم الأعذار (قبل بدء الفعالية)</p>
             </div>
             <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 leading-relaxed mb-2">
               الطالب (أو ولي أمره) يقدّم عذراً قبل هذا الموعد، ويصلك إشعار بالقبول أو الرفض.
             </p>
-            <div className="flex items-center gap-2">
-              <UnitInput value={excuseDeadlineMinutes}
-                onChange={(v: string) => setExcuseDeadlineMinutes(v === '' ? null : Math.max(0, parseInt(v) || 0))}
-                unit="دقيقة" placeholder="عدد الدقائق قبل الفعالية" />
-              {excuseDeadlineMinutes === null ? (
-                <button type="button" onClick={() => setExcuseDeadlineMinutes(120)}
-                  className="shrink-0 text-[10px] font-black text-violet-600 dark:text-violet-300 hover:underline">تفعيل</button>
-              ) : (
-                <button type="button" onClick={() => setExcuseDeadlineMinutes(null)}
-                  className="shrink-0 text-[10px] font-black text-rose-500 hover:underline">إلغاء تفعيل</button>
-              )}
-            </div>
+            <ExcuseDeadlineInput valueMinutes={excuseDeadlineMinutes} onChange={setExcuseDeadlineMinutes} />
           </div>
-          {eventRules.length === 0 ? (
-            <p className="text-[10px] leading-relaxed text-slate-400">لا توجد قواعد ذكية بعد. تُنفَّذ القواعد عند تسجيل الحضور (شرط التأخر) وعند تصنيف الغياب (غياب / غياب غير مبرر).</p>
+
+          {tiers.length === 0 ? (
+            <p className="text-[10px] leading-relaxed text-slate-400">لا توجد قواعد لهذه الفعالية بعد. اضغط «إضافة قاعدة» وحدد النوع والنطاق، وسيُطبَّق السلوك الافتراضي (لا جزاء) حتى تُضيف.</p>
           ) : (
-            <div className="space-y-2">
-              {eventRules.map((r, idx) => (
+            <div className="space-y-3">
+              {tiers.map((r, idx) => (
                 <div key={idx} className="p-3 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 space-y-2">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <select value={r.condition_status || 'unexcused'} onChange={(e) => updateEventRule(idx, { condition_status: e.target.value })}
-                      className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white outline-none">
-                      {RULE_CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  <div className="flex items-center justify-between gap-2">
+                    <select value={r.type} onChange={(e) => updateTierRow(idx, { type: e.target.value })}
+                      className="shrink-0 px-2.5 py-2 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white outline-none">
+                      <option value="FEE">غرامة مالية</option>
+                      <option value="POINTS">خصم نقاط</option>
+                      <option value="ABSENT">يُحتسب غياباً</option>
                     </select>
-                    <select value={r.action_type || 'NONE'} onChange={(e) => updateEventRule(idx, { action_type: e.target.value })}
-                      className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white outline-none">
-                      {RULE_ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-                    </select>
-                  </div>
-                  {r.condition_status === 'late' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <UnitInput value={r.condition_min_late_minutes ?? null}
-                        onChange={(v: string) => updateEventRule(idx, { condition_min_late_minutes: v === '' ? null : Math.max(0, parseInt(v)) })}
-                        unit="دقيقة" placeholder="من تأخر" />
-                      <UnitInput value={r.condition_max_late_minutes ?? null}
-                        onChange={(v: string) => updateEventRule(idx, { condition_max_late_minutes: v === '' ? null : Math.max(0, parseInt(v)) })}
-                        unit="دقيقة" placeholder="حتى" />
-                    </div>
-                  )}
-                  {r.action_type === 'DEDUCT_POINTS' && (
-                    <UnitInput value={r.points_amount ?? 0}
-                      onChange={(v: string) => updateEventRule(idx, { points_amount: Math.max(0, parseInt(v) || 0) })}
-                      unit="نقطة" placeholder="عدد النقاط المخصومة" />
-                  )}
-                  {r.action_type === 'FINANCIAL_FEE' && (
-                    <UnitInput value={r.fee_amount ?? 0}
-                      onChange={(v: string) => updateEventRule(idx, { fee_amount: Math.max(0, parseFloat(v) || 0) })}
-                      unit="جنيه" placeholder="مبلغ الغرامة" step="0.5" />
-                  )}
-                  {r.action_type === 'SEND_NOTIFICATION' && (
-                    <input type="text" placeholder="نص الإشعار..." value={r.notification_message ?? ''}
-                      onChange={(e) => updateEventRule(idx, { notification_message: e.target.value })}
-                      className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white outline-none" />
-                  )}
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={r.enabled !== false} onChange={(e) => updateEventRule(idx, { enabled: e.target.checked })}
-                        className="w-4 h-4 accent-neon-primary rounded" />
-                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">مفعّلة</span>
-                    </label>
-                    <button type="button" onClick={() => removeEventRule(idx)} className="flex items-center gap-1 text-[10px] font-bold text-rose-500 hover:text-rose-600 transition-colors">
+                    <button type="button" onClick={() => removeTierRow(idx)} className="flex items-center gap-1 text-[10px] font-bold text-rose-500 hover:text-rose-600 transition-colors">
                       <Trash2 size={13} /> حذف
                     </button>
                   </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <UnitInput value={r.minMinutes}
+                      onChange={(v: string) => updateTierRow(idx, { minMinutes: v === '' ? null : Math.max(0, parseInt(v) || 0) })}
+                      unit="دقيقة" placeholder="من (تأخر)" />
+                    <UnitInput value={r.maxMinutes}
+                      onChange={(v: string) => updateTierRow(idx, { maxMinutes: v === '' ? null : Math.max(0, parseInt(v) || 0) })}
+                      unit="دقيقة" placeholder="حتى (فارغ = بلا حد)" disabled={r.type === 'ABSENT'} />
+                    {r.type !== 'ABSENT' && (
+                      <UnitInput value={r.amount}
+                        onChange={(v: string) => updateTierRow(idx, { amount: Math.max(0, parseFloat(v) || 0) })}
+                        unit={r.type === 'FEE' ? 'جنيه' : 'نقطة'}
+                        placeholder={r.type === 'FEE' ? 'مبلغ الغرامة' : 'عدد النقاط'} step="0.5" />
+                    )}
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 leading-relaxed">
+                    {r.type === 'FEE' && 'تؤخذ غرامة مالية بهذا المبلغ عندما يتأخر الطالب في هذا النطاق الزمني.'}
+                    {r.type === 'POINTS' && 'تُخصم هذه النقاط السلوكية عندما يتأخر الطالب في هذا النطاق الزمني.'}
+                    {r.type === 'ABSENT' && 'عند بلوغ هذا التقدير من التأخر يُعد الطالب غائبًا، وكل غرامة تمتد بعده تُقتطع تلقائيًا.'}
+                  </p>
                 </div>
               ))}
             </div>
           )}
-          <button onClick={saveEventRules} disabled={busy === 'eventrules'} className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-primary-600 to-vibrant-600 text-white text-xs font-black hover:opacity-90 transition-opacity disabled:opacity-50">
-            {busy === 'eventrules' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} حفظ قواعد الفعالية الذكية
-          </button>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={saveEventRules} disabled={busy === 'eventrules'} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-primary-600 to-vibrant-600 text-white text-xs font-black hover:opacity-90 transition-opacity disabled:opacity-50">
+              {busy === 'eventrules' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} حفظ القواعد
+            </button>
+            {busy === 'eventrules' && <span className="text-[10px] font-bold text-slate-400">جارٍ الحفظ...</span>}
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 leading-relaxed mt-1.5">
+            الحفظ يُثبّت الشرائح ومهلة السماح وموعد الأعذار. يُطبَّق على الحضور الجديد فقط، ولا يغيّر القرارات المسجلة سابقًا.
+          </p>
         </div>
 
         <div className="rounded-2xl bg-white dark:bg-card-dark border border-slate-100 dark:border-white/[0.05] overflow-hidden">
@@ -770,7 +758,7 @@ export function AttendanceAdminPage() {
               <p className="p-5 text-center text-xs font-bold text-slate-400">لا توجد جلسات</p>
             ) : sessions.map((s) => {
               const ov = sessionOverrides[s.id];
-              const clamped = Number(ov?.grace_period_minutes ?? ruleForm?.grace_period_minutes ?? 0);
+              const clamped = Number(ov?.grace_period_minutes ?? gracePeriod ?? 0);
               return (
                 <div key={s.id} className="px-5 py-3">
                   <div className="flex items-center justify-between">

@@ -65,8 +65,7 @@ export function EventDetailsView({
                 end_time: selectedEvent.end_time ? selectedEvent.end_time.split('Z')[0] : '',
                 duration_minutes: selectedEvent.duration_minutes?.toString() || '',
                 is_required_attendance: selectedEvent.is_required_attendance !== 0 && selectedEvent.is_required_attendance !== false,
-                evaluation_mode: selectedEvent.rule_evaluation_mode || 'ALL_APPLICABLE',
-                rules: [],
+              excuse_deadline_minutes: selectedEvent.excuse_deadline_minutes ?? null,
               });
               setTargeting(targetingData);
 

@@ -1,7 +1,7 @@
 import express from "express";
 import { kdb } from "../infrastructure/db";
 import { authenticate, authorizePermission } from "./middleware";
-import { AppPermission } from "../../types/permissions";
+import { AppPermission, isStaffRole } from "../../types/permissions";
 import { getUserBroadcasts } from "./broadcast.service";
 import { fetchDailyReadings } from "../../services/dailyReadingsService";
 
@@ -226,8 +226,7 @@ router.get("/supervisor-summary", authenticate, authorizePermission(AppPermissio
   let tenantId = req.user.tenantId;
 
   // مقصور على إدارة السكن (وليس الطلاب/أولياء الأمور/الموظفين) — يمنع كشف الأرقام المالية وأسماء الطلاب
-  const managerRoles = ['admin', 'bishop', 'priest', 'supervisor', 'assistant_supervisor'];
-  if (!managerRoles.includes(req.user.role)) {
+  if (!isStaffRole(req.user.role)) {
     return res.status(403).json({ success: false, message: "غير مسموح لك بالاطلاع على هذه اللوحة" });
   }
 
@@ -411,7 +410,7 @@ router.get("/employee-summary", authenticate, async (req, res) => {
       .where({ assigned_to: req.user.id, status: 'assigned', tenant_id: tenantId })
       .count({ count: 'id' }).first();
     res.json({ success: true, data: { activeTasks: Number(tasks?.count || 0) } });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 5. مسارات الأب الكاهن (Priest) - الرقابة والرعاية
@@ -458,7 +457,7 @@ router.get("/priest/stats", authenticate, authorizePermission(AppPermission.VIEW
         buildings
       }
     });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 6. جلب مقترحات الفصل (طلاب لديهم إنذارات كثيرة)
@@ -477,7 +476,7 @@ router.get("/priest/expulsion-candidates", authenticate, authorizePermission(App
       .whereRaw('(SELECT COUNT(*) FROM student_warnings WHERE student_id = s.id) >= 3');
 
     res.json({ success: true, data: candidates });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 7. سجل الخريجين (الحاليون + المؤرشفون بسبب التخرج)
@@ -534,22 +533,22 @@ router.get("/priest/graduates", authenticate, authorizePermission(AppPermission.
     ].sort((a: any, b: any) => new Date(b.graduatedAt || 0).getTime() - new Date(a.graduatedAt || 0).getTime());
 
     res.json({ success: true, data: merged });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
-// ������/��� ����� ��� ���� �� ��� ���� ������
+// قبول/رفض نقل الطالب للفصل في تقارير الكاهن
 router.post("/priest/expulsion-candidates/:id/approve", authenticate, authorizePermission(AppPermission.MANAGE_PRIEST_REPORTS), async (req, res) => {
   try {
     const { id } = req.params;
     await kdb('students').where({ id, tenant_id: req.user.tenantId }).update({ status: 'expelled' });
-    res.json({ success: true, message: '�� ������ ��� ������ �����' });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+    res.json({ success: true, message: 'تم قبول ترشيح الفصل بنجاح' });
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 router.post("/priest/expulsion-candidates/:id/reject", authenticate, authorizePermission(AppPermission.MANAGE_PRIEST_REPORTS), async (req, res) => {
   try {
-    res.json({ success: true, message: '�� ��� ����� �����' });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+    res.json({ success: true, message: 'تم رفض الترشيح بنجاح' });
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 8. اعتماد تقرير من قبل الأب الكاهن
@@ -557,7 +556,7 @@ router.post("/priest/reports/:id/approve", authenticate, authorizePermission(App
   try {
     await kdb('complaints').where({ id: req.params.id, tenant_id: req.user.tenantId }).update({ status: 'approved' });
     res.json({ success: true, message: 'تم اعتماد التقرير بنجاح' });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 9. البلاغات الموجهة للأب المسؤول
@@ -569,7 +568,7 @@ router.get("/priest/reports", authenticate, authorizePermission(AppPermission.VI
       .select('c.id', 'c.title', 'c.description', 'c.created_at as createdAt', 'u.name as supervisorName', kdb.raw("'warning' as type"))
       .orderBy('c.created_at', 'desc');
     res.json({ success: true, data: reports });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 10. سجل سلوك الطلاب للأب الكاهن (نقاط + تحذيرات)
@@ -597,7 +596,7 @@ router.get("/priest/discipline", authenticate, authorizePermission(AppPermission
       .orderBy('points', 'desc');
 
     res.json({ success: true, data: students });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 11. تفاصيل الإنذارات النشطة
@@ -614,7 +613,7 @@ router.get("/priest/warnings", authenticate, authorizePermission(AppPermission.V
       .orderBy('sw.created_at', 'desc');
 
     res.json({ success: true, data: warnings });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 12. رفع تقرير من الأب الكاهن للأسقف
@@ -633,7 +632,7 @@ router.post("/priest/send-report", authenticate, authorizePermission(AppPermissi
       created_at: new Date()
     });
     res.json({ success: true, message: 'تم رفع التقرير للأسقف بنجاح' });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // 13. بيانات الأسقف المشرف (لإرسال التقارير)
@@ -644,7 +643,7 @@ router.get("/priest/bishop-info", authenticate, authorizePermission(AppPermissio
 
     const bishop = await kdb('users').where({ id: tenant.bishop_id }).select('name', 'email').first();
     res.json({ success: true, data: bishop });
-  } catch (error: any) { res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." }); }
+  } catch (error: any) { res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." }); }
 });
 
 // قراءات اليوم - تجلب من API قطمارس
@@ -756,7 +755,7 @@ router.get("/student-summary", authenticate, async (req, res) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -816,7 +815,7 @@ router.get("/parent-summary/:studentId", authenticate, async (req, res) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: "��� ��� ���. �� ���� ��� ��������." });
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
