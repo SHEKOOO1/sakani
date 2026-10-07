@@ -121,7 +121,7 @@ export async function up(knex: Knex): Promise<void> {
   // already leaves orphan `finances` behind; an FK here would turn that into an
   // opaque DB error. Phase 3 replaces hard delete with an archive-or-block flow
   // that refuses to drop a student holding ledger history, and the FK is added
-  // by migration 044 at that point.
+  // by migration 046 at that point.
 
   await knex.raw(`
     IF OBJECT_ID('journal_lines') IS NULL

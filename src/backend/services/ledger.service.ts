@@ -179,6 +179,62 @@ export function discountLines(amount: number): JournalLineInput[] {
   ];
 }
 
+/** Category prefix every attendance penalty starts with (غرامة ...). */
+export const PENALTY_CATEGORY_PREFIX = 'غرامة';
+
+export interface FinanceRowLike {
+  type: string | null;
+  category?: string | null;
+  amount: unknown;
+  attendance_id?: string | null;
+  reference?: string | null;
+  is_reversal?: unknown;
+}
+
+/**
+ * Recognises an attendance penalty the same way attendance.service.ts writes
+ * one: attendance link, event-rule reference, or a penalty category. Broad on
+ * purpose — a future penalty category must not quietly land in operating
+ * expenses. Only `type='expense'` rows qualify; penalty cancellations are
+ * written as `type='revenue'` and are handled as reversals.
+ */
+export function isPenaltyCharge(row: FinanceRowLike): boolean {
+  if (row.type !== 'expense') return false;
+  if (row.attendance_id) return true;
+  if ((row.reference || '').trim().startsWith('event-rule:')) return true;
+  return (row.category || '').trim().startsWith(PENALTY_CATEGORY_PREFIX);
+}
+
+export type MovementEntryType = Extract<EntryType, 'payment' | 'penalty' | 'expense'>;
+
+/**
+ * How a `finances` row maps onto the chart of accounts. One classifier shared
+ * by the legacy backfill and by the live write paths, so a row can never be
+ * filed one way on import and another way on the next edit.
+ *
+ *   type = 'revenue'           -> payment    DR CASH             CR STUDENT_PAYMENT
+ *   type = 'expense' + penalty -> penalty    DR STUDENT_PAYMENT  CR PENALTY
+ *   type = 'expense'           -> expense    DR EXPENSE          CR CASH
+ *
+ * `is_reversal` rows are deliberately rejected: they must be built by
+ * reverseEntry() as a mirror of the entry they cancel.
+ */
+export function entryForFinanceRow(row: FinanceRowLike): {
+  entryType: MovementEntryType;
+  lines: JournalLineInput[];
+} {
+  if (row.is_reversal !== undefined && row.is_reversal !== null && row.is_reversal !== false && Number(row.is_reversal) !== 0) {
+    throw new LedgerError(
+      'LEGACY_REVERSAL_ROW',
+      'قيود العكس تُبنى عبر reverseEntry ولا تُصنَّف من صف finances مباشرة',
+    );
+  }
+  const amount = Number(row.amount);
+  if (isPenaltyCharge(row)) return { entryType: 'penalty', lines: penaltyLines(amount) };
+  if (row.type === 'revenue') return { entryType: 'payment', lines: paymentLines(amount) };
+  return { entryType: 'expense', lines: expenseLines(amount) };
+}
+
 function validateEntry(input: PostEntryInput): void {
   if (!(toCents(input.amount) > 0)) {
     throw new LedgerError('AMOUNT_NOT_POSITIVE', 'مبلغ القيد لازم يكون أكبر من صفر');
@@ -272,6 +328,17 @@ export async function reverseEntry(
     createdBy?: string | null;
     entryDate?: Date;
     source?: LedgerSource;
+    /**
+     * The `finances` row the reversal itself stands for.
+     *
+     * Attendance records a cancellation as its own row next to the charge it
+     * cancels, so the reversal entry carries that row's id — which is what lets
+     * a later repair run recognise it as already imported instead of posting a
+     * second reversal and refunding money twice. Edits and deletes leave it
+     * unset: there the row keeps meaning "the movement as it now stands", which
+     * is the replacement entry's job, not the reversal's.
+     */
+    financeId?: string | null;
   },
 ): Promise<PostedEntry> {
   const original = await trx('journal_entries').where({ id: opts.entryId }).first();
@@ -311,6 +378,7 @@ export async function reverseEntry(
     description,
     paymentMethodId: original.payment_method_id ?? null,
     reversesEntryId: original.id,
+    financeId: opts.financeId ?? null,
     source: opts.source || 'api',
     isAdminOnly: Number(original.is_admin_only || 0) === 1,
     createdBy: opts.createdBy ?? null,
@@ -321,6 +389,35 @@ export async function reverseEntry(
     .update({ status: 'reversed', reversed_by_entry_id: reversal.id, version: Number(original.version || 1) + 1 });
 
   return reversal;
+}
+
+/**
+ * Undoes whatever entry currently stands for a `finances` row.
+ *
+ * Returns null instead of throwing when there is nothing to undo: a row that
+ * predates the ledger may never have been imported, and a legacy row imported
+ * by a repair run may have none either. Callers on write paths must tolerate
+ * that — the legacy table is still authoritative for reads, and failing a
+ * delete because an entry is missing would be a regression.
+ */
+export async function reverseEntryForFinance(
+  trx: Executor,
+  financeId: string | null | undefined,
+  opts: {
+    reason?: string | null;
+    createdBy?: string | null;
+    entryDate?: Date;
+    source?: LedgerSource;
+    reversalFinanceId?: string | null;
+  } = {},
+): Promise<PostedEntry | null> {
+  if (!financeId) return null;
+  const open = await trx('journal_entries')
+    .where({ finance_id: financeId, status: 'posted' })
+    .first();
+  if (!open) return null;
+  const { reversalFinanceId, ...rest } = opts;
+  return reverseEntry(trx, { entryId: open.id, ...rest, financeId: reversalFinanceId ?? null });
 }
 
 function visibilityFilter(query: any, studentId: string, opts: { visibility?: 'all' | 'tenant' }): any {

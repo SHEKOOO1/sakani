@@ -587,6 +587,24 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.DELETE_STU
   const tenantId = req.user.tenantId;
 
   try {
+    // A student who has ever touched money must not be erased: their statement
+    // (invoice, payments, penalties) lives on in the books, and the ledger FKs
+    // would reject the delete anyway. Refuse here so the operator gets a
+    // reason instead of a database error, and point them at "leave", which
+    // archives the record and frees the room while keeping every row intact.
+    const [financeStat, ledgerStat] = await Promise.all([
+      kdb('finances').where({ student_id: id }).count('* as count').first(),
+      kdb('journal_entries').where({ student_id: id }).count('* as count').first(),
+    ]);
+    const financesCount = Number((financeStat as any)?.count || 0);
+    const ledgerCount = Number((ledgerStat as any)?.count || 0);
+    if (financesCount + ledgerCount > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `لا يمكن حذف الطالب لارتباطه بسجل مالي (${financesCount + ledgerCount} حركة). استخدم "إنهاء الدراسة" لحفظه في الأرشيف مع إخلاء غرفته.`,
+      });
+    }
+
     await kdb.transaction(async trx => {
       // 1. Get room_id
       const student = await trx('students').select('room_id').where({ id, tenant_id: tenantId }).first();

@@ -1,11 +1,9 @@
 import { kdb } from '../src/backend/infrastructure/db';
 import {
   postEntry,
-  paymentLines,
-  expenseLines,
-  penaltyLines,
   verifyLedger,
-  type EntryType,
+  entryForFinanceRow,
+  PENALTY_CATEGORY_PREFIX,
   type JournalLineInput,
   type LedgerAccount,
 } from '../src/backend/services/ledger.service';
@@ -22,23 +20,15 @@ import {
  * roll the whole batch back on one bad row.
  *
  * The run is idempotent: a row is skipped once journal_entries.finance_id
- * already points at it, and migration 044 makes that link unique so two runs
- * cannot double-import the same movement.
+ * already points at it (any source — a row created live in Phase 3 is not
+ * legacy data), and migration 045 makes a second *legacy* import of the same
+ * row impossible at the database level. That also makes this script the repair
+ * tool for rows written by a pre-ledger build that were never imported:
+ * re-run it and only the unlinked rows are picked up.
  *
- * Classification of a non-reversal row
- * ------------------------------------
- *   is_reversal = 1              -> reversal   (mirror of the entry built from
- *                                              reversal_of_id, falling back to
- *                                              a category-derived mirror when
- *                                              the original row is gone)
- *   type = 'revenue'             -> payment    DR CASH             CR STUDENT_PAYMENT
- *   type = 'expense' + penalty   -> penalty    DR STUDENT_PAYMENT  CR PENALTY
- *   type = 'expense'             -> expense    DR EXPENSE          CR CASH
- *
- * A penalty is recognised the same way attendance.service.ts writes one:
- * attendance_id set, reference 'event-rule:*', or a category starting with the
- * penalty word. That is deliberately broader than two exact category strings so
- * a future penalty category cannot silently land in operating expenses.
+ * Classification of a non-reversal row comes from entryForFinanceRow() in
+ * ledger.service.ts, shared with the live write paths so a row is filed the
+ * same way on import and on every later edit.
  *
  * finance_edit_logs is NOT imported
  * ---------------------------------
@@ -52,8 +42,6 @@ import {
  * Nothing here writes to `finances`. The legacy table remains readable until
  * the read paths are switched over (Phase 4) and is only dropped afterwards.
  */
-
-const PENALTY_PREFIX = 'غرامة';
 
 interface LegacyFinance {
   id: string;
@@ -96,20 +84,6 @@ function trimmed(v: string | null | undefined): string {
   return (v || '').trim();
 }
 
-function isPenaltyCharge(f: LegacyFinance): boolean {
-  if (f.type !== 'expense') return false;
-  if (present(f.attendance_id)) return true;
-  if (trimmed(f.reference).startsWith('event-rule:')) return true;
-  return trimmed(f.category).startsWith(PENALTY_PREFIX);
-}
-
-function classifyNonReversal(f: LegacyFinance): { entryType: EntryType; lines: JournalLineInput[] } {
-  const amount = numOf(f.amount);
-  if (isPenaltyCharge(f)) return { entryType: 'penalty', lines: penaltyLines(amount) };
-  if (f.type === 'revenue') return { entryType: 'payment', lines: paymentLines(amount) };
-  return { entryType: 'expense', lines: expenseLines(amount) };
-}
-
 function mirrorLine(line: any): JournalLineInput {
   return {
     account: line.account as LedgerAccount,
@@ -130,7 +104,7 @@ function mirrorLine(line: any): JournalLineInput {
 function unlinkedReversalLines(f: LegacyFinance): { lines: JournalLineInput[]; basis: string } {
   const amount = numOf(f.amount);
   const category = trimmed(f.category);
-  if (category.startsWith('إلغاء ' + PENALTY_PREFIX) || category.startsWith(PENALTY_PREFIX)) {
+  if (category.startsWith('إلغاء ' + PENALTY_CATEGORY_PREFIX) || category.startsWith(PENALTY_CATEGORY_PREFIX)) {
     return { lines: [{ account: 'PENALTY', debit: amount }, { account: 'STUDENT_PAYMENT', credit: amount }], basis: 'penalty' };
   }
   if (f.type === 'revenue') {
@@ -175,7 +149,7 @@ async function runBackfill(dryRun: boolean): Promise<Report> {
 
   const write = async (trx: any) => {
     for (const f of nonReversals) {
-      const { entryType, lines } = classifyNonReversal(f);
+      const { entryType, lines } = entryForFinanceRow(f);
       const posted = await postEntry(trx, {
         entryType,
         amount: numOf(f.amount),
@@ -247,7 +221,7 @@ async function runBackfill(dryRun: boolean): Promise<Report> {
   if (dryRun) {
     const plan: Record<string, number> = {};
     for (const f of nonReversals) {
-      const { entryType } = classifyNonReversal(f);
+      const { entryType } = entryForFinanceRow(f);
       plan[entryType] = (plan[entryType] || 0) + 1;
     }
     for (const f of reversals) {
@@ -294,7 +268,7 @@ async function runVerification(): Promise<CheckResult[]> {
                WHEN type = 'revenue' THEN 'payment'
                WHEN attendance_id IS NOT NULL
                  OR LTRIM(RTRIM(ISNULL(reference, ''))) LIKE 'event-rule:%'
-                 OR LTRIM(RTRIM(ISNULL(category, ''))) LIKE N'${PENALTY_PREFIX}%'
+                 OR LTRIM(RTRIM(ISNULL(category, ''))) LIKE N'${PENALTY_CATEGORY_PREFIX}%'
                  THEN 'penalty'
                ELSE 'expense'
              END AS expected_type
@@ -302,18 +276,31 @@ async function runVerification(): Promise<CheckResult[]> {
     )
     SELECT
       (SELECT COUNT(*) FROM finances) AS legacy_rows,
-      (SELECT COUNT(DISTINCT finance_id) FROM journal_entries WHERE finance_id IS NOT NULL) AS linked_rows,
-      (SELECT COUNT(*) FROM expected x JOIN journal_entries e ON e.finance_id = x.id
-        WHERE e.entry_type <> x.expected_type) AS type_mismatches,
-      (SELECT COUNT(*) FROM expected x JOIN journal_entries e ON e.finance_id = x.id
-        WHERE ABS(e.amount - x.amount) > 0.005) AS amount_mismatches
+      (SELECT COUNT(*) FROM finances f
+        WHERE (SELECT COUNT(*) FROM journal_entries e WHERE e.finance_id = f.id) < 1) AS unlinked_rows,
+      (SELECT COUNT(*) FROM finances f
+        WHERE (SELECT COUNT(*) FROM journal_entries e
+                WHERE e.finance_id = f.id AND e.status = 'posted') > 1) AS double_posted_rows,
+      (SELECT COUNT(*) FROM expected x
+        JOIN journal_entries e ON e.finance_id = x.id AND e.status = 'posted'
+       WHERE e.entry_type <> x.expected_type) AS type_mismatches,
+      (SELECT COUNT(*) FROM expected x
+        JOIN journal_entries e ON e.finance_id = x.id AND e.status = 'posted'
+       WHERE ABS(e.amount - x.amount) > 0.005) AS amount_mismatches
   `);
   const cov = ((coverage as any).recordset || coverage)[0];
   checks.push({
-    name: 'every legacy row linked exactly once',
-    ok: Number(cov.legacy_rows) === Number(cov.linked_rows),
-    detail: `legacy=${cov.legacy_rows} linked=${cov.linked_rows}`,
+    name: 'every legacy row linked',
+    ok: Number(cov.unlinked_rows) === 0,
+    detail: `legacy=${cov.legacy_rows} unlinked=${cov.unlinked_rows}`,
   });
+  checks.push({
+    name: 'no row double-posted',
+    ok: Number(cov.double_posted_rows) === 0,
+    detail: `double_posted=${cov.double_posted_rows}`,
+  });
+  // Posted entries only: a reversed one records what the row used to be, so
+  // after an edit its type and amount are expected to differ from the row.
   checks.push({
     name: 'entry_type matches the classification rule',
     ok: Number(cov.type_mismatches) === 0,
@@ -325,29 +312,40 @@ async function runVerification(): Promise<CheckResult[]> {
     detail: `mismatches=${cov.amount_mismatches}`,
   });
 
+  // Class totals over the SAME population on both sides: a finances row paired
+  // with the live entry standing for it. A naive "sum the table vs sum the
+  // books" comparison cannot hold once Phase 3 runs, because deleting a movement
+  // erases the legacy row while the ledger only reverses it, cancelling an
+  // attendance charge leaves two legacy rows against one reversal entry, and a
+  // reversal filed for an API edit or delete carries no finance_id at all.
   const sums = await kdb.raw(`
     SELECT
-      (SELECT ISNULL(SUM(amount), 0) FROM finances
-        WHERE ISNULL(is_reversal, 0) = 0 AND type = 'revenue') AS legacy_revenue,
+      (SELECT ISNULL(SUM(f.amount), 0) FROM finances f
+        JOIN journal_entries e ON e.finance_id = f.id AND e.status = 'posted'
+       WHERE ISNULL(f.is_reversal, 0) = 0 AND f.type = 'revenue') AS legacy_revenue,
       (SELECT ISNULL(SUM(e.amount), 0) FROM journal_entries e
-        WHERE e.source = 'legacy' AND e.status = 'posted' AND e.entry_type = 'payment') AS ledger_payment,
-      (SELECT ISNULL(SUM(amount), 0) FROM finances
-        WHERE ISNULL(is_reversal, 0) = 0 AND type = 'expense'
-          AND NOT (attendance_id IS NOT NULL
-                   OR LTRIM(RTRIM(ISNULL(reference, ''))) LIKE 'event-rule:%'
-                   OR LTRIM(RTRIM(ISNULL(category, ''))) LIKE N'${PENALTY_PREFIX}%')) AS legacy_expense,
+        WHERE e.status = 'posted' AND e.finance_id IS NOT NULL AND e.entry_type = 'payment') AS ledger_payment,
+      (SELECT ISNULL(SUM(f.amount), 0) FROM finances f
+        JOIN journal_entries e ON e.finance_id = f.id AND e.status = 'posted'
+       WHERE ISNULL(f.is_reversal, 0) = 0 AND f.type = 'expense'
+         AND NOT (f.attendance_id IS NOT NULL
+                  OR LTRIM(RTRIM(ISNULL(f.reference, ''))) LIKE 'event-rule:%'
+                  OR LTRIM(RTRIM(ISNULL(f.category, ''))) LIKE N'${PENALTY_CATEGORY_PREFIX}%')) AS legacy_expense,
       (SELECT ISNULL(SUM(e.amount), 0) FROM journal_entries e
-        WHERE e.source = 'legacy' AND e.status = 'posted' AND e.entry_type = 'expense') AS ledger_expense,
-      (SELECT ISNULL(SUM(amount), 0) FROM finances
-        WHERE ISNULL(is_reversal, 0) = 0 AND type = 'expense'
-          AND (attendance_id IS NOT NULL
-               OR LTRIM(RTRIM(ISNULL(reference, ''))) LIKE 'event-rule:%'
-               OR LTRIM(RTRIM(ISNULL(category, ''))) LIKE N'${PENALTY_PREFIX}%')) AS legacy_penalty,
+        WHERE e.status = 'posted' AND e.finance_id IS NOT NULL AND e.entry_type = 'expense') AS ledger_expense,
+      (SELECT ISNULL(SUM(f.amount), 0) FROM finances f
+        JOIN journal_entries e ON e.finance_id = f.id AND e.status = 'posted'
+       WHERE ISNULL(f.is_reversal, 0) = 0 AND f.type = 'expense'
+         AND (f.attendance_id IS NOT NULL
+              OR LTRIM(RTRIM(ISNULL(f.reference, ''))) LIKE 'event-rule:%'
+              OR LTRIM(RTRIM(ISNULL(f.category, ''))) LIKE N'${PENALTY_CATEGORY_PREFIX}%')) AS legacy_penalty,
       (SELECT ISNULL(SUM(e.amount), 0) FROM journal_entries e
-        WHERE e.source = 'legacy' AND e.status = 'posted' AND e.entry_type = 'penalty') AS ledger_penalty,
-      (SELECT ISNULL(SUM(amount), 0) FROM finances WHERE ISNULL(is_reversal, 0) = 1) AS legacy_reversal,
+        WHERE e.status = 'posted' AND e.finance_id IS NOT NULL AND e.entry_type = 'penalty') AS ledger_penalty,
+      (SELECT ISNULL(SUM(f.amount), 0) FROM finances f
+        JOIN journal_entries e ON e.finance_id = f.id AND e.status = 'posted'
+       WHERE ISNULL(f.is_reversal, 0) = 1) AS legacy_reversal,
       (SELECT ISNULL(SUM(e.amount), 0) FROM journal_entries e
-        WHERE e.source = 'legacy' AND e.status = 'posted' AND e.entry_type = 'reversal') AS ledger_reversal
+        WHERE e.status = 'posted' AND e.finance_id IS NOT NULL AND e.entry_type = 'reversal') AS ledger_reversal
   `);
   const s = ((sums as any).recordset || sums)[0];
   const pairs: Array<[string, string, string]> = [
@@ -377,11 +375,14 @@ async function runVerification(): Promise<CheckResult[]> {
 
   const legacyOnly = await kdb.raw(`
     SELECT
-      (SELECT ISNULL(SUM(amount), 0) FROM finances WHERE type = 'revenue') AS old_paid,
-      (SELECT ISNULL(SUM(amount), 0) FROM finances
-        WHERE type = 'revenue' AND ISNULL(is_reversal, 0) = 1) AS reversals_as_revenue,
+      (SELECT ISNULL(SUM(f.amount), 0) FROM finances f
+        JOIN journal_entries e ON e.finance_id = f.id AND e.status = 'posted'
+       WHERE f.type = 'revenue') AS old_paid,
+      (SELECT ISNULL(SUM(f.amount), 0) FROM finances f
+        JOIN journal_entries e ON e.finance_id = f.id AND e.status = 'posted'
+       WHERE f.type = 'revenue' AND ISNULL(f.is_reversal, 0) = 1) AS reversals_as_revenue,
       (SELECT ISNULL(SUM(e.amount), 0) FROM journal_entries e
-        WHERE e.source = 'legacy' AND e.status = 'posted' AND e.entry_type = 'payment') AS new_paid
+        WHERE e.status = 'posted' AND e.finance_id IS NOT NULL AND e.entry_type = 'payment') AS new_paid
   `);
   const lo = ((legacyOnly as any).recordset || legacyOnly)[0];
   console.log(

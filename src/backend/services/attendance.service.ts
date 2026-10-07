@@ -27,6 +27,7 @@ import {
   summarizeAbsences,
 } from './attendanceEscalation';
 import { includesId } from '../infrastructure/id-match';
+import { entryForFinanceRow, postEntry, reverseEntryForFinance } from './ledger.service';
 
 // ───────────────────────────────────────────────────────────────
 // Event attendance domain service. ALL authorization must be done
@@ -566,14 +567,16 @@ export async function applyPenaltyLedger(args: {
 
   if (financial > 0) {
     financeId = uuidv4();
+    const category = 'غرامة تأخير حضور';
+    const description = `غرامة تأخير حضور: ${event.title} — ${session.title || 'جلسة'} (${new Date(scheduledLabel(session)).toLocaleString('ar-EG')})`;
     await trx('finances').insert({
       id: financeId,
       tenant_id: tenantId,
       student_id: student.id,
       type: 'expense',
-      category: 'غرامة تأخير حضور',
+      category,
       amount: financial,
-      description: `غرامة تأخير حضور: ${event.title} — ${session.title || 'جلسة'} (${new Date(scheduledLabel(session)).toLocaleString('ar-EG')})`,
+      description,
       date: new Date(),
       created_by: userId,
       event_id: event.id,
@@ -581,6 +584,24 @@ export async function applyPenaltyLedger(args: {
       attendance_id: attendanceId,
       reference: penaltyId,
       is_reversal: 0,
+    });
+    // Same movement, filed in the books in this transaction: a penalty is money
+    // the student owes, so DR STUDENT_PAYMENT CR PENALTY.
+    const plan = entryForFinanceRow({ type: 'expense', category, amount: financial, attendance_id: attendanceId });
+    await postEntry(trx, {
+      entryType: plan.entryType,
+      amount: financial,
+      lines: plan.lines,
+      entryDate: new Date(),
+      tenantId,
+      studentId: student.id,
+      category,
+      description,
+      paymentMethodId: null,
+      financeId,
+      source: 'attendance',
+      createdBy: userId,
+      createdAt: now,
     });
   }
   if (points > 0) {
@@ -724,12 +745,23 @@ export async function applyEventRuleActions(args: {
         if (rule.fee_amount <= 0) break;
         const existing = await trx('finances').where({ attendance_id: attendance.id, reference: ref, is_reversal: 0 }).first();
         if (existing) break;
+        const feeId = uuidv4();
+        const feeCategory = 'غرامة نشاط';
+        const feeDescription = `غرامة وفق قاعدة النشاط: ${event.title}${session?.title ? ` — ${session.title}` : ''}`;
         await trx('finances').insert({
-          id: uuidv4(), tenant_id: tenantId, student_id: student.id, type: 'expense',
-          category: 'غرامة نشاط', amount: rule.fee_amount,
-          description: `غرامة وفق قاعدة النشاط: ${event.title}${session?.title ? ` — ${session.title}` : ''}`,
+          id: feeId, tenant_id: tenantId, student_id: student.id, type: 'expense',
+          category: feeCategory, amount: rule.fee_amount,
+          description: feeDescription,
           date: now, created_by: userId, event_id: event.id, session_id: session?.id ?? null,
           attendance_id: attendance.id, reference: ref, is_reversal: 0,
+        });
+        const feePlan = entryForFinanceRow({ type: 'expense', category: feeCategory, amount: rule.fee_amount, attendance_id: attendance.id, reference: ref });
+        await postEntry(trx, {
+          entryType: feePlan.entryType, amount: rule.fee_amount, lines: feePlan.lines,
+          entryDate: new Date(now), tenantId, studentId: student.id,
+          category: feeCategory, description: feeDescription,
+          paymentMethodId: null, financeId: feeId, source: 'attendance',
+          createdBy: userId, createdAt: now,
         });
         await notifyPenaltyApplied({
           tenantId, studentId: student.id, eventId: event.id,
@@ -819,12 +851,22 @@ async function reverseEventRuleLedger(args: {
     .whereNotNull('reference').where('reference', 'like', 'event-rule:%');
   for (const f of finances as any[]) {
     if (Number(f.amount) <= 0) continue;
+    const reversalRowId = uuidv4();
     await trx('finances').insert({
-      id: uuidv4(), tenant_id: f.tenant_id ?? tenantId, student_id: f.student_id, type: 'revenue',
+      id: reversalRowId, tenant_id: f.tenant_id ?? tenantId, student_id: f.student_id, type: 'revenue',
       category: 'إلغاء غرامة نشاط', amount: Number(f.amount),
       description: `إلغاء غرامة نشاط. السبب: ${reason}`,
       date: now, created_by: userId, event_id: f.event_id, session_id: f.session_id,
       attendance_id: f.attendance_id, reference: f.reference, is_reversal: 1, reversal_of_id: f.id,
+    });
+    // The books mirror the correction by reversing the entry that stood for the
+    // charge, and the reversal entry is stamped with this row's id so a repair
+    // run recognises the cancellation as already recorded instead of filing a
+    // second one. The cancellation row itself is never treated as a payment.
+    await reverseEntryForFinance(trx, f.id, {
+      reason: `إلغاء غرامة نشاط. السبب: ${reason}`,
+      createdBy: userId, entryDate: now, source: 'attendance',
+      reversalFinanceId: reversalRowId,
     });
   }
   const points = await trx('student_points')
@@ -1031,8 +1073,17 @@ async function doReversePenalty(args: {
   const points = Number(penalty.points_deduction || 0);
 
   if (financial > 0) {
+    // The charge the entry was filed against: penalty.finance_id is
+    // authoritative, but a legacy penalty row may not carry it — fall back to
+    // the attendance-linked charge. Resolved before the reversal row is
+    // written so only the original can ever be matched.
+    const chargeFinanceId = penalty.finance_id ||
+      (await trx('finances').where({ attendance_id: penalty.attendance_id, reference: penaltyId, is_reversal: 0 }).first())?.id ||
+      null;
+
+    const reversalRowId = uuidv4();
     await trx('finances').insert({
-      id: uuidv4(),
+      id: reversalRowId,
       tenant_id: tenantId,
       student_id: studentId,
       type: 'revenue',
@@ -1047,6 +1098,16 @@ async function doReversePenalty(args: {
       reference: penaltyId,
       is_reversal: 1,
       reversal_of_id: penalty.finance_id || null,
+    });
+    // The books mirror the cancellation by reversing the charge's entry rather
+    // than filing the cancellation as a payment — and the reversal carries this
+    // row's id, so a later repair run skips it instead of refunding twice.
+    await reverseEntryForFinance(trx, chargeFinanceId, {
+      reason: `إلغاء غرامة تأخير حضور. السبب: ${reason}`,
+      createdBy: userId,
+      entryDate: now,
+      source: 'attendance',
+      reversalFinanceId: reversalRowId,
     });
   }
   if (points > 0) {
