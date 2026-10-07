@@ -1,0 +1,17 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+*.err
+.env*
+!.env.example
+/hMS
+test-results/
+tmp/
+# Runtime user-generated uploads — ignore contents but keep the directory.
+uploads/*
+!uploads/.gitkeep
+# Local/on-host backups (never commit database dumps).
+backups/

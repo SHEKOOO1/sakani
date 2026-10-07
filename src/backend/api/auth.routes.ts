@@ -1,0 +1,489 @@
+import express from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { v4 as uuidv4 } from "uuid";
+import rateLimit from "express-rate-limit";
+import crypto from "crypto";
+import { kdb } from "../infrastructure/db.ts";
+import { parseStoredPermissionsArray } from "../infrastructure/permission-parser";
+import { UserRole } from "../../types/permissions";
+import { authenticate } from "./middleware";
+import { validate } from "../validation/middleware";
+import { activateAccountSchema, loginSchema, registerSchema, resendActivationSchema } from "../validation/schemas";
+import {
+  ACTIVATION_MESSAGES,
+  consumeActivationToken,
+  issueActivationInvite,
+  isMailerReady,
+  resolveActivationToken,
+} from "../services/activation.service";
+
+const router = express.Router();
+
+// دمج الصلاحيات الفعلية (custom_permissions + custom_role) بقراءة FAIL-CLOSED:
+// القيم غير المصفوفة تُهمل، وأي عنصر `ALL`/غير معروف من المخزّن لا يتسرّب إلى
+// الاستجابة — فقراءة الصلاحيات تتبع نفس القاعدة الصارمة لكتابتها.
+async function resolveEffectivePermissions(user: any): Promise<string[]> {
+  const merged: string[] = [];
+  if (user.custom_permissions) {
+    try {
+      const parsed = JSON.parse(user.custom_permissions);
+      if (Array.isArray(parsed)) {
+        for (const p of parseStoredPermissionsArray(parsed).perms) {
+          if (!merged.includes(p)) merged.push(p);
+        }
+      }
+    } catch {
+      /* قيمة غير صالحة → تُهمل (فشل آمن) */
+    }
+  }
+  if (user.custom_role_id) {
+    try {
+      const customRole = await kdb('tenant_custom_roles').where({ id: user.custom_role_id }).first();
+      if (customRole) {
+        const roleParsed = JSON.parse(customRole.permissions);
+        const rolePerms = Array.isArray(roleParsed) ? parseStoredPermissionsArray(roleParsed).perms : [];
+        for (const perm of rolePerms) {
+          if (!merged.includes(perm)) merged.push(perm);
+        }
+      }
+    } catch {
+      /* تجاهل — لا تُمنح صلاحية من دور تالف */
+    }
+  }
+  return merged;
+}
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: "محاولات دخول كتيرة لو سمحت استنى شوية قبل ما تعيد المحاولة." }
+});
+
+// حد معدل منفصل للتفعيل: الرابط نفسه غير قابل لإعادة الاستخدام، لكن أي حد
+// معدل مشترك مع الدخول كان سيمنع المستخدم من تفعيل حسابه بعد 10 محاولات دخول.
+const activationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: "محاولات تفعيل كتيرة لو سمحت استنى شوية." }
+});
+
+// إرسال رابط تفعيل جديد: الرد موحّد دائماً لمنع كشف الحسابات المسجّلة (enumeration).
+const resendActivationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: "طلبات كتيرة. لو سمحت استنى شوية قبل ما تطلب رابط جديد." }
+});
+
+
+/**
+ * @openapi
+ * /auth/setup-status:
+ *   get:
+ *     tags: [المصادقة]
+ *     summary: التحقق من حالة الإعداد الأولي
+ *     responses:
+ *       200:
+ *         description: حالة النظام (مُعد أم لا)
+ */
+router.get("/setup-status", async (req, res) => {
+  try {
+    const result = await kdb('users').count<{ count: number }>('id as count').first();
+    const userCount = Number(result?.count || 0);
+    res.json({ success: true, needsSetup: userCount === 0 });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/register:
+ *   post:
+ *     tags: [المصادقة]
+ *     summary: تسجيل حساب جديد
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password, name, gender]
+ *             properties:
+ *               email: { type: string }
+ *               password: { type: string }
+ *               name: { type: string }
+ *               gender: { type: string }
+ *     responses:
+ *       201:
+ *         description: تم التسجيل بنجاح
+ */
+router.post("/register", rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: { success: false, message: "كترت تسجيل يا باشا، استنى شوية." } }), validate(registerSchema), async (req, res) => {
+  const { email, password, name, gender } = req.body;
+
+  try {
+    // في بيئة الإنتاج: التسجيل المفتوح قفل إلا إذا أُعدّ توكن إعداد HTML صريح واتمرر
+    if (process.env.NODE_ENV === 'production') {
+      const setupToken = process.env.SETUP_REGISTRATION_TOKEN;
+      if (!setupToken) {
+        return res.status(403).json({ success: false, message: 'التسجيل المفتوح مُعطّل. اضبط SETUP_REGISTRATION_TOKEN في .env لتفعيل الإعداد الأولي.' });
+      }
+      if (req.headers['x-setup-token'] !== setupToken) {
+        return res.status(403).json({ success: false, message: 'الإعداد الأولي محمي بتوكن إعداد خاص.' });
+      }
+    }
+
+    const result = await kdb('users').count<{ count: number }>('id as count').first();
+    const userCount = Number(result?.count || 0);
+
+    if (userCount > 0) {
+      return res.status(403).json({ success: false, message: 'التطبيق تم تهيئته بالفعل. لا يمكن إنشاء حساب جديد عبر هذا المسار.' });
+    }
+
+    if (!email || !password || !name) {
+      return res.status(400).json({ success: false, message: 'يرجى إدخال البريد الإلكتروني واسم المستخدم وكلمة المرور.' });
+    }
+
+    const existingUser = await kdb('users').where({ email }).first();
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'البريد الإلكتروني مستخدم بالفعل. حاول استخدام بريد آخر.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const id = uuidv4();
+    const role = 'admin';
+
+    // حساب المدير الأول يختار كلمة مروره بنفسه ⇒ لا حاجة لبريد تفعيل.
+    // كل الحسابات الأخرى تُنشأ معلّقة (activated_at = NULL) حتى يُفتح رابط التفعيل.
+    const activatedAt = new Date();
+
+    await kdb('users').insert({
+      id,
+      tenant_id: null,
+      email,
+      password: hashedPassword,
+      role,
+      name,
+      gender: gender || 'male',
+      daily_readings_enabled: 1,
+      radio_514_enabled: 1,
+      activated_at: activatedAt
+    });
+
+    const token = jwt.sign(
+      { id, tenantId: null, role, email, gender: gender || 'male', daily_readings_enabled: true, radio_514_enabled: true, tokenVersion: 0 },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "strict",
+      maxAge: 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "تم إنشاء حساب مدير التطبيق بنجاح.",
+      data: {
+        user: { id, tenantId: null, role, name, email, gender: gender || 'male', custom_permissions: null, custom_role_id: null, daily_readings_enabled: true, radio_514_enabled: true }
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     tags: [المصادقة]
+ *     summary: تسجيل الدخول
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       200:
+ *         description: تم تسجيل الدخول بنجاح مع JWT token
+ */
+router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await kdb('users').where({ email }).first();
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ success: false, message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+    }
+
+    // الحساب المعلّق (أُنشئ بصلاحية ولم يُفعَّل بعد) لا يستطيع الدخول إطلاقاً.
+    // الفحص بعد التحقق من كلمة المرور حتى لا تكشف رسالة مختلفة وجود الحساب من عدمه.
+    if (!user.activated_at) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_NOT_ACTIVATED",
+        message: "حسابك لم يتم تفعيله بعد. افتح رابط التفعيل المرسل إلى بريدك الإلكتروني، أو اطلب إرسال رابط جديد من صفحة الدخول."
+      });
+    }
+
+    // Auto-detect tenant from user record or assignments
+    let effectiveTenantId = user.tenant_id;
+
+    const isGlobalStaff = user.role === 'admin' || user.role === 'bishop';
+    if (!effectiveTenantId && !isGlobalStaff) {
+      const assignedTenant = await kdb('user_tenant_assignments')
+        .where({ user_id: user.id })
+        .first();
+      if (assignedTenant) {
+        effectiveTenantId = assignedTenant.tenant_id;
+        if (!user.tenant_id) {
+          await kdb('users').where({ id: user.id }).update({ tenant_id: effectiveTenantId });
+        }
+      }
+    }
+
+    if (!effectiveTenantId && !isGlobalStaff) {
+      return res.status(400).json({
+        success: false,
+        message: 'لم يتم العثور على سكن مرتبط بحسابك. يرجى التواصل مع المشرف.'
+      });
+    }
+
+    // Resolve effective permissions: merge custom_permissions + custom_role permissions
+    const effectiveCustomPermissions = await resolveEffectivePermissions(user);
+
+    // The user record already reflects the cascaded tenant value,
+    // so no separate tenant check is needed here.
+    const dailyReadingsEnabled = user.daily_readings_enabled != 0;
+    const radio514Enabled = user.radio_514_enabled != 0;
+    const token = jwt.sign(
+      { id: user.id, tenantId: effectiveTenantId, role: user.role, email: user.email, gender: user.gender || 'male', daily_readings_enabled: dailyReadingsEnabled, radio_514_enabled: radio514Enabled, tokenVersion: Number(user.token_version ?? 0) },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "strict",
+      maxAge: 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+
+    res.json({
+      success: true,
+      message: "تم الدخول بنجاح",
+      data: {
+        user: {
+          id: user.id,
+          tenantId: effectiveTenantId,
+          role: user.role,
+          name: user.name,
+          email: user.email,
+          gender: user.gender || 'male',
+          custom_permissions: effectiveCustomPermissions.length > 0 ? JSON.stringify(effectiveCustomPermissions) : null,
+          custom_role_id: user.custom_role_id || null,
+          daily_readings_enabled: dailyReadingsEnabled,
+          radio_514_enabled: radio514Enabled
+        }
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/activate:
+ *   post:
+ *     tags: [المصادقة]
+ *     summary: تفعيل الحساب عبر التوكن المُرسل بالبريد
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token: { type: string }
+ *     responses:
+ *       200:
+ *         description: تم تفعيل الحساب
+ *       400:
+ *         description: رابط غير صالح أو منتهي
+ */
+router.post("/activate", activationLimiter, validate(activateAccountSchema), async (req, res) => {
+  try {
+    const lookup = await resolveActivationToken(req.body.token);
+
+    if (lookup.state === 'expired') {
+      return res.status(400).json({ success: false, code: 'ACTIVATION_EXPIRED', message: ACTIVATION_MESSAGES.expired });
+    }
+    if (lookup.state === 'already-activated') {
+      return res.status(400).json({ success: false, code: 'ALREADY_ACTIVATED', message: ACTIVATION_MESSAGES.alreadyActivated });
+    }
+    if (lookup.state !== 'valid') {
+      return res.status(400).json({ success: false, code: 'ACTIVATION_INVALID', message: ACTIVATION_MESSAGES.invalid });
+    }
+
+    const consumed = await consumeActivationToken(lookup.userId);
+    if (!consumed) {
+      return res.status(400).json({ success: false, code: 'ACTIVATION_INVALID', message: ACTIVATION_MESSAGES.invalid });
+    }
+
+    res.json({
+      success: true,
+      message: "تم تفعيل حسابك بنجاح. يمكنك تسجيل الدخول الآن بكلمة المرور التي حددها لك المسؤول."
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/activate/resend:
+ *   post:
+ *     tags: [المصادقة]
+ *     summary: طلب إعادة إرسال رابط التفعيل
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string }
+ *     responses:
+ *       200:
+ *         description: تم استلام الطلب (الرد موحّد لمنع كشف الحسابات)
+ *       503:
+ *         description: البريد غير مُهيأ
+ */
+router.post("/activate/resend", resendActivationLimiter, validate(resendActivationSchema), async (req, res) => {
+  const email = String(req.body.email).trim().toLowerCase();
+
+  try {
+    const user = await kdb('users').select('id', 'activated_at').where({ email }).first();
+
+    // الرد موحّد سواء وُجد الحساب أم لا حتى لا يُستدل على الحسابات المسجّلة.
+    const generic = {
+      success: true,
+      message: "لو الحساب موجود ومش مفعّل، هنرسل له رابط تفعيل جديد على بريده الإلكتروني."
+    };
+
+    if (!user || user.activated_at) return res.json(generic);
+
+    const result = await issueActivationInvite(user.id);
+    if (!result.ok) return res.json(generic);
+
+    if (!result.emailed && !isMailerReady()) {
+      return res.status(503).json({
+        success: false,
+        code: 'MAILER_NOT_CONFIGURED',
+        message: ACTIVATION_MESSAGES.notConfigured
+      });
+    }
+
+    res.json(generic);
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/logout:
+ *   post:
+ *     tags: [المصادقة]
+ *     summary: تسجيل الخروج (إبطال التوكن)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: تم تسجيل الخروج
+ */
+/**
+ * @openapi
+ * /auth/me:
+ *   get:
+ *     tags: [المصادقة]
+ *     summary: التحقق من الجلسة الحالية
+ *     responses:
+ *       200:
+ *         description: بيانات المستخدم
+ */
+router.get("/me", authenticate, async (req, res) => {
+  try {
+    const user = await kdb('users').where({ id: req.user.id }).first();
+    if (!user) {
+      res.clearCookie("token", { path: "/" });
+      return res.status(401).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    const effectiveCustomPermissions = await resolveEffectivePermissions(user);
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          tenantId: user.tenant_id,
+          role: user.role,
+          name: user.name,
+          email: user.email,
+          gender: user.gender || 'male',
+          custom_permissions: effectiveCustomPermissions.length > 0 ? JSON.stringify(effectiveCustomPermissions) : null,
+          custom_role_id: user.custom_role_id || null,
+          daily_readings_enabled: user.daily_readings_enabled != 0,
+          radio_514_enabled: user.radio_514_enabled != 0,
+        }
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
+  }
+});
+
+// Logout - blacklist the current token
+router.post("/logout", authenticate, async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const cookieToken = req.cookies?.token;
+  const token = authHeader?.split(" ")[1] || cookieToken;
+  if (!token) return res.status(400).json({ success: false, message: "مفيش توكن" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    const exp = decoded?.exp || Math.floor(Date.now() / 1000) + 86400;
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    await kdb('token_blacklist').insert({
+      id: uuidv4(),
+      token_hash: tokenHash,
+      user_id: req.user.id,
+      expires_at: new Date(exp * 1000),
+    });
+
+    res.clearCookie("token", { path: "/" });
+    res.json({ success: true, message: "تم تسجيل الخروج بنجاح" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "خطأ في تسجيل الخروج" });
+  }
+});
+
+export default router;

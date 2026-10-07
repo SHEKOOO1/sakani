@@ -1,0 +1,214 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: Sakani@2024
+          MSSQL_PID: Developer
+          MSSQL_TCP_PORT: 1433
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Sakani@2024' -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cp .env.example .env
+      - name: Start server in background
+        run: |
+          npx tsx server.ts &
+          echo "PID=$!" >> $GITHUB_ENV
+          sleep 3
+          for i in $(seq 1 15); do
+            if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            echo "Waiting for server... attempt $i"
+            sleep 2
+          done
+        env:
+          NODE_ENV: development
+          DB_HOST: localhost
+          DB_USER: sa
+          DB_PASSWORD: Sakani@2024
+          DB_NAME: DormMaster
+          DB_PORT: 1433
+          DB_INSTANCE: ''
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-secret-key' }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || 'ci-encryption-key-32chars!' }}
+          PORT: 3000
+          CORS_ORIGIN: '*'
+      - run: npm run test
+        env:
+          DB_HOST: localhost
+          DB_USER: sa
+          DB_PASSWORD: Sakani@2024
+          DB_NAME: DormMaster
+          DB_PORT: 1433
+          DB_INSTANCE: ''
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-secret-key' }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || 'ci-encryption-key-32chars!' }}
+          PORT: 3000
+          CORS_ORIGIN: '*'
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+      - name: Stop server
+        if: always()
+        run: kill ${{ env.PID }} || true
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          JWT_SECRET: build-secret
+          ENCRYPTION_KEY: build-encryption-key-32ch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: sakani:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute lowercase image name
+        id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.image }}:latest,${{ steps.meta.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        envs: APP_IMAGE,BRANCH
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: APP_IMAGE,BRANCH
+          script: |
+            set -e
+            cd /opt/sakani
+            # P0-3: refresh the checkout so the compose file declares the pushed
+            # image, then run exactly that image instead of rebuilding stale source.
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull --ff-only origin "$BRANCH"
+            # P0-DP-1: capture the current image so we can roll back.
+            APP_CID=$(docker compose ps -q app || true)
+            PREV_IMAGE=""
+            if [ -n "$APP_CID" ]; then
+              PREV_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$APP_CID" 2>/dev/null || true)
+            fi
+            docker compose pull app
+            # P1-CI-1: bring up the FULL stack (db -> app -> nginx). `up` honors
+            # app's `depends_on: db: condition: service_healthy`; --no-build runs
+            # the exact image pulled above instead of rebuilding stale source.
+            docker compose up -d --no-build app nginx
+            # P0-DP-1: gate on real readiness (/api/ready probes the database).
+            HEALTHY=""
+            for i in $(seq 1 30); do
+              APP_CID=$(docker compose ps -q app || true)
+              if [ -n "$APP_CID" ]; then
+                STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$APP_CID" 2>/dev/null || echo unknown)
+                echo "app status: $STATUS (attempt $i)"
+                if [ "$STATUS" = "healthy" ]; then HEALTHY=1; break; fi
+                if [ "$STATUS" = "unhealthy" ] || [ "$STATUS" = "exited" ]; then break; fi
+              else
+                echo "app container not found yet (attempt $i)"
+              fi
+              sleep 5
+            done
+            if [ -z "$HEALTHY" ]; then
+              echo "::error::Deployment failed readiness check"
+              if [ -n "$PREV_IMAGE" ]; then
+                echo "Rolling back to $PREV_IMAGE"
+                APP_IMAGE="$PREV_IMAGE" docker compose up -d --no-build --no-deps app
+              fi
+              exit 1
+            fi
+            docker image prune -f
+        env:
+          APP_IMAGE: ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}

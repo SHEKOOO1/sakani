@@ -1,0 +1,21 @@
+# Local development override — OPT-IN ONLY.
+#
+# The base docker-compose.yml hard-forces NODE_ENV=production so a local .env
+# can never downgrade a real deployment (P0-3). To run the stack containerized
+# for local development, opt in explicitly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This file is NOT auto-loaded by `docker compose up` (Compose auto-loads
+# docker-compose.override.yml, not docker-compose.dev.yml), so it cannot
+# weaken a production deployment.
+services:
+  app:
+    environment:
+      NODE_ENV: development
+  db:
+    # P0-4: SQL Server is published to the host for LOCAL DEVELOPMENT ONLY so
+    # SSMS / local scripts can connect. Production (base compose) does not
+    # publish 1433.
+    ports:
+      - "1433:1433"

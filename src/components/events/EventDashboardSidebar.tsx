@@ -1,0 +1,63 @@
+import { Trash2, Wallet, Users, ListChecks, FileText } from 'lucide-react';
+import { AppPermission } from '../../types/permissions';
+
+interface EventDashboardSidebarProps {
+  activeView: string;
+  setActiveView: (view: string) => void;
+  selectedEvent: any;
+  user: any;
+  hasPermission: (perm: AppPermission) => boolean;
+  onManageManagers: () => void;
+  fetchEventPayments: (eventId: string) => void;
+  handleDeleteEvent: (id: string) => void;
+}
+
+export function EventDashboardSidebar({
+  activeView, setActiveView, selectedEvent, user, hasPermission, onManageManagers,
+  fetchEventPayments, handleDeleteEvent,
+}: EventDashboardSidebarProps) {
+  const btnClass = (view: string, activeBg: string) =>
+    `w-full text-right px-8 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+      activeView === view
+        ? `${activeBg} text-white shadow-lg`
+        : 'text-slate-500 dark:text-slate-400 hover:bg-white/5'
+    }`;
+
+  const canAssignManagers = user && (['admin', 'bishop', 'priest', 'supervisor'].includes(user.role) || selectedEvent.canManage);
+  const canManageEvent = hasPermission(AppPermission.DELETE_EVENT) || selectedEvent.canManage;
+
+  return (
+    <div className="lg:w-72 space-y-2">
+      <button onClick={() => setActiveView('details')} className={btnClass('details', 'bg-primary-600')}>التفاصيل العامة</button>
+      {selectedEvent.is_competition && (
+        <button onClick={() => setActiveView('competition')} className={btnClass('competition', 'bg-warm-500')}>المسابقة والفرق</button>
+      )}
+      <button onClick={() => setActiveView('sessions')} className={btnClass('sessions', 'bg-ocean-600')}>الأقسام والمحاضرات</button>
+      <button onClick={() => setActiveView('attendance_overview')} className={btnClass('attendance_overview', 'bg-sky-600')}>
+        <FileText size={14} className="inline ml-2" />كشف الحضور والأعذار
+      </button>
+      {hasPermission(AppPermission.MANAGE_EVENT_ATTENDANCE) && (
+        <button onClick={() => setActiveView('rules')} className={btnClass('rules', 'bg-vibrant-600')}>
+          <ListChecks size={14} className="inline ml-2" />قواعد الحضور والغياب
+        </button>
+      )}
+      <button onClick={() => setActiveView('report')} className={btnClass('report', 'bg-white text-slate-800')}>التقرير الإجمالي</button>
+      {(hasPermission(AppPermission.MANAGE_EVENT_PAYMENTS) || selectedEvent.canManage) && selectedEvent?.is_paid ? (
+        <button onClick={() => { setActiveView('payments'); fetchEventPayments(selectedEvent.id); }} className={btnClass('payments', 'bg-emerald-600')}>
+          <Wallet size={14} className="inline ml-2" />المدفوعات
+        </button>
+      ) : null}
+      {canAssignManagers && (
+        <button onClick={onManageManagers} className={btnClass('managers', 'bg-vibrant-600')}>
+          <Users size={14} className="inline ml-2" />إدارة المتحكمين
+        </button>
+      )}
+      <div className="border-t border-white/10 my-4" />
+      {canManageEvent && (
+        <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="w-full text-right px-8 py-4 rounded-ultra font-black text-xs uppercase tracking-widest transition-all text-red-400 hover:bg-red-500/10 hover:text-red-300">
+          <Trash2 size={14} className="inline ml-2" />حذف الفعالية بالكامل
+        </button>
+      )}
+    </div>
+  );
+}

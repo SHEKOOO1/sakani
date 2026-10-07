@@ -1,0 +1,72 @@
+# Production stack for sakani.mase7y.org.
+#
+# This file deliberately does NOT define its own `db` or `nginx` services.
+# It reuses the two stacks that are already running on this host:
+#   - SQL Server : D:\Sql\docker-compose.yml   (network `sql_default`)
+#   - Nginx      : D:\Nginx\docker-compose.yml (NPM, network `proxy`)
+# The app joins BOTH networks: `sql_default` to reach the database by container
+# name, `proxy` so Nginx Proxy Manager can reverse-proxy to it by container name.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml logs -f app
+#   docker compose -f docker-compose.prod.yml down
+
+name: sakani
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sakani-app:latest
+    container_name: sakani-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Enables the CSRF middleware's loopback fallback so the app is usable from
+      # http://127.0.0.1:3100 during debugging. Safe for production traffic: the
+      # fallback still requires the request Host header to be a loopback name
+      # (localhost/127.0.0.1/::1), so anything arriving through Nginx for
+      # sakani.mase7y.org keeps the strict origin allowlist.
+      CSRF_ALLOW_LOCAL: "true"
+    # Bound to 127.0.0.1 ONLY: reachable as http://localhost:3000 from this
+    # machine, but NOT from the LAN or the internet. The only path for outside
+    # traffic remains nginx -> TLS. Do not change 127.0.0.1 to 0.0.0.0.
+    ports:
+      - "127.0.0.1:3000:3000"
+      # Extra local port for debugging from the browser (same container, same DB).
+      # Bound to 127.0.0.1 only, exactly like 3000 -- never expose on the LAN.
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      # Migrations and the base schema are read at startup (knex migrate + the
+      # schema bootstrap in db.ts). Mounting them read-only keeps the running
+      # container in lock-step with the repository so a DB that records a newer
+      # migration can never disagree with the baked image (knex fails closed
+      # with "migration directory is corrupt" otherwise).
+      - ./migrations:/app/migrations:ro
+      - ./schema_mssql.sql:/app/schema_mssql.sql:ro
+    networks:
+      - proxy
+      - sql_default
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+networks:
+  # Nginx Proxy Manager (D:\Nginx). External — must already exist.
+  proxy:
+    external: true
+    name: proxy
+  # SQL Server (D:\Sql). External — must already exist.
+  sql_default:
+    external: true
+    name: sql_default

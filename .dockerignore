@@ -1,0 +1,49 @@
+# ── Version control / CI metadata ────────────────────────────────
+.git
+.gitignore
+.gitattributes
+.github
+
+# ── Secrets, environment files and private keys ──────────────────
+.env
+.env.*
+!.env.example
+ssl
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# ── Dependencies and build output (rebuilt inside the image) ─────
+node_modules
+dist
+dev-dist
+coverage
+test-results
+playwright-report
+.vite
+
+# ── Runtime data / logs (bind-mounted at runtime, never baked in) ─
+uploads
+logs
+*.log
+*.err
+
+# ── Local database files ─────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── End-to-end automation ────────────────────────────────────────
+e2e
+
+# ── OS / editor files ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+*.swp
+
+# ── Scratch ──────────────────────────────────────────────────────
+tmp
