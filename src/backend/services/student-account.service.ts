@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { kdb } from "../infrastructure/db";
+import { invoiceForStudent, roomPriceFor } from "./ledger.service";
 
 export interface StudentAccount {
   studentId: string;
@@ -31,13 +32,7 @@ export interface StudentAccount {
   }[];
 }
 
-export function roomPriceFor(room: any, cycle?: string | null): number {
-  if (!room) return 0;
-  const c = cycle || 'semester';
-  if (c === 'daily') return Number(room.price_daily || 0);
-  if (c === 'monthly') return Number(room.price_monthly || 0);
-  return Number(room.price_semester || 0);
-}
+export { roomPriceFor, invoiceForStudent };
 
 export async function getStudentAccount(studentId: string, opts: { visibility?: 'all' | 'tenant' } = {}): Promise<StudentAccount | null> {
   const student = await kdb('students as s')
@@ -47,10 +42,7 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
     .first();
   if (!student) return null;
 
-  const billingCycle = student.billing_cycle || 'semester';
-  const roomPrice = roomPriceFor(student, billingCycle);
-  const invoice = roomPrice > 0 ? roomPrice : Number(student.agreed_price || 0);
-  const source: 'room' | 'agreed' = roomPrice > 0 ? 'room' : 'agreed';
+  const { roomPrice, invoice, source, billingCycle } = invoiceForStudent(student);
 
   const paymentsQuery = kdb('finances').where({ student_id: studentId, type: 'revenue' });
   if (opts.visibility === 'tenant') {
