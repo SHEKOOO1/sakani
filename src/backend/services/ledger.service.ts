@@ -52,6 +52,8 @@ export interface PostEntryInput {
   source?: LedgerSource;
   isAdminOnly?: boolean;
   createdBy?: string | null;
+  /** Preserve the original timestamp when importing a legacy row. */
+  createdAt?: Date;
 }
 
 export interface PostedEntry {
@@ -230,7 +232,7 @@ export async function postEntry(trx: Executor, input: PostEntryInput): Promise<P
     is_admin_only: input.isAdminOnly ? 1 : 0,
     version: 1,
     created_by: input.createdBy ?? null,
-    created_at: new Date(),
+    created_at: input.createdAt || new Date(),
   });
 
   const lineRows = input.lines.map((line, index) => ({
