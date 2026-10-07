@@ -34,7 +34,14 @@ import type { Knex } from 'knex';
  *
  * Reported figures are derived from `entry_type`, NOT from raw account
  * balances, so penalties and discounts stay out of `remaining` exactly as
- * specified:  remaining = SUM(invoice) - SUM(payment).
+ * specified:  remaining = invoice - SUM(payment).
+ *
+ * The invoice side is deliberately NOT posted. There is no invoice table: the
+ * amount has always come from the room price (agreed_price as fallback), so
+ * the reads keep deriving it — remaining = derived room price - ledger
+ * payments — and no history is invented for a movement that was never
+ * recorded. entry_type='invoice' and invoiceLines() stay in the contract for
+ * the day an invoice becomes an event worth recording.
  *
  * Balance guarantee
  * -----------------

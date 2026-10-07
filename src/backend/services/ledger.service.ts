@@ -119,6 +119,13 @@ export function roomPriceFor(room: any, cycle?: string | null): number {
   return Number(room.price_semester || 0);
 }
 
+/**
+ * The single source of the invoice figure. The room price wins whenever the
+ * room has one for this billing cycle; agreed_price is only the fallback for a
+ * room with no price configured. Nothing posts this amount to the ledger —
+ * `remaining` = invoiceForStudent(...).invoice - SUM(payment) from
+ * getStudentLedgerTotals.
+ */
 export function invoiceForStudent(student: any): {
   roomPrice: number;
   invoice: number;
@@ -138,6 +145,12 @@ export function paymentLines(amount: number): JournalLineInput[] {
   ];
 }
 
+/**
+ * Not yet posted anywhere: there is no invoice table, so the invoice amount is
+ * derived from the room price by invoiceForStudent() above and `remaining`
+ * reads it from there. Kept because the pair is part of the chart of accounts
+ * and becomes live the moment an invoice is recorded as an event.
+ */
 export function invoiceLines(amount: number): JournalLineInput[] {
   return [
     { account: 'STUDENT_PAYMENT', debit: amount },
