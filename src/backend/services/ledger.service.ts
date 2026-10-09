@@ -403,35 +403,6 @@ export async function reverseEntry(
 }
 
 /**
- * Undoes whatever entry currently stands for a `finances` row.
- *
- * Returns null instead of throwing when there is nothing to undo: a row that
- * predates the ledger may never have been imported, and a legacy row imported
- * by a repair run may have none either. Callers on write paths must tolerate
- * that — the legacy table is still authoritative for reads, and failing a
- * delete because an entry is missing would be a regression.
- */
-export async function reverseEntryForFinance(
-  trx: Executor,
-  financeId: string | null | undefined,
-  opts: {
-    reason?: string | null;
-    createdBy?: string | null;
-    entryDate?: Date;
-    source?: LedgerSource;
-    reversalFinanceId?: string | null;
-  } = {},
-): Promise<PostedEntry | null> {
-  if (!financeId) return null;
-  const open = await trx('journal_entries')
-    .where({ finance_id: financeId, status: 'posted' })
-    .first();
-  if (!open) return null;
-  const { reversalFinanceId, ...rest } = opts;
-  return reverseEntry(trx, { entryId: open.id, ...rest, financeId: reversalFinanceId ?? null });
-}
-
-/**
  * The posted charge a reference stands for, if any. Attendance uses this as its
  * idempotency guard now that it no longer writes `finances`: a penalty (or an
  * `event-rule:<id>` fee) is charged at most once, and a cancellation finds the
