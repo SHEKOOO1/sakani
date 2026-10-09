@@ -494,6 +494,26 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
       const studentRows = await trx('students').where({ tenant_id: id }).select('id');
       const studentIds = studentRows.map((s: any) => s.id);
 
+      // The ledger is the source of truth now. Clean it up FIRST, before any
+      // student row is deleted: FK_journal_entries_student destroys the delete
+      // otherwise, and the tenant's books (including admin-only payments whose
+      // tenant_id is NULL but whose student lives here) must go out balanced —
+      // lines before their entries, both sides together.
+      const entryRows = await trx('journal_entries')
+        .where(function (this: any) {
+          this.where({ tenant_id: id });
+          if (studentIds.length) this.orWhereIn('student_id', studentIds);
+        })
+        .select('id');
+      const entryIds = entryRows.map((e: any) => e.id);
+      if (entryIds.length > 0) {
+        await trx('journal_lines').whereIn('entry_id', entryIds).del();
+        await trx('journal_entries').whereIn('id', entryIds).del();
+      }
+      // Frozen legacy finance (historical import data) purged last, never read
+      // or written at runtime — kept only for import reconciliation.
+      await trx('finances').where({ tenant_id: id }).del();
+
       if (studentIds.length > 0) {
         await trx('student_points').whereIn('student_id', studentIds).del();
         await trx('student_warnings').whereIn('student_id', studentIds).del();
@@ -508,16 +528,6 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
       await trx('students').where({ tenant_id: id }).del();
       await trx('rooms').where({ tenant_id: id }).del();
       await trx('apartments').where({ tenant_id: id }).del();
-
-      // The ledger is the source of truth now: drop the tenant's lines first
-      // (FK), then the entries, and finally any frozen legacy finance rows.
-      const entryRows = await trx('journal_entries').where({ tenant_id: id }).select('id');
-      const entryIds = entryRows.map((e: any) => e.id);
-      if (entryIds.length > 0) {
-        await trx('journal_lines').whereIn('entry_id', entryIds).del();
-        await trx('journal_entries').where({ tenant_id: id }).del();
-      }
-      await trx('finances').where({ tenant_id: id }).del();
 
       // Events cascade
       const eventRows = await trx('events').where({ tenant_id: id }).select('id');

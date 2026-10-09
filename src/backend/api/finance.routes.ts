@@ -212,7 +212,9 @@ router.post("/", authenticate, validate(createFinanceSchema), (req, res, next) =
     });
 
     if (type === 'revenue' && studentId) {
-      const account = await getStudentAccount(studentId, { visibility: 'all' });
+      // Message balance uses the acting user's own visibility: an admin-only
+      // ledger must never surface inside a parent-facing notification.
+      const account = await getStudentAccount(studentId, { visibility: isAdmin ? 'all' : 'tenant' });
       await notifyStudentFinance(studentId, financePaymentMessage(Number(amount || 0), account, 'added'), 'تم إضافة دفعة جديدة');
     }
 
@@ -362,7 +364,7 @@ router.put("/:id", authenticate, async (req, res, next) => {
     const finalType = merged?.type ?? type;
     const finalStudentId = merged?.student_id ?? studentId ?? null;
     if (finalType === 'revenue' && finalStudentId) {
-      const account = await getStudentAccount(finalStudentId, { visibility: 'all' });
+      const account = await getStudentAccount(finalStudentId, { visibility: isAdmin ? 'all' : 'tenant' });
       const msg = financePaymentMessage(Number(merged?.amount || amount || 0), account, 'updated');
       await notifyStudentFinance(finalStudentId, msg, 'تم تعديل إحدى الدفعات');
     }

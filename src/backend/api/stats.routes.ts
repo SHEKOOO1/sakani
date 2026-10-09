@@ -30,8 +30,12 @@ router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_DASH
     const maintenanceCount = (await kdb("maintenance_requests").where({ status: 'pending' }).where('tenant_id', tenantId).count("* as count").first()) as { count: number };
     
     const isAdmin = req.user.role === 'admin';
+    // Tenant-less staff (a bishop with no primary residence) must stay inside
+    // their assigned residences only; with no assignments the scope closes to
+    // zero instead of reading other housings' ledgers.
+    const tenantIds = !isAdmin && !tenantId ? (req.user.tenantIds || []) : null;
 
-    const ledgerTotals = await getLedgerClassTotals({ isAdmin, tenantId });
+    const ledgerTotals = await getLedgerClassTotals({ isAdmin, tenantId, tenantIds });
     const financeSummary = {
       income: ledgerTotals.income,
       expense: ledgerTotals.expense + ledgerTotals.penalty + ledgerTotals.discount,

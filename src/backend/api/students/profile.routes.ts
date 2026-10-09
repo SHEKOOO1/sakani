@@ -738,7 +738,9 @@ router.patch("/:id/finance", authenticate, async (req, res) => {
       });
     }
 
-    const account = await getStudentAccount(student.id, { visibility: 'all' });
+    // Only supervisors reach this route, so the parent-facing message must use
+    // tenant visibility — admin-only ledger rows never leak into notifications.
+    const account = await getStudentAccount(student.id, { visibility: 'tenant' });
     const roomLabel = updatedRoom ? (cycle === 'daily' ? 'اليومية' : cycle === 'monthly' ? 'الشهرية' : 'الفصلية') : null;
     const message = `تم تعديل سعر الغرفة${roomLabel ? ` (${roomLabel})` : ''} إلى ${formatMoney(value)}.\nإجمالي المدفوع: ${formatMoney(account?.totalPaid || 0)}\nالمتبقي: ${formatMoney(account?.remaining || 0)}`;
     await notifyStudentFinance(student.id, message, `حساب الغرفة - تعديل السعر`);
