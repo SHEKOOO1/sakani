@@ -1,6 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
 import { kdb } from "../infrastructure/db";
-import { invoiceForStudent, roomPriceFor } from "./ledger.service";
+import {
+  invoiceForStudent,
+  roomPriceFor,
+  getStudentLedgerTotals,
+  getStudentLedgerEntries,
+  entryDisplayType,
+} from "./ledger.service";
 
 export interface StudentAccount {
   studentId: string;
@@ -44,29 +50,32 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
 
   const { roomPrice, invoice, source, billingCycle } = invoiceForStudent(student);
 
-  const paymentsQuery = kdb('finances').where({ student_id: studentId, type: 'revenue' });
-  if (opts.visibility === 'tenant') {
-    paymentsQuery.where(function () { this.whereNull('is_admin_only').orWhere('is_admin_only', 0); });
-  }
-  const payments = await paymentsQuery.select('id', 'description', 'category', 'amount', 'date', 'created_at')
-    .orderBy('created_at', 'desc')
-    .orderBy('date', 'desc');
+  // Phase 4: the statement is the journal, not `finances`. `paid` therefore
+  // counts only posted payment entries — a penalty cancellation (a reversal)
+  // no longer inflates what the student has paid, which is the exact bug the
+  // ledger was introduced to fix (see migrations/043).
+  const totals = await getStudentLedgerTotals(studentId, { visibility: opts.visibility });
+  const entries = await getStudentLedgerEntries(studentId, { visibility: opts.visibility });
 
-  const transactionsQuery = kdb('finances as f')
-    .leftJoin('payment_methods as pm', 'f.payment_method_id', 'pm.id')
-    .where('f.student_id', studentId);
-  if (opts.visibility === 'tenant') {
-    transactionsQuery.where(function () { this.whereNull('f.is_admin_only').orWhere('f.is_admin_only', 0); });
-  }
-  const transactions = await transactionsQuery
-    .select('f.id', 'f.type', 'f.description', 'f.category', 'f.amount', 'f.date', 'f.created_at', 'f.payment_method_id', 'pm.name as payment_method_name', 'pm.type as payment_method_type')
-    .orderBy('f.created_at', 'desc')
-    .orderBy('f.date', 'desc');
+  const payments = entries
+    .filter(e => e.entry_type === 'payment' && e.status === 'posted')
+    .map(e => ({
+      id: e.id,
+      description: e.description || '',
+      category: e.category || 'رسوم',
+      amount: e.amount,
+      date: e.entry_date,
+      created_at: e.created_at,
+    }));
 
-  // سجل تعديلات المعاملات وسعر الغرفة — كل تعديل بتاريخه ووقته الفعلي في السيرفر
+  // Room-price edits still live only in finance_edit_logs (the invoice is
+  // never posted), so they stay part of the statement. A transaction edit no
+  // longer needs its log row here: it is already visible as the reversal plus
+  // the replacement entry the write path posts.
   const editLogsQuery = kdb('finance_edit_logs as e')
     .leftJoin('users as u', 'e.created_by', 'u.id')
-    .where('e.student_id', studentId);
+    .where('e.student_id', studentId)
+    .where('e.edit_type', 'room_price');
   if (opts.visibility === 'tenant') {
     editLogsQuery.where(function () { this.whereNull('e.is_admin_only').orWhere('e.is_admin_only', 0); });
   }
@@ -75,21 +84,24 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
     .orderBy('e.created_at', 'desc');
 
   const accountTransactions: StudentAccount['transactions'] = [
-    ...transactions.map(t => ({
-      id: t.id,
-      kind: (t.type === 'expense' ? 'expense' : 'revenue') as 'revenue' | 'expense',
-      type: t.type === 'expense' ? 'expense' : 'revenue',
-      description: t.description || '',
-      category: t.category || 'رسوم',
-      amount: Number(t.amount || 0),
-      sign: null as 'increase' | 'decrease' | null,
-      summary: null as string | null,
-      date: t.date || null,
-      created_at: t.created_at || null,
-      payment_method_name: t.payment_method_name || null,
-      payment_method_type: t.payment_method_type || null,
-      editor_name: null as string | null,
-    })),
+    ...entries.map(e => {
+      const displayType = entryDisplayType(e.entry_type, e.reverses_entry_type);
+      return {
+        id: e.id,
+        kind: displayType as 'revenue' | 'expense',
+        type: displayType,
+        description: e.description || e.category || '',
+        category: e.category || 'رسوم',
+        amount: e.amount,
+        sign: null as 'increase' | 'decrease' | null,
+        summary: e.status === 'reversed' ? 'قيد معكوس' : null,
+        date: e.entry_date || null,
+        created_at: e.created_at || null,
+        payment_method_name: e.payment_method_name || null,
+        payment_method_type: null as string | null,
+        editor_name: e.creator_name || null,
+      };
+    }),
     ...editLogs.map(e => ({
       id: e.id,
       kind: 'edit' as const,
@@ -111,7 +123,7 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
     return tb - ta;
   });
 
-  const totalPaid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const totalPaid = totals.paid;
   const balance = invoice - totalPaid;
   const remaining = Math.max(0, balance);
   const debtStatus: 'debt' | 'paid' | 'credit' = balance > 0 ? 'debt' : balance < 0 ? 'credit' : 'paid';

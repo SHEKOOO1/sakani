@@ -54,6 +54,11 @@ export interface PostEntryInput {
   createdBy?: string | null;
   /** Preserve the original timestamp when importing a legacy row. */
   createdAt?: Date;
+  /** Idempotency key for attendance charges: a penalty id or `event-rule:<id>`. */
+  reference?: string | null;
+  attendanceId?: string | null;
+  eventId?: string | null;
+  sessionId?: string | null;
 }
 
 export interface PostedEntry {
@@ -88,6 +93,8 @@ export interface LedgerEntryRow {
   creator_name: string | null;
   payment_method_name: string | null;
   reverses_entry_id: string | null;
+  /** entry_type of the entry this one reverses, when it is a reversal. */
+  reverses_entry_type: EntryType | null;
   reversed_by_entry_id: string | null;
   source: LedgerSource;
   is_admin_only: number;
@@ -302,6 +309,10 @@ export async function postEntry(trx: Executor, input: PostEntryInput): Promise<P
     version: 1,
     created_by: input.createdBy ?? null,
     created_at: input.createdAt || new Date(),
+    reference: input.reference ?? null,
+    attendance_id: input.attendanceId ?? null,
+    event_id: input.eventId ?? null,
+    session_id: input.sessionId ?? null,
   });
 
   const lineRows = input.lines.map((line, index) => ({
@@ -420,6 +431,43 @@ export async function reverseEntryForFinance(
   return reverseEntry(trx, { entryId: open.id, ...rest, financeId: reversalFinanceId ?? null });
 }
 
+/**
+ * The posted charge a reference stands for, if any. Attendance uses this as its
+ * idempotency guard now that it no longer writes `finances`: a penalty (or an
+ * `event-rule:<id>` fee) is charged at most once, and a cancellation finds the
+ * entry to mirror instead of refunding twice. Reversals are excluded so a
+ * cancellation is never mistaken for the charge itself.
+ */
+export async function findPostedEntryByReference(
+  trx: Executor,
+  opts: { attendanceId: string; reference?: string | null },
+): Promise<PostedEntry | null> {
+  const qb = trx('journal_entries')
+    .where({ attendance_id: opts.attendanceId, status: 'posted' })
+    .whereNot('entry_type', 'reversal');
+  if (opts.reference) qb.where('reference', opts.reference);
+  const row = await qb.first();
+  if (!row) return null;
+  return { id: row.id, entryType: row.entry_type, amount: Number(row.amount), status: 'posted' };
+}
+
+/**
+ * Every posted attendance charge for a record, optionally narrowed to a
+ * reference prefix (`event-rule:%`). Corrections reverse the whole set at once,
+ * which is what `reverseEventRuleLedger` used to scan `finances` for.
+ */
+export async function listPostedAttendanceEntries(
+  trx: Executor,
+  opts: { attendanceId: string; referencePrefix?: string | null },
+): Promise<{ id: string; amount: number; reference: string | null }[]> {
+  const qb = trx('journal_entries')
+    .where({ attendance_id: opts.attendanceId, status: 'posted' })
+    .whereNot('entry_type', 'reversal');
+  if (opts.referencePrefix) qb.where('reference', 'like', `${opts.referencePrefix}%`);
+  const rows = await qb.select('id', 'amount', 'reference');
+  return (rows as any[]).map((r) => ({ id: r.id, amount: Number(r.amount || 0), reference: r.reference ?? null }));
+}
+
 function visibilityFilter(query: any, studentId: string, opts: { visibility?: 'all' | 'tenant' }): any {
   query.where('e.student_id', studentId);
   if (opts.visibility === 'tenant') {
@@ -488,6 +536,7 @@ export async function getStudentLedgerEntries(
   const query = visibilityFilter(db('journal_entries as e'), studentId, opts)
     .leftJoin('users as u', 'e.created_by', 'u.id')
     .leftJoin('payment_methods as pm', 'e.payment_method_id', 'pm.id')
+    .leftJoin('journal_entries as rev', 'e.reverses_entry_id', 'rev.id')
     .select(
       'e.id',
       'e.entry_type',
@@ -502,6 +551,7 @@ export async function getStudentLedgerEntries(
       'e.reversed_by_entry_id',
       'e.source',
       'e.is_admin_only',
+      'rev.entry_type as reverses_entry_type',
       'u.name as creator_name',
       'pm.name as payment_method_name',
     )
@@ -533,12 +583,13 @@ export async function getStudentLedgerEntries(
     amount: Number(e.amount || 0),
     category: e.category,
     description: e.description,
-    entry_date: e.entry_date ? String(e.entry_date).slice(0, 10) : null,
+    entry_date: toDateOnly(e.entry_date),
     created_at: e.created_at || null,
     created_by: e.created_by,
     creator_name: e.creator_name || null,
     payment_method_name: e.payment_method_name || null,
     reverses_entry_id: e.reverses_entry_id,
+    reverses_entry_type: e.reverses_entry_type ?? null,
     reversed_by_entry_id: e.reversed_by_entry_id,
     source: e.source,
     is_admin_only: Number(e.is_admin_only || 0),
@@ -551,6 +602,382 @@ export async function getStudentLedgerEntries(
         memo: l.memo ?? null,
       })),
   }));
+}
+
+/**
+ * Read model over the journal, swapped in by Phase 4.
+ *
+ * Everything a report or dashboard used to SUM out of `finances` is expressed
+ * here instead, from `entry_type` + `status` only — never from raw account
+ * balances — so the contract in migrations/043 (penalties and discounts stay
+ * out of `remaining`: remaining = invoice - SUM(payment)) holds for every
+ * reader. A reversed entry drops out of its class automatically because its
+ * status flips to 'reversed'; the mirror entry it leaves behind is `entry_type
+ * = 'reversal'` and is reported as its own class, so nothing is counted twice.
+ *
+ * The legacy `finances` table is still dual-written by Phase 3 and remains the
+ * source for the raw finance list (an editable row needs its `finances.id`),
+ * but every aggregate figure below is derived from the ledger.
+ */
+
+export interface LedgerScopeFilter {
+  tenantId?: string | null;
+  tenantIds?: string[] | null;
+  studentId?: string | null;
+  /** true = admin-only books, false = housing books, undefined = both. */
+  isAdmin?: boolean;
+  startDate?: string | null;
+  endDate?: string | null;
+  category?: string | null;
+}
+
+export interface LedgerClassTotals {
+  /** Money collected: entry_type = 'payment', currently posted. */
+  income: number;
+  /** Operating cost: entry_type = 'expense', currently posted. */
+  expense: number;
+  /** Penalties still standing: entry_type = 'penalty', currently posted. */
+  penalty: number;
+  /** Discounts granted: entry_type = 'discount', currently posted. */
+  discount: number;
+  /** Cancellations issued: entry_type = 'reversal', currently posted. */
+  reversal: number;
+  transactionCount: number;
+}
+
+/**
+ * Normalizes an mssql `date` cell — which the driver hands back as a JS Date —
+ * or a plain string to `yyyy-MM-dd`. `String(date).slice(0, 10)` would yield
+ * "Mon Oct 05", which breaks `new Date(...)` in the Excel/PDF exporters.
+ */
+function toDateOnly(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  const s = String(value);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+/** The one place the is_admin_only / tenant / date scope is applied. */
+function applyLedgerScope(qb: any, f: LedgerScopeFilter): any {
+  if (f.isAdmin === true) {
+    qb.where('e.is_admin_only', 1);
+  } else if (f.isAdmin === false) {
+    qb.where(function (this: any) {
+      this.whereNull('e.is_admin_only').orWhere('e.is_admin_only', 0);
+    });
+  }
+  if (f.tenantIds && f.tenantIds.length) qb.whereIn('e.tenant_id', f.tenantIds);
+  else if (f.tenantId) qb.where('e.tenant_id', f.tenantId);
+  if (f.studentId) qb.where('e.student_id', f.studentId);
+  if (f.category) qb.where('e.category', f.category);
+  if (f.startDate) qb.where('e.entry_date', '>=', f.startDate);
+  if (f.endDate) qb.where('e.entry_date', '<=', f.endDate);
+  return qb;
+}
+
+/**
+ * How a journal entry reads to the old finance UI: money in (`revenue`) or
+ * money out (`expense`). Penalties and discounts were filed as `type='expense'`
+ * rows in `finances`, and a reversal is shown opposite to what it cancels — a
+ * refunded payment leaves, so the reversal reads as an outflow; a cancelled
+ * penalty/expense is credited back, so it reads as an inflow.
+ */
+export function entryDisplayType(entryType: EntryType, reversesEntryType?: string | null): 'revenue' | 'expense' {
+  if (entryType === 'payment') return 'revenue';
+  if (entryType === 'reversal') return reversesEntryType === 'payment' ? 'expense' : 'revenue';
+  return 'expense';
+}
+
+const DISPLAY_TYPE_SQL = `(CASE
+    WHEN e.entry_type = 'payment' THEN 'revenue'
+    WHEN e.entry_type = 'reversal' THEN (CASE WHEN rev.entry_type = 'payment' THEN 'expense' ELSE 'revenue' END)
+    ELSE 'expense'
+  END)`;
+
+export async function getLedgerClassTotals(
+  f: LedgerScopeFilter = {},
+  executor: Executor = kdb,
+): Promise<LedgerClassTotals> {
+  const qb = executor('journal_entries as e').where('e.status', 'posted');
+  applyLedgerScope(qb, f);
+  const row = await qb
+    .select(
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type = 'payment' THEN e.amount ELSE 0 END), 0) as income"),
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type = 'expense' THEN e.amount ELSE 0 END), 0) as expense"),
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type = 'penalty' THEN e.amount ELSE 0 END), 0) as penalty"),
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type = 'discount' THEN e.amount ELSE 0 END), 0) as discount"),
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type = 'reversal' THEN e.amount ELSE 0 END), 0) as reversal"),
+      executor.raw('COUNT(*) as transaction_count'),
+    )
+    .first();
+  return {
+    income: Number(row?.income || 0),
+    expense: Number(row?.expense || 0),
+    penalty: Number(row?.penalty || 0),
+    discount: Number(row?.discount || 0),
+    reversal: Number(row?.reversal || 0),
+    transactionCount: Number(row?.transaction_count || 0),
+  };
+}
+
+export interface LedgerCategoryRow {
+  type: 'revenue' | 'expense';
+  entry_type: EntryType;
+  category: string;
+  total: number;
+}
+
+export async function getLedgerByCategory(
+  f: LedgerScopeFilter = {},
+  executor: Executor = kdb,
+): Promise<LedgerCategoryRow[]> {
+  const qb = executor('journal_entries as e')
+    .where('e.status', 'posted')
+    .whereIn('e.entry_type', ['payment', 'expense', 'penalty', 'discount']);
+  applyLedgerScope(qb, f);
+  const rows = await qb
+    .select('e.entry_type as entry_type', 'e.category as category')
+    .sum({ total: 'e.amount' })
+    .groupBy('e.entry_type', 'e.category')
+    .orderBy('e.entry_type');
+  return (rows as any[]).map((r) => ({
+    type: r.entry_type === 'payment' ? ('revenue' as const) : ('expense' as const),
+    entry_type: r.entry_type,
+    category: r.category || '—',
+    total: Number(r.total || 0),
+  }));
+}
+
+export interface LedgerMonthRow {
+  month: string;
+  income: number;
+  expense: number;
+}
+
+export async function getLedgerByMonth(
+  f: LedgerScopeFilter = {},
+  executor: Executor = kdb,
+): Promise<LedgerMonthRow[]> {
+  const monthExpr = "FORMAT(e.entry_date, 'yyyy-MM')";
+  const qb = executor('journal_entries as e')
+    .where('e.status', 'posted')
+    .whereIn('e.entry_type', ['payment', 'expense', 'penalty', 'discount']);
+  applyLedgerScope(qb, f);
+  const rows = await qb
+    .select(
+      executor.raw(`${monthExpr} as month`),
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type = 'payment' THEN e.amount ELSE 0 END), 0) as income"),
+      executor.raw("COALESCE(SUM(CASE WHEN e.entry_type <> 'payment' THEN e.amount ELSE 0 END), 0) as expense"),
+    )
+    .groupByRaw(monthExpr)
+    .orderBy('month');
+  return (rows as any[]).map((r) => ({
+    month: r.month,
+    income: Number(r.income || 0),
+    expense: Number(r.expense || 0),
+  }));
+}
+
+export interface LedgerReport {
+  totals: LedgerClassTotals & { net: number };
+  byCategory: LedgerCategoryRow[];
+  byMonth: LedgerMonthRow[];
+}
+
+/**
+ * Same shape `finance-report.service.getReportSummary` returned before Phase 4,
+ * but the expense side is `expense + penalty + discount` so it still matches the
+ * `type='expense'` bucket the UI expects, and reversals (already excluded from
+ * the posted figures) never inflate it.
+ */
+export async function getLedgerReport(
+  f: LedgerScopeFilter = {},
+  executor: Executor = kdb,
+): Promise<LedgerReport> {
+  const [totals, byCategory, byMonth] = await Promise.all([
+    getLedgerClassTotals(f, executor),
+    getLedgerByCategory(f, executor),
+    getLedgerByMonth(f, executor),
+  ]);
+  const expense = totals.expense + totals.penalty + totals.discount;
+  return {
+    totals: { ...totals, expense, net: totals.income - expense },
+    byCategory,
+    byMonth,
+  };
+}
+
+export interface LedgerMovementRow {
+  id: string;
+  type: 'revenue' | 'expense';
+  entry_type: EntryType;
+  status: string;
+  category: string;
+  amount: number;
+  description: string | null;
+  date: string | null;
+  created_at: string | null;
+  student_id: string | null;
+  student_name: string | null;
+  payment_method_id: string | null;
+  payment_method_name: string | null;
+  /** True when this row is a reversal entry (never editable/deletable). */
+  is_reversal: boolean;
+}
+
+/**
+ * Row-level read behind the finance list/report/export: the journal becomes the
+ * `finances`-shaped list the callers already consume, including the reversal
+ * rows that used to live in `finances` as `is_reversal = 1`.
+ */
+export async function getLedgerMovements(
+  f: LedgerScopeFilter & {
+    movementType?: 'revenue' | 'expense' | null;
+    search?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {},
+  executor: Executor = kdb,
+): Promise<LedgerMovementRow[]> {
+  const qb = executor('journal_entries as e')
+    .leftJoin('journal_entries as rev', 'e.reverses_entry_id', 'rev.id')
+    .leftJoin('students as s', 'e.student_id', 's.id')
+    .leftJoin('users as u', 's.user_id', 'u.id')
+    .leftJoin('payment_methods as pm', 'e.payment_method_id', 'pm.id')
+    .where('e.status', 'posted');
+  applyLedgerScope(qb, f);
+  if (f.movementType) qb.whereRaw(`${DISPLAY_TYPE_SQL} = ?`, [f.movementType]);
+  if (f.search) {
+    const term = `%${f.search}%`;
+    qb.andWhere(function (this: any) {
+      this.where('e.description', 'like', term)
+        .orWhere('e.category', 'like', term)
+        .orWhere('u.name', 'like', term)
+        .orWhereRaw('CAST(e.amount AS NVARCHAR(30)) LIKE ?', [term]);
+    });
+  }
+  qb.select(
+    'e.id',
+    'e.entry_type',
+    'e.status',
+    'e.category',
+    'e.amount',
+    'e.description',
+    'e.entry_date as date',
+    'e.created_at',
+    'e.student_id',
+    'e.payment_method_id',
+    'rev.entry_type as reverses_entry_type',
+    'u.name as student_name',
+    'pm.name as payment_method_name',
+  )
+    .orderBy('e.entry_date', 'desc')
+    .orderBy('e.created_at', 'desc');
+  if (f.limit) qb.limit(f.limit);
+  if (f.offset) qb.offset(f.offset);
+
+  const rows = await qb;
+  return (rows as any[]).map((r) => ({
+    id: r.id,
+    type: entryDisplayType(r.entry_type, r.reverses_entry_type),
+    entry_type: r.entry_type,
+    status: r.status,
+    category: r.category || '',
+    amount: Number(r.amount || 0),
+    description: r.description ?? null,
+    date: toDateOnly(r.date),
+    created_at: r.created_at || null,
+    student_id: r.student_id ?? null,
+    student_name: r.student_name || null,
+    payment_method_id: r.payment_method_id ?? null,
+    payment_method_name: r.payment_method_name || null,
+    is_reversal: r.entry_type === 'reversal',
+  }));
+}
+
+/** Count behind the paginated finance list; same scope/filters as getLedgerMovements. */
+export async function countLedgerMovements(
+  f: LedgerScopeFilter & { movementType?: 'revenue' | 'expense' | null; search?: string | null } = {},
+  executor: Executor = kdb,
+): Promise<number> {
+  const qb = executor('journal_entries as e')
+    .leftJoin('journal_entries as rev', 'e.reverses_entry_id', 'rev.id')
+    .leftJoin('students as s', 'e.student_id', 's.id')
+    .leftJoin('users as u', 's.user_id', 'u.id')
+    .where('e.status', 'posted');
+  applyLedgerScope(qb, f);
+  if (f.movementType) qb.whereRaw(`${DISPLAY_TYPE_SQL} = ?`, [f.movementType]);
+  if (f.search) {
+    const term = `%${f.search}%`;
+    qb.andWhere(function (this: any) {
+      this.where('e.description', 'like', term)
+        .orWhere('e.category', 'like', term)
+        .orWhere('u.name', 'like', term)
+        .orWhereRaw('CAST(e.amount AS NVARCHAR(30)) LIKE ?', [term]);
+    });
+  }
+  const row = await qb.count({ total: 'e.id' }).first();
+  return Number(row?.total || 0);
+}
+
+export interface StudentPenaltyRow {
+  id: string;
+  description: string | null;
+  category: string | null;
+  amount: number;
+  date: string | null;
+  created_at: string | null;
+  cancelled: boolean;
+}
+
+export async function getStudentPenalties(
+  studentId: string,
+  opts: { visibility?: 'all' | 'tenant'; executor?: Executor } = {},
+): Promise<StudentPenaltyRow[]> {
+  const db = opts.executor || kdb;
+  const qb = db('journal_entries as e')
+    .where('e.student_id', studentId)
+    .where('e.entry_type', 'penalty');
+  if (opts.visibility === 'tenant') {
+    qb.where(function (this: any) {
+      this.whereNull('e.is_admin_only').orWhere('e.is_admin_only', 0);
+    });
+  }
+  const rows = await qb
+    .select('e.id', 'e.description', 'e.category', 'e.amount', 'e.entry_date', 'e.created_at', 'e.status')
+    .orderBy('e.entry_date', 'desc')
+    .orderBy('e.created_at', 'desc');
+  return (rows as any[]).map((r) => ({
+    id: r.id,
+    description: r.description ?? null,
+    category: r.category ?? null,
+    amount: Number(r.amount || 0),
+    date: toDateOnly(r.entry_date),
+    created_at: r.created_at || null,
+    cancelled: r.status === 'reversed',
+  }));
+}
+
+export interface StudentPaymentTotal {
+  student_id: string;
+  paid: number;
+}
+
+/** Posted payment per student — the aggregate behind the student-accounts report. */
+export async function getLedgerPaymentTotalsByStudent(
+  f: LedgerScopeFilter = {},
+  executor: Executor = kdb,
+): Promise<StudentPaymentTotal[]> {
+  const qb = executor('journal_entries as e')
+    .where('e.status', 'posted')
+    .where('e.entry_type', 'payment')
+    .whereNotNull('e.student_id');
+  applyLedgerScope(qb, f);
+  const rows = await qb
+    .select('e.student_id')
+    .sum({ paid: 'e.amount' })
+    .groupBy('e.student_id');
+  return (rows as any[]).map((r) => ({ student_id: r.student_id, paid: Number(r.paid || 0) }));
 }
 
 export interface LedgerReconciliation {

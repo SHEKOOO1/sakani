@@ -2,6 +2,7 @@ import express from "express";
 import { kdb } from "../infrastructure/db";
 import { authenticate, authorizePermission } from "./middleware";
 import { AppPermission, isStaffRole } from "../../types/permissions";
+import { getLedgerClassTotals } from "../services/ledger.service";
 
 const router = express.Router();
 
@@ -30,20 +31,11 @@ router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_DASH
     
     const isAdmin = req.user.role === 'admin';
 
-    let financeQuery = kdb("finances");
-    if (isAdmin) {
-      financeQuery = financeQuery.where('is_admin_only', 1);
-    } else {
-      financeQuery = financeQuery.where(function () {
-        this.where('is_admin_only', 0).orWhereNull('is_admin_only');
-      }).where('tenant_id', tenantId);
-    }
-    const financeSummary = (await financeQuery
-      .select(
-        kdb.raw("SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) as income"),
-        kdb.raw("SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense")
-      )
-      .first()) as any;
+    const ledgerTotals = await getLedgerClassTotals({ isAdmin, tenantId });
+    const financeSummary = {
+      income: ledgerTotals.income,
+      expense: ledgerTotals.expense + ledgerTotals.penalty + ledgerTotals.discount,
+    };
 
     const recentAttendance = await kdb("attendance as a")
       .leftJoin("students as s", "a.student_id", "s.id")

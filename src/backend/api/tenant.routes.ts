@@ -469,7 +469,7 @@ router.get("/:id/impact", authenticate, authorize([UserRole.Admin]), async (req,
       students: (await kdb('students').where({ tenant_id: id }).count('* as count').first())?.count || 0,
       rooms: (await kdb('rooms').where({ tenant_id: id }).count('* as count').first())?.count || 0,
       apartments: (await kdb('apartments').where({ tenant_id: id }).count('* as count').first())?.count || 0,
-      finances: (await kdb('finances').where({ tenant_id: id }).count('* as count').first())?.count || 0,
+      finances: (await kdb('journal_entries').where({ tenant_id: id }).count('* as count').first())?.count || 0,
       attendance: hasStudents ? (await kdb('attendance').whereIn('student_id', studentIds).count('* as count').first())?.count || 0 : 0,
       behavior: hasStudents ? (await kdb('student_points').whereIn('student_id', studentIds).count('* as count').first())?.count || 0 : 0,
       events: (await kdb('events').where({ tenant_id: id }).count('* as count').first())?.count || 0,
@@ -508,6 +508,15 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
       await trx('students').where({ tenant_id: id }).del();
       await trx('rooms').where({ tenant_id: id }).del();
       await trx('apartments').where({ tenant_id: id }).del();
+
+      // The ledger is the source of truth now: drop the tenant's lines first
+      // (FK), then the entries, and finally any frozen legacy finance rows.
+      const entryRows = await trx('journal_entries').where({ tenant_id: id }).select('id');
+      const entryIds = entryRows.map((e: any) => e.id);
+      if (entryIds.length > 0) {
+        await trx('journal_lines').whereIn('entry_id', entryIds).del();
+        await trx('journal_entries').where({ tenant_id: id }).del();
+      }
       await trx('finances').where({ tenant_id: id }).del();
 
       // Events cascade

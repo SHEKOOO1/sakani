@@ -539,22 +539,26 @@ export function FinancePage() {
                          )}
                       </td>
                       <td className="px-8 py-6">
-                         <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => openEditModal(f)}
-                              className="p-2 text-slate-400 hover:text-blue-600 transition-colors rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10"
-                              title="تعديل المعاملة"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRecord(f.id)}
-                              className="p-2 text-slate-400 hover:text-red-600 transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10"
-                              title="حذف المعاملة"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                         </div>
+                         {f.is_reversal ? (
+                           <span className="px-3 py-1.5 bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-300 rounded-lg text-xs font-bold">قيد عكسي</span>
+                         ) : (
+                           <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => openEditModal(f)}
+                                className="p-2 text-slate-400 hover:text-blue-600 transition-colors rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10"
+                                title="تعديل المعاملة"
+                              >
+                                <Pencil size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRecord(f.id)}
+                                className="p-2 text-slate-400 hover:text-red-600 transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10"
+                                title="حذف المعاملة"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                           </div>
+                         )}
                       </td>
                    </tr>
                 )) : (

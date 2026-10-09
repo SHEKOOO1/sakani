@@ -382,9 +382,9 @@ describe('D: classifyAbsence (supervisor absence review)', () => {
     expect(updated.unexcused).toBe(1);
     expect(updated.reviewed_by).toBe('op1');
     expect(updated.status).toBe('absent');
-    const finance = dbMock.inserts('finances').find((f: any) => f.is_reversal === 0 && f.reference === 'event-rule:r-unx');
-    expect(finance).toBeTruthy();
-    expect(finance.amount).toBe(150);
+    const fee = dbMock.inserts('journal_entries').find((e: any) => e.reference === 'event-rule:r-unx');
+    expect(fee).toBeTruthy();
+    expect(fee.amount).toBe(150);
     const warning = dbMock.inserts('student_warnings')[0];
     expect(warning).toBeTruthy();
     expect(warning.unexcused_absence_count_at_time).toBe(1);
@@ -392,16 +392,27 @@ describe('D: classifyAbsence (supervisor absence review)', () => {
 
   it('2. EXCUSED classifies as excused + reverses tier penalty and event-rule ledger', async () => {
     dbMock.setRows('event_attendance_detailed', [pendingRow()]);
-    dbMock.setRows('attendance_penalties', [{ id: 'pn1', attendance_id: 'atd1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', tenant_id: 'A', status: 'APPLIED', financial_amount: 50, points_deduction: 0, finance_id: 'fin1', points_ledger_id: null }]);
-    dbMock.setRows('finances', [{ id: 'finX', attendance_id: 'atd1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', tenant_id: 'A', type: 'expense', amount: 30, reference: 'event-rule:r-unx', is_reversal: 0 }]);
+    dbMock.setRows('attendance_penalties', [{ id: 'pn1', attendance_id: 'atd1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', tenant_id: 'A', status: 'APPLIED', financial_amount: 50, points_deduction: 0, finance_id: null, points_ledger_id: null }]);
+    // Both charges as they now live in the books (attendance-linked entries).
+    dbMock.setRows('journal_entries', [
+      { id: 'je-tier', tenant_id: 'A', student_id: 'stu1', entry_type: 'penalty', status: 'posted', amount: 50, category: 'غرامة تأخير حضور', attendance_id: 'atd1', reference: 'pn1', finance_id: null, version: 1 },
+      { id: 'je-rule', tenant_id: 'A', student_id: 'stu1', entry_type: 'penalty', status: 'posted', amount: 30, category: 'غرامة نشاط', attendance_id: 'atd1', reference: 'event-rule:r-unx', finance_id: null, version: 1 },
+    ]);
+    dbMock.setRows('journal_lines', [
+      { entry_id: 'je-tier', account: 'STUDENT_PAYMENT', debit: 50, credit: 0, line_no: 1 },
+      { entry_id: 'je-tier', account: 'PENALTY', debit: 0, credit: 50, line_no: 2 },
+      { entry_id: 'je-rule', account: 'STUDENT_PAYMENT', debit: 30, credit: 0, line_no: 1 },
+      { entry_id: 'je-rule', account: 'PENALTY', debit: 0, credit: 30, line_no: 2 },
+    ]);
     const updated = await service.classifyAbsence({ event: { id: 'ev1', tenant_id: 'A' }, attendanceId: 'atd1', classification: 'EXCUSED', reason: 'مرض مثبت بتقرير طبي', userId: 'op1' });
     expect(updated.final_status).toBe('EXCUSED');
     expect(updated.status).toBe('excused');
     expect(updated.unexcused).toBe(0);
-    const reversals = dbMock.inserts('finances').filter((f: any) => f.is_reversal === 1);
+    const reversals = dbMock.inserts('journal_entries').filter((e: any) => e.entry_type === 'reversal');
     expect(reversals.length).toBe(2); // tier penalty reversal + event-rule reversal
-    expect(reversals.some((r: any) => r.reversal_of_id === 'fin1')).toBe(true);
-    expect(reversals.some((r: any) => r.reversal_of_id === 'finX' && r.reference === 'event-rule:r-unx')).toBe(true);
+    expect(reversals.some((r: any) => r.reverses_entry_id === 'je-tier')).toBe(true);
+    expect(reversals.some((r: any) => r.reverses_entry_id === 'je-rule')).toBe(true);
+    expect(dbMock.inserts('finances').length).toBe(0);
   });
 
   it('3. TRAVEL classifies as travel and keeps no unexcused flag', async () => {
@@ -429,9 +440,9 @@ describe('D: classifyAbsence (supervisor absence review)', () => {
     const result = await service.recordCheckIn({ event, session, student, userId: 'op1', method: 'manual' });
     expect(result.attendance.status).toBe('absent');
     expect(result.attendance.final_status).toBe('UNEXCUSED');
-    const finance = dbMock.inserts('finances').find((f: any) => f.reference === 'event-rule:r-abs' && f.is_reversal === 0);
-    expect(finance).toBeTruthy();
-    expect(finance.amount).toBe(80);
+    const fee = dbMock.inserts('journal_entries').find((e: any) => e.reference === 'event-rule:r-abs');
+    expect(fee).toBeTruthy();
+    expect(fee.amount).toBe(80);
     expect(dbMock.inserts('student_warnings').length).toBe(1);
     expect(dbMock.inserts('notifications').length).toBe(1); // absence notification
   });

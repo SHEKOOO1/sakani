@@ -8,55 +8,35 @@ import { getFilteredFinances, getReportSummary, generateExcel, generatePDF, getS
 import { validate } from "../validation/middleware";
 import { createFinanceSchema, updateFinanceSchema } from "../validation/schemas";
 import { parsePagination } from "../services/radio/pagination.ts";
-import { getStudentAccount, notifyStudentFinance, financePaymentMessage, logFinanceEdit, financeEditSummary } from "../services/student-account.service";
-import { postEntry, reverseEntryForFinance, entryForFinanceRow, LedgerError } from "../services/ledger.service";
+import { getStudentAccount, notifyStudentFinance, financePaymentMessage } from "../services/student-account.service";
+import {
+  postEntry,
+  reverseEntry,
+  entryForFinanceRow,
+  getLedgerMovements,
+  countLedgerMovements,
+  getLedgerClassTotals,
+  LedgerError,
+} from "../services/ledger.service";
 
 /**
- * Write paths below are dual-write: the movement lands in `finances` (still
- * what every read path queries until Phase 4) and, in the SAME transaction, as
- * a balanced pair in journal_entries. A failure rolls both back, so the ledger
- * can never show money the legacy table does not — or vice versa.
+ * Finance is now ledger-native (Phase 5 cutover). Every read and every write
+ * goes through `journal_entries`; `finances` is frozen historical data, kept
+ * only so the Phase 2b import can be re-verified, and is never read or written
+ * by this router again.
  *
- * An edit is never an UPDATE of history: the entry that represented the row is
- * reversed and a fresh entry is issued in its place (the row then shows the
- * two linked entries). A delete reverses the entry instead of erasing it, so
- * removing a record from the list no longer removes it from the books.
+ * The list exposes journal entry ids. An edit is never an UPDATE of history:
+ * the entry that represented the row is reversed and a fresh entry is issued in
+ * its place, so an edited record shows as a reversal + its replacement. A
+ * delete reverses the entry instead of erasing it. `finance_id` is left NULL on
+ * everything written here — only the legacy import carries it — which keeps the
+ * import reconciliation (finance_id joins) meaningful after cutover.
  *
- * resolvePaymentMethodId() deliberately runs on `kdb` outside the
- * transaction: it is an idempotent lookup-or-create keyed by a unique
- * (tenant, name) index, and an orphan payment method left behind by a rolled
- * back save is harmless while a poisoned transaction is not.
+ * resolvePaymentMethodId() deliberately runs outside the transaction: it is an
+ * idempotent lookup-or-create keyed by a unique (tenant, name) index, and an
+ * orphan payment method left behind by a rolled back save is harmless while a
+ * poisoned transaction is not.
  */
-
-/**
- * Guards edit and delete against a movement the books have already cancelled.
- *
- * Attendance cancellations leave the original charge row in `finances` next to
- * a separate cancellation row, while the ledger settles the pair by reversing
- * the charge's entry once. Editing the amount or deleting the row at that
- * point would move `finances` without the ledger following — the two would
- * disagree on what the student owes, with no way to tell which one is right.
- * Refusing costs nothing; a silent split does not.
- *
- * A row with no ledger entry at all (a legacy row the backfill has not
- * imported yet) is safe to touch: the write path below simply issues its
- * entry.
- */
-async function assertNotAlreadyReversed(trx: any, financeId: string): Promise<void> {
-  const total = await trx('journal_entries').where({ finance_id: financeId }).count('* as count').first();
-  if (!Number((total as any)?.count || 0)) return;
-
-  const posted = await trx('journal_entries')
-    .where({ finance_id: financeId, status: 'posted' })
-    .count('* as count')
-    .first();
-  if (!Number((posted as any)?.count || 0)) {
-    throw new LedgerError(
-      'ALREADY_REVERSED',
-      'هذه الحركة مُلغاة في الدفتر، ولا يمكن تعديلها أو حذفها. أنشئ حركة جديدة بدلًا من ذلك.',
-    );
-  }
-}
 
 const router = express.Router();
 
@@ -105,6 +85,21 @@ async function resolvePaymentMethodId(opts: {
   }
 }
 
+/**
+ * Scope check for a single journal entry, mirroring the tenant/admin isolation
+ * the finance list applies: admins only touch admin-only books, everyone else
+ * is confined to their own housing (or the housings they manage, for a bishop
+ * with no home tenant).
+ */
+function entryInScope(entry: any, user: any): boolean {
+  const isAdminOnly = Number(entry?.is_admin_only || 0) === 1;
+  if (user.role === 'admin') return isAdminOnly;
+  if (isAdminOnly) return false;
+  const tenantId = user.tenantId;
+  if (tenantId) return sameId(entry.tenant_id, tenantId);
+  return (user.tenantIds || []).some((t: string) => sameId(t, entry.tenant_id));
+}
+
 // Get financial records — admins see only admin finance, others see housing finance
 router.get("/", authenticate, authorizePermission(AppPermission.VIEW_FINANCE), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
@@ -113,41 +108,27 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_FINANCE), a
   const { page, limit } = parsePagination(req.query);
 
   try {
-      const baseQuery = kdb('finances as f')
-        .leftJoin('students as s', 'f.student_id', 's.id')
-        .leftJoin('users as u', 's.user_id', 'u.id');
-
-    if (isAdmin) {
-      baseQuery.where('f.is_admin_only', 1);
-    } else {
-      if (!tenantId) {
-        return res.json({ success: true, data: [], total: 0, page, limit, totalPages: 0 });
-      }
-      baseQuery.where(function () {
-        this.where('f.is_admin_only', 0).orWhereNull('f.is_admin_only');
-      });
-      baseQuery.where('f.tenant_id', tenantId);
+    if (!isAdmin && !tenantId && !(req.user.tenantIds && req.user.tenantIds.length)) {
+      return res.json({ success: true, data: [], total: 0, page, limit, totalPages: 0 });
     }
 
-    if (type) baseQuery.where('f.type', type);
-    if (category) baseQuery.where('f.category', category);
-    if (studentId) baseQuery.where('f.student_id', studentId);
-    if (startDate && endDate) baseQuery.whereBetween('f.date', [startDate as string, endDate as string]);
-    if (search) {
-      baseQuery.andWhere(function () {
-        this.where('f.description', 'like', `%${search}%`)
-          .orWhere('u.name', 'like', `%${search}%`)
-          .orWhereRaw('CAST(f.amount AS NVARCHAR(30)) LIKE ?', [`%${search}%`]);
-      });
-    }
+    const filters = {
+      isAdmin,
+      tenantId: isAdmin ? null : tenantId,
+      tenantIds: !isAdmin && !tenantId ? (req.user.tenantIds || []) : null,
+      studentId: (studentId as string) || null,
+      category: (category as string) || null,
+      startDate: (startDate as string) || null,
+      endDate: (endDate as string) || null,
+      movementType: (type as 'revenue' | 'expense') || null,
+      search: (search as string) || null,
+    };
 
-    const countQuery = baseQuery.clone();
-    const [totalResult, records] = await Promise.all([
-      countQuery.count("* as total").first(),
-      baseQuery.clone().orderBy('f.date', 'desc').select('f.*', 'u.name as student_name').offset((page - 1) * limit).limit(limit),
+    const [total, records] = await Promise.all([
+      countLedgerMovements(filters),
+      getLedgerMovements({ ...filters, limit, offset: (page - 1) * limit }),
     ]);
 
-    const total = Number((totalResult as any)?.total || 0);
     res.json({ success: true, data: records, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "تعذر تحميل البيانات. من فضلك حاول مرة أخرى." });
@@ -158,30 +139,24 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_FINANCE), a
 router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_FINANCE_REPORTS), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
   const tenantId = req.user.tenantId;
-  
-  try {
-    let summaryQuery = kdb('finances').select('type').sum({ total: 'amount' }).groupBy('type');
 
-    if (isAdmin) {
-      summaryQuery = summaryQuery.where('is_admin_only', 1);
-    } else if (tenantId) {
-      summaryQuery = summaryQuery.where(function () {
-        this.where('is_admin_only', 0).orWhereNull('is_admin_only');
-      });
-      summaryQuery = summaryQuery.where('tenant_id', tenantId);
-    } else {
-      // لدى أسقف بلا سكن أساسي: يقتصر على سكناته المُدارة فقط
-      const allowedIds = req.user.tenantIds && req.user.tenantIds.length ? req.user.tenantIds : [];
-      if (allowedIds.length === 0) return res.json({ success: true, data: [] });
-      summaryQuery = summaryQuery.where(function () {
-        this.where('is_admin_only', 0).orWhereNull('is_admin_only');
-      });
-      summaryQuery = summaryQuery.whereIn('tenant_id', allowedIds);
+  try {
+    if (!isAdmin && !tenantId && !(req.user.tenantIds && req.user.tenantIds.length)) {
+      return res.json({ success: true, data: [] });
     }
 
-    const summary = await summaryQuery;
+    const totals = await getLedgerClassTotals({
+      isAdmin,
+      tenantId: isAdmin ? null : tenantId,
+      tenantIds: !isAdmin && !tenantId ? (req.user.tenantIds || []) : null,
+    });
 
-    res.json({ success: true, data: summary });
+    const data = [
+      { type: 'revenue', total: totals.income },
+      { type: 'expense', total: totals.expense + totals.penalty + totals.discount },
+    ];
+
+    res.json({ success: true, data });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "تعذر تحميل التقرير. من فضلك حاول مرة أخرى." });
   }
@@ -213,22 +188,8 @@ router.post("/", authenticate, validate(createFinanceSchema), (req, res, next) =
     const movementDate = date || new Date().toISOString();
     const plan = entryForFinanceRow({ type, category, amount });
 
-    await kdb.transaction(async (trx) => {
-      await trx('finances').insert({
-        id,
-        tenant_id: tenantId,
-        student_id: studentId || null,
-        type,
-        category,
-        amount,
-        description,
-        date: movementDate,
-        payment_method_id: resolvedMethodId,
-        created_by: userId,
-        is_admin_only: isAdmin ? 1 : 0
-      });
-
-      await postEntry(trx, {
+    const posted = await kdb.transaction(async (trx) => {
+      return postEntry(trx, {
         entryType: plan.entryType,
         amount: Number(amount),
         lines: plan.lines,
@@ -238,7 +199,7 @@ router.post("/", authenticate, validate(createFinanceSchema), (req, res, next) =
         category,
         description,
         paymentMethodId: resolvedMethodId,
-        financeId: id,
+        financeId: null,
         source: 'api',
         isAdminOnly: isAdmin,
         createdBy: userId,
@@ -250,7 +211,7 @@ router.post("/", authenticate, validate(createFinanceSchema), (req, res, next) =
       await notifyStudentFinance(studentId, financePaymentMessage(Number(amount || 0), account, 'added'), 'تم إضافة دفعة جديدة');
     }
 
-    res.status(201).json({ success: true, data: { id, type, category, amount, studentId } });
+    res.status(201).json({ success: true, data: { id: posted.id, type, category, amount, studentId } });
   } catch (error: any) {
     if (error instanceof LedgerError) {
       return res.status(400).json({ success: false, message: error.message });
@@ -262,43 +223,34 @@ router.post("/", authenticate, validate(createFinanceSchema), (req, res, next) =
 // Delete a financial record — respects admin isolation
 router.delete("/:id", authenticate, async (req, res, next) => {
   const tenantId = req.user.tenantId;
+  const isAdmin = req.user.role === 'admin';
   // FAIL-CLOSED: مستخدم غير مدير بلا سكن أساسي لا يجوز له فحص معاملة خارج نطاق سكن
-  if (req.user.role !== 'admin' && !tenantId) {
+  if (!isAdmin && !tenantId && !(req.user.tenantIds && req.user.tenantIds.length)) {
     return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
   }
-  const record = await kdb('finances').where({ id: req.params.id, ...(tenantId ? { tenant_id: tenantId } : {}) }).first();
-  if (!record) return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
-  const perm = record.type === 'expense' ? AppPermission.ADD_EXPENSE : AppPermission.ADD_REVENUE;
+  const entry = await kdb('journal_entries').where({ id: req.params.id }).first();
+  if (!entry || !entryInScope(entry, req.user)) {
+    return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
+  }
+  if (entry.entry_type === 'reversal') {
+    return res.status(409).json({ success: false, message: "لا يمكن حذف قيد عكسي — أنشئ حركة جديدة بدلًا من ذلك." });
+  }
+  const perm = entry.entry_type === 'payment' ? AppPermission.ADD_REVENUE : AppPermission.ADD_EXPENSE;
   (authorizePermission(perm) as any)(req, res, next);
 }, async (req, res) => {
   const { id } = req.params;
-  const isAdmin = req.user.role === 'admin';
-  const tenantId = req.user.tenantId;
 
   try {
     await kdb.transaction(async (trx) => {
-      let query = trx('finances').where({ id });
-
-      if (isAdmin) {
-        query = query.where('is_admin_only', 1);
-      } else {
-        query = query.where(function () {
-          this.where('is_admin_only', 0).orWhereNull('is_admin_only');
-        });
-        if (!tenantId) throw new Error("لا يوجد سكن مرتبط");
-        query = query.where('tenant_id', tenantId);
+      const entry = await trx('journal_entries').where({ id }).first();
+      if (!entry) return;
+      if (entry.status !== 'posted') {
+        throw new LedgerError('ALREADY_REVERSED', 'هذه الحركة مُلغاة في الدفتر، ولا يمكن تعديلها أو حذفها. أنشئ حركة جديدة بدلًا من ذلك.');
       }
-
-      const row = await query.clone().first();
-      if (!row) return;
-
-      await assertNotAlreadyReversed(trx, id);
-
-      await query.del();
-
       // Removing a record from the list must not remove it from the books:
       // the entry that represented it is reversed, not erased.
-      await reverseEntryForFinance(trx, id, {
+      await reverseEntry(trx, {
+        entryId: id,
         reason: 'حذف المعاملة المالية',
         createdBy: req.user.id,
       });
@@ -318,20 +270,18 @@ router.put("/:id", authenticate, async (req, res, next) => {
   const tenantId = req.user.tenantId;
   const isAdmin = req.user.role === 'admin';
   // FAIL-CLOSED: مستخدم غير مدير بلا سكن أساسي لا يجوز له فحص معاملة خارج نطاق سكن
-  if (!isAdmin && !tenantId) {
+  if (!isAdmin && !tenantId && !(req.user.tenantIds && req.user.tenantIds.length)) {
     return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
   }
-  let recordQuery = kdb('finances').where({ id: req.params.id });
-  if (isAdmin) {
-    if (tenantId) recordQuery = recordQuery.where('tenant_id', tenantId);
-    recordQuery = recordQuery.where('is_admin_only', 1);
-  } else {
-    recordQuery = recordQuery.where('tenant_id', tenantId);
-    recordQuery = recordQuery.where(function () { this.where('is_admin_only', 0).orWhereNull('is_admin_only'); });
+  const entry = await kdb('journal_entries').where({ id: req.params.id }).first();
+  if (!entry || !entryInScope(entry, req.user)) {
+    return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
   }
-  const record = await recordQuery.first();
-  if (!record) return res.status(404).json({ success: false, message: "المعاملة غير موجودة" });
-  const perm = (req.body.type || record.type) === 'expense' ? AppPermission.ADD_EXPENSE : AppPermission.ADD_REVENUE;
+  if (entry.entry_type === 'reversal') {
+    return res.status(409).json({ success: false, message: "لا يمكن تعديل قيد عكسي — أنشئ حركة جديدة بدلًا من ذلك." });
+  }
+  const currentType = entry.entry_type === 'payment' ? 'revenue' : 'expense';
+  const perm = (req.body.type || currentType) === 'expense' ? AppPermission.ADD_EXPENSE : AppPermission.ADD_REVENUE;
   (authorizePermission(perm) as any)(req, res, next);
 }, validate(updateFinanceSchema), async (req, res) => {
   const { id } = req.params;
@@ -353,105 +303,70 @@ router.put("/:id", authenticate, async (req, res, next) => {
       resolvedMethodId = await resolvePaymentMethodId({ tenantId, methodId: paymentMethodId, methodName: paymentMethodName, createdBy: req.user.id });
     }
 
-    const update: any = {};
-    if (type !== undefined) update.type = type;
-    if (category !== undefined) update.category = category;
-    if (amount !== undefined) update.amount = amount;
-    if (description !== undefined) update.description = description;
-    if (date !== undefined) update.date = date;
-    if (studentId !== undefined) update.student_id = studentId || null;
-    if (resolvedMethodId !== undefined) update.payment_method_id = resolvedMethodId;
+    let newEntryId: string | null = null;
+    let merged: any = null;
 
-    const hasChanges = Object.keys(update).length > 0;
-    let oldRow: any = null;
+    await kdb.transaction(async (trx) => {
+      const oldEntry = await trx('journal_entries').where({ id }).first();
+      if (!oldEntry || !entryInScope(oldEntry, req.user)) return;
+      if (oldEntry.status !== 'posted') {
+        throw new LedgerError('ALREADY_REVERSED', 'هذه الحركة مُلغاة في الدفتر، ولا يمكن تعديلها أو حذفها. أنشئ حركة جديدة بدلًا من ذلك.');
+      }
 
-    if (hasChanges) {
-      await kdb.transaction(async (trx) => {
-        let query = trx('finances').where({ id });
+      merged = {
+        type: type !== undefined ? type : (oldEntry.entry_type === 'payment' ? 'revenue' : 'expense'),
+        category: category !== undefined ? category : oldEntry.category,
+        amount: amount !== undefined ? amount : oldEntry.amount,
+        description: description !== undefined ? description : oldEntry.description,
+        date: date !== undefined ? date : oldEntry.entry_date,
+        student_id: studentId !== undefined ? (studentId || null) : oldEntry.student_id,
+        payment_method_id: resolvedMethodId !== undefined ? resolvedMethodId : oldEntry.payment_method_id,
+        tenant_id: oldEntry.tenant_id,
+        is_admin_only: oldEntry.is_admin_only,
+      };
 
-        if (isAdmin) {
-          query = query.where('is_admin_only', 1);
-        } else {
-          query = query.where(function () {
-            this.where('is_admin_only', 0).orWhereNull('is_admin_only');
-          });
-          if (!tenantId) throw new Error("لا يوجد سكن مرتبط");
-          query = query.where('tenant_id', tenantId);
-        }
-
-        oldRow = await query.clone().first();
-        if (!oldRow) return;
-
-        await assertNotAlreadyReversed(trx, id);
-
-        await query.update(update);
-
-        // The entry that stood for this row is undone and the edited values
-        // are issued as a fresh entry: history is never rewritten in place.
-        // This is what makes an edited record show as a reversal + its
-        // replacement instead of a silently altered number.
-        await reverseEntryForFinance(trx, id, {
-          reason: 'تعديل المعاملة المالية',
-          createdBy: req.user.id,
-        });
-
-        const merged = { ...oldRow, ...update };
-        const plan = entryForFinanceRow(merged);
-        await postEntry(trx, {
-          entryType: plan.entryType,
-          amount: Number(merged.amount),
-          lines: plan.lines,
-          entryDate: merged.date ? new Date(merged.date) : new Date(),
-          tenantId: merged.tenant_id ?? null,
-          studentId: merged.student_id ?? null,
-          category: merged.category ?? null,
-          description: merged.description ?? null,
-          paymentMethodId: merged.payment_method_id ?? null,
-          financeId: id,
-          source: 'api',
-          isAdminOnly: Number(merged.is_admin_only || 0) === 1,
-          createdBy: req.user.id,
-        });
-      });
-    }
-
-    const updated = await kdb('finances')
-      .leftJoin('students as s', 'finances.student_id', 's.id')
-      .leftJoin('users as u', 's.user_id', 'u.id')
-      .select('finances.*', 'u.name as student_name')
-      .where('finances.id', id)
-      .first();
-
-    // سجل تعديل المعاملة — بتاريخ التعديل الفعلي في السيرفر
-    const mergedNew = { ...(oldRow || {}), ...update };
-    const finalRecordStudentId = (oldRow?.student_id || mergedNew.student_id || null) as string | null;
-    const editInfo = oldRow ? financeEditSummary(oldRow, mergedNew) : null;
-    if (oldRow && finalRecordStudentId && editInfo?.changed) {
-      await logFinanceEdit({
-        tenantId: oldRow.tenant_id ?? null,
-        studentId: finalRecordStudentId,
-        financeId: id,
-        editType: 'edit',
-        direction: editInfo.direction,
-        delta: editInfo.delta,
-        summary: editInfo.summary,
+      // The entry that stood for this row is undone and the edited values
+      // are issued as a fresh entry: history is never rewritten in place.
+      // This is what makes an edited record show as a reversal + its
+      // replacement instead of a silently altered number.
+      await reverseEntry(trx, {
+        entryId: id,
+        reason: 'تعديل المعاملة المالية',
         createdBy: req.user.id,
-        isAdminOnly: isAdmin,
       });
-    }
 
-    const finalType = updated?.type || type;
-    const finalStudentId = updated?.student_id || studentId;
+      const plan = entryForFinanceRow(merged);
+      const posted = await postEntry(trx, {
+        entryType: plan.entryType,
+        amount: Number(merged.amount),
+        lines: plan.lines,
+        entryDate: merged.date ? new Date(merged.date) : new Date(),
+        tenantId: merged.tenant_id ?? null,
+        studentId: merged.student_id ?? null,
+        category: merged.category ?? null,
+        description: merged.description ?? null,
+        paymentMethodId: merged.payment_method_id ?? null,
+        financeId: null,
+        source: 'api',
+        isAdminOnly: Number(merged.is_admin_only || 0) === 1,
+        createdBy: req.user.id,
+      });
+      newEntryId = posted.id;
+    });
+
+    const finalType = merged?.type ?? type;
+    const finalStudentId = merged?.student_id ?? studentId ?? null;
     if (finalType === 'revenue' && finalStudentId) {
       const account = await getStudentAccount(finalStudentId, { visibility: 'all' });
-      let msg = financePaymentMessage(Number(updated?.amount || amount || 0), account, 'updated');
-      if (editInfo?.changed) {
-        msg += `\n📝 التعديل: ${editInfo.summary}`;
-      }
+      const msg = financePaymentMessage(Number(merged?.amount || amount || 0), account, 'updated');
       await notifyStudentFinance(finalStudentId, msg, 'تم تعديل إحدى الدفعات');
     }
 
-    res.json({ success: true, data: updated, message: "تم تعديل المعاملة بنجاح" });
+    res.json({
+      success: true,
+      data: { id: newEntryId, ...merged },
+      message: "تم تعديل المعاملة بنجاح",
+    });
   } catch (error: any) {
     if (error instanceof LedgerError) {
       return res.status(409).json({ success: false, message: error.message });

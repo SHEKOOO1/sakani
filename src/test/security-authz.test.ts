@@ -665,15 +665,20 @@ describe('security-authz: global badge management (canManageBadge)', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('security-authz: finance NULL-tenant probe (fail-closed)', () => {
-  const FIN_A = { id: 'fA', tenant_id: 'A', is_admin_only: 0, type: 'expense', amount: 100, description: 'x', category: 'x' };
-  const FIN_B = { id: 'fB', tenant_id: 'B', is_admin_only: 0, type: 'expense', amount: 50, description: 'x', category: 'x' };
-  const FIN_ADMIN = { id: 'fAdm', tenant_id: null, is_admin_only: 1, type: 'expense', amount: 999, description: 'x', category: 'x' };
+  const FIN_A = { id: 'fA', tenant_id: 'A', is_admin_only: 0, entry_type: 'expense', status: 'posted', amount: 100, description: 'x', category: 'x', version: 1 };
+  const FIN_B = { id: 'fB', tenant_id: 'B', is_admin_only: 0, entry_type: 'expense', status: 'posted', amount: 50, description: 'x', category: 'x', version: 1 };
+  const FIN_ADMIN_PUT = { id: 'fAdmPut', tenant_id: null, is_admin_only: 1, entry_type: 'expense', status: 'posted', amount: 999, description: 'x', category: 'x', version: 1 };
+  const FIN_ADMIN_DEL = { id: 'fAdmDel', tenant_id: null, is_admin_only: 1, entry_type: 'expense', status: 'posted', amount: 999, description: 'x', category: 'x', version: 1 };
+  const linesFor = (entryId: string, amount: number) => ([
+    { entry_id: entryId, account: 'EXPENSE', debit: amount, credit: 0, line_no: 1 },
+    { entry_id: entryId, account: 'CASH', debit: 0, credit: amount, line_no: 2 },
+  ]);
 
   it('null-tenant supervisor CANNOT probe an unscoped finance row (PUT → 404)', async () => {
     seedActor({ id: 'supNull', role: 'supervisor', tenantId: null, email: 'supnull@test.com' });
     dbMock.setRows('users', [{ id: 'supNull', role: 'supervisor', tenant_id: null, email: 'supnull@test.com' }]);
     dbMock.setRows('user_tenant_assignments', []);
-    dbMock.setRows('finances', [FIN_A]);
+    dbMock.setRows('journal_entries', [FIN_A]);
     const token = signToken({ id: 'supNull', role: 'supervisor', tenantId: null, email: 'supnull@test.com' });
 
     const res = await request('/api/finance/fA', { method: 'PUT', token, body: { description: 'zz' } });
@@ -684,7 +689,7 @@ describe('security-authz: finance NULL-tenant probe (fail-closed)', () => {
     seedActor({ id: 'supNull2', role: 'supervisor', tenantId: null, email: 'supnull2@test.com' });
     dbMock.setRows('users', [{ id: 'supNull2', role: 'supervisor', tenant_id: null, email: 'supnull2@test.com' }]);
     dbMock.setRows('user_tenant_assignments', []);
-    dbMock.setRows('finances', [FIN_A]);
+    dbMock.setRows('journal_entries', [FIN_A]);
     const token = signToken({ id: 'supNull2', role: 'supervisor', tenantId: null, email: 'supnull2@test.com' });
 
     const res = await request('/api/finance/fA', { method: 'DELETE', token });
@@ -696,7 +701,8 @@ describe('security-authz: finance NULL-tenant probe (fail-closed)', () => {
     dbMock.setRows('users', [{ id: 'supFinA', role: 'supervisor', tenant_id: 'A', email: 'supfina@test.com' }]);
     dbMock.setRows('tenants', [{ id: 'A', name: 'A' }]);
     dbMock.setRows('user_tenant_assignments', []);
-    dbMock.setRows('finances', [FIN_A]);
+    dbMock.setRows('journal_entries', [{ ...FIN_A }]);
+    dbMock.setRows('journal_lines', linesFor('fA', 100));
     const token = signToken({ id: 'supFinA', role: 'supervisor', tenantId: 'A', email: 'supfina@test.com' });
 
     const res = await request('/api/finance/fA', { method: 'PUT', token, body: { description: 'zz' } });
@@ -708,7 +714,8 @@ describe('security-authz: finance NULL-tenant probe (fail-closed)', () => {
     dbMock.setRows('users', [{ id: 'supFinD', role: 'supervisor', tenant_id: 'A', email: 'supfind@test.com' }]);
     dbMock.setRows('tenants', [{ id: 'A', name: 'A' }]);
     dbMock.setRows('user_tenant_assignments', []);
-    dbMock.setRows('finances', [FIN_A]);
+    dbMock.setRows('journal_entries', [{ ...FIN_A }]);
+    dbMock.setRows('journal_lines', linesFor('fA', 100));
     const token = signToken({ id: 'supFinD', role: 'supervisor', tenantId: 'A', email: 'supfind@test.com' });
 
     const res = await request('/api/finance/fA', { method: 'DELETE', token });
@@ -720,7 +727,7 @@ describe('security-authz: finance NULL-tenant probe (fail-closed)', () => {
     dbMock.setRows('users', [{ id: 'supFinX', role: 'supervisor', tenant_id: 'A', email: 'supfinx@test.com' }]);
     dbMock.setRows('tenants', [{ id: 'A', name: 'A' }]);
     dbMock.setRows('user_tenant_assignments', []);
-    dbMock.setRows('finances', [FIN_B]);
+    dbMock.setRows('journal_entries', [FIN_B]);
     const token = signToken({ id: 'supFinX', role: 'supervisor', tenantId: 'A', email: 'supfinx@test.com' });
 
     const res = await request('/api/finance/fB', { method: 'PUT', token, body: { description: 'zz' } });
@@ -731,13 +738,14 @@ describe('security-authz: finance NULL-tenant probe (fail-closed)', () => {
     seedActor({ id: 'admFin', role: 'admin', tenantId: null, email: 'admfin@test.com' });
     dbMock.setRows('users', [{ id: 'admFin', role: 'admin', tenant_id: null, email: 'admfin@test.com' }]);
     dbMock.setRows('user_tenant_assignments', []);
-    dbMock.setRows('finances', [FIN_ADMIN]);
+    dbMock.setRows('journal_entries', [{ ...FIN_ADMIN_PUT }, { ...FIN_ADMIN_DEL }]);
+    dbMock.setRows('journal_lines', [...linesFor('fAdmPut', 999), ...linesFor('fAdmDel', 999)]);
     const token = signToken({ id: 'admFin', role: 'admin', tenantId: null, email: 'admfin@test.com' });
 
-    const put = await request('/api/finance/fAdm', { method: 'PUT', token, body: { description: 'zz' } });
+    const put = await request('/api/finance/fAdmPut', { method: 'PUT', token, body: { description: 'zz' } });
     expect(put.status).toBe(200);
 
-    const del = await request('/api/finance/fAdm', { method: 'DELETE', token });
+    const del = await request('/api/finance/fAdmDel', { method: 'DELETE', token });
     expect(del.status).toBe(200);
   });
 });

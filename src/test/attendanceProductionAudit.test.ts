@@ -261,7 +261,13 @@ describe('E: approved excuse reverses the penalty and clears the absence', () =>
     dbMock.setRows('attendance_excuses', [{ id: 'ex1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', attendance_id: 'atd1', tenant_id: 'A', reason: 'مرض', status: 'PENDING' }]);
     dbMock.setRows('events', [{ id: 'ev1', tenant_id: 'A' }]);
     dbMock.setRows('event_attendance_detailed', [{ id: 'atd1', event_id: 'ev1', session_id: 's1', student_id: 'stu1', tenant_id: 'A', status: 'absent', unexcused: 1, penalty_applied: 1, penalty_status: 'APPLIED' }]);
-    dbMock.setRows('attendance_penalties', [{ id: 'pn1', attendance_id: 'atd1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', tenant_id: 'A', status: 'APPLIED', financial_amount: 50, points_deduction: 0, finance_id: 'fin1', points_ledger_id: null }]);
+    dbMock.setRows('attendance_penalties', [{ id: 'pn1', attendance_id: 'atd1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', tenant_id: 'A', status: 'APPLIED', financial_amount: 50, points_deduction: 0, finance_id: null, points_ledger_id: null }]);
+    // Charge as it lives in the books now (attendance-linked, ledger-native).
+    dbMock.setRows('journal_entries', [{ id: 'je1', tenant_id: 'A', student_id: 'stu1', entry_type: 'penalty', status: 'posted', amount: 50, category: 'غرامة تأخير حضور', attendance_id: 'atd1', reference: 'pn1', finance_id: null, version: 1 }]);
+    dbMock.setRows('journal_lines', [
+      { entry_id: 'je1', account: 'STUDENT_PAYMENT', debit: 50, credit: 0, line_no: 1 },
+      { entry_id: 'je1', account: 'PENALTY', debit: 0, credit: 50, line_no: 2 },
+    ]);
 
     const excuse = { id: 'ex1', student_id: 'stu1', event_id: 'ev1', session_id: 's1', attendance_id: 'atd1', tenant_id: 'A', reason: 'مرض', status: 'PENDING' };
     await service.decideExcuse({ excuse, decision: 'APPROVED', decidedBy: 'op1', tenantId: 'A' });
@@ -275,12 +281,14 @@ describe('E: approved excuse reverses the penalty and clears the absence', () =>
       .map((c) => c.ops!.find((o) => o.m === 'update')!.a[0]);
     expect(detailedUpdate.some((u: any) => u.status === 'excused' && u.unexcused === 0)).toBe(true);
 
-    const financeReversals = dbMock.inserts('finances').filter((f: any) => f.is_reversal === 1);
-    expect(financeReversals.length).toBe(1);
-    expect(financeReversals[0].type).toBe('revenue');
-    expect(financeReversals[0].amount).toBe(50);
-    expect(financeReversals[0].reversal_of_id).toBe('fin1');
-    expect(financeReversals[0].reference).toBe('pn1');
+    // The books mirror the cancellation by reversing the charge's entry, rather
+    // than filing a separate cancellation row in `finances`.
+    const reversals = dbMock.inserts('journal_entries').filter((e: any) => e.entry_type === 'reversal');
+    expect(reversals.length).toBe(1);
+    expect(reversals[0].amount).toBe(50);
+    expect(reversals[0].reverses_entry_id).toBe('je1');
+    expect(reversals[0].finance_id).toBe(null);
+    expect(dbMock.inserts('finances').length).toBe(0);
 
     const penaltyUpdate = dbMock.calls.filter((c) => c.table === 'attendance_penalties' && c.ops?.some((o) => o.m === 'update'))
       .map((c) => c.ops!.find((o) => o.m === 'update')!.a[0]);

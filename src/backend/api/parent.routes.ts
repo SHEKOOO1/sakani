@@ -4,6 +4,7 @@ import { kdb } from "../infrastructure/db";
 import { authenticate, authorizePermission, computeUserTenantIds } from "./middleware";
 import { AppPermission, UserRole } from "../../types/permissions";
 import { getStudentAccount } from "../services/student-account.service";
+import { getStudentPenalties, getLedgerMovements } from "../services/ledger.service";
 
 const router = express.Router();
 
@@ -120,12 +121,11 @@ router.get("/child/:id/finance", authenticate, async (req, res) => {
 
     const account = await getStudentAccount(studentId, { visibility: 'tenant' });
 
-    const penalties = await kdb("finances")
-      .where({ student_id: studentId, type: "expense" })
-      .where(function () { this.whereNull('is_admin_only').orWhere('is_admin_only', 0); })
-      .orderBy("date", "desc");
+    const penalties = await getStudentPenalties(studentId, { visibility: 'tenant' });
 
-    const totalPenalties = penalties.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalPenalties = penalties
+      .filter((p) => !p.cancelled)
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
     res.json({
       success: true,
@@ -167,7 +167,7 @@ router.get("/child/:id/report", authenticate, async (req, res) => {
 
     const attendance = await kdb("attendance").where({ student_id: studentId }).orderBy("created_at", "desc").limit(10);
 
-    const finance = await kdb("finances").where({ student_id: studentId }).orderBy("date", "desc");
+    const finance = await getLedgerMovements({ studentId });
 
     const points = await kdb("student_points").where({ student_id: studentId }).orderBy("created_at", "desc");
     const warnings = await kdb("student_warnings").where({ student_id: studentId }).orderBy("created_at", "desc");

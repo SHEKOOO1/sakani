@@ -4,6 +4,7 @@ import { authenticate, authorizePermission } from "./middleware";
 import { AppPermission, isStaffRole } from "../../types/permissions";
 import { getUserBroadcasts } from "./broadcast.service";
 import { fetchDailyReadings } from "../../services/dailyReadingsService";
+import { getLedgerClassTotals } from "../services/ledger.service";
 
 const router = express.Router();
 
@@ -268,8 +269,9 @@ router.get("/supervisor-summary", authenticate, authorizePermission(AppPermissio
 
     const maintenance = await kdb('maintenance_requests').where({ tenant_id: tenantId, status: 'pending' }).count({ count: 'id' }).first();
     const laundry = await kdb('laundry_queue').where({ tenant_id: tenantId, status: 'waiting' }).count({ count: 'id' }).first();
-    const income = await kdb('finances').where({ tenant_id: tenantId, type: 'revenue' }).sum<{ total: number }>('amount as total').first();
-    const expenses = await kdb('finances').where({ tenant_id: tenantId, type: 'expense' }).sum<{ total: number }>('amount as total').first();
+    const supervisorLedger = await getLedgerClassTotals({ tenantId });
+    const income = { total: supervisorLedger.income };
+    const expenses = { total: supervisorLedger.expense + supervisorLedger.penalty + supervisorLedger.discount };
 
     const roomStats = await kdb('rooms').where({ tenant_id: tenantId }).select(
       kdb.raw("COUNT(*) as rooms_count"),
@@ -327,15 +329,14 @@ router.get("/supervisor-summary", authenticate, authorizePermission(AppPermissio
       .sort((a, b) => b.count - a.count);
 
     const tenantsFinance = await Promise.all(assignedTenants.map(async (t) => {
-      const tIncome = await kdb('finances').where({ tenant_id: t.id, type: 'revenue' }).sum<{ total: number }>('amount as total').first();
-      const tExpenses = await kdb('finances').where({ tenant_id: t.id, type: 'expense' }).sum<{ total: number }>('amount as total').first();
+      const tLedger = await getLedgerClassTotals({ tenantId: t.id });
       const tStudents = await kdb('students').where({ tenant_id: t.id }).count({ count: 'id' }).first();
       return {
         id: t.id,
         name: t.name,
         studentCount: Number(tStudents?.count || 0),
-        totalIncome: Number(tIncome?.total || 0),
-        totalExpenses: Number(tExpenses?.total || 0)
+        totalIncome: tLedger.income,
+        totalExpenses: tLedger.expense + tLedger.penalty + tLedger.discount
       };
     }));
 
@@ -769,12 +770,7 @@ router.get("/parent-summary/:studentId", authenticate, async (req, res) => {
     }
 
     // جلب ملخص مالي
-    const finance = await kdb('finances')
-      .where({ student_id: studentId })
-      .select(
-        kdb.raw("SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) as total_paid"),
-        kdb.raw("SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_debts")
-      ).first() as any;
+    const finance = await getLedgerClassTotals({ studentId });
 
     const now = new Date();
     // جلب الإعلانات النشطة الموجهة لأولياء الأمور
@@ -791,8 +787,8 @@ router.get("/parent-summary/:studentId", authenticate, async (req, res) => {
       success: true,
       data: {
         financials: {
-          paid: Number(finance?.total_paid || 0),
-          pending: Number(finance?.total_debts || 0)
+          paid: finance.income,
+          pending: finance.expense + finance.penalty + finance.discount
         },
         attendanceHistory: history,
         dailyMessages

@@ -1,8 +1,14 @@
-import { kdb, dateFormatColumn } from "../infrastructure/knex.ts";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
+import { kdb } from "../infrastructure/db";
+import {
+  getLedgerReport,
+  getLedgerMovements,
+  getLedgerPaymentTotalsByStudent,
+  invoiceForStudent,
+} from "./ledger.service";
 
 interface FinanceFilters {
   tenantId?: string;
@@ -37,101 +43,50 @@ export interface StudentAccountsResult {
   totals: { invoice: number; paid: number; remaining: number };
 }
 
-function buildFinanceQuery(filters: FinanceFilters) {
-  const { tenantId, type, category, startDate, endDate, isAdmin } = filters;
-  let query = kdb('finances as f')
-    .leftJoin('students as s', 'f.student_id', 's.id')
-    .leftJoin('users as u', 's.user_id', 'u.id')
-    .select('f.*', 'u.name as student_name');
-
-  if (isAdmin) {
-    query = query.where('f.is_admin_only', 1);
-  } else {
-    query = query.where(function () {
-      this.where('f.is_admin_only', 0).orWhereNull('f.is_admin_only');
-    });
-    if (tenantId) query = query.where('f.tenant_id', tenantId);
-  }
-
-  if (type && type !== 'all') query = query.where('f.type', type);
-  if (category) query = query.where('f.category', category);
-  if (startDate && endDate) query = query.whereBetween('f.date', [startDate, endDate]);
-
-  return query.orderBy('f.date', 'desc');
+/**
+ * Phase 4: every figure below is derived from the journal (see ledger.service
+ * read helpers), not from `finances`. `finances` is still dual-written and still
+ * backs the raw editable finance list, but the reports are now the ledger.
+ */
+function ledgerScope(filters: FinanceFilters) {
+  return {
+    tenantId: filters.tenantId ?? null,
+    isAdmin: filters.isAdmin,
+    category: filters.category ?? null,
+    startDate: filters.startDate ?? null,
+    endDate: filters.endDate ?? null,
+  };
 }
 
 export async function getFilteredFinances(filters: FinanceFilters): Promise<ReportRow[]> {
-  return await buildFinanceQuery(filters);
+  const movementType =
+    filters.type === 'revenue' || filters.type === 'expense' ? filters.type : null;
+  const rows = await getLedgerMovements({ ...ledgerScope(filters), movementType });
+  return rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    category: r.category,
+    amount: r.amount,
+    description: r.description,
+    date: r.date || '',
+    student_name: r.student_name,
+  }));
 }
 
 export async function getReportSummary(filters: FinanceFilters) {
-  const { tenantId, startDate, endDate, type, category, isAdmin } = filters;
+  const { type } = filters;
+  const report = await getLedgerReport(ledgerScope(filters));
 
-  function applyIsolationQb(qb: any) {
-    if (isAdmin) {
-      qb.where('is_admin_only', 1);
-    } else {
-      qb.where(function (this: any) {
-        this.where('is_admin_only', 0).orWhereNull('is_admin_only');
-      });
-      if (tenantId) qb.where('tenant_id', tenantId);
-    }
+  let totals = report.totals;
+  let byCategory = report.byCategory;
+  if (type && type !== 'all') {
+    byCategory = byCategory.filter((c) => c.type === type);
+    totals = type === 'revenue'
+      ? { ...totals, expense: 0, net: totals.income }
+      : { ...totals, income: 0, net: -totals.expense };
   }
 
-  let query = kdb('finances');
-  applyIsolationQb(query);
-  if (type && type !== 'all') query = query.where('type', type);
-  if (category) query = query.where('category', category);
-  if (startDate && endDate) query = query.whereBetween('date', [startDate, endDate]);
-
-  const totals: any = await query
-    .select(
-      kdb.raw("SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) as total_income"),
-      kdb.raw("SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense"),
-      kdb.raw("COUNT(*) as transaction_count")
-    )
-    .first();
-
-  const byCategoryQb = kdb('finances')
-    .select('type', 'category')
-    .sum({ total: 'amount' });
-  applyIsolationQb(byCategoryQb);
-  const byCategory = await byCategoryQb
-    .where(function () {
-      if (type && type !== 'all') this.where('type', type);
-      if (category) this.where('category', category);
-      if (startDate && endDate) this.whereBetween('date', [startDate, endDate]);
-    })
-    .groupBy('type', 'category')
-    .orderBy('type');
-
-  const monthExpr = dateFormatColumn('date');
-  const byMonthQb = kdb('finances')
-    .select(
-      kdb.raw(`${monthExpr} as month`),
-      kdb.raw("SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) as income"),
-      kdb.raw("SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense")
-    );
-  applyIsolationQb(byMonthQb);
-  const byMonth = await byMonthQb
-    .where(function () {
-      if (type && type !== 'all') this.where('type', type);
-      if (category) this.where('category', category);
-      if (startDate && endDate) this.whereBetween('date', [startDate, endDate]);
-    })
-    .groupBy(kdb.raw(monthExpr))
-    .orderBy('month');
-
-  return {
-    totals: {
-      income: Number(totals?.total_income || 0),
-      expense: Number(totals?.total_expense || 0),
-      net: Number(totals?.total_income || 0) - Number(totals?.total_expense || 0),
-      transactionCount: Number(totals?.transaction_count || 0),
-    },
-    byCategory,
-    byMonth,
-  };
+  return { totals, byCategory, byMonth: report.byMonth };
 }
 
 export async function generateExcel(rows: ReportRow[], filters: FinanceFilters): Promise<Buffer> {
@@ -295,32 +250,37 @@ export async function generatePDF(rows: ReportRow[], filters: FinanceFilters): P
 
 // تقرير حسابات الطلاب المجمّع — كل طالب في خانه واحدة بإجمالي مدفوعاته مهما تعددت الدفعات
 export async function getStudentAccounts(filters: FinanceFilters): Promise<StudentAccountsResult> {
-  const { tenantId, isAdmin, category, startDate, endDate } = filters;
+  const { tenantId, isAdmin } = filters;
 
   const studentsQuery = kdb('students as s')
     .leftJoin('users as u', 's.user_id', 'u.id')
     .leftJoin('rooms as r', 's.room_id', 'r.id')
-    .select('s.id', 'u.name as student_name', 'r.room_number', 's.agreed_price')
+    .select(
+      's.id',
+      'u.name as student_name',
+      'r.room_number',
+      's.agreed_price',
+      's.billing_cycle',
+      'r.price_daily',
+      'r.price_monthly',
+      'r.price_semester',
+    )
     .orderBy('u.name');
   if (!isAdmin && tenantId) studentsQuery.where('s.tenant_id', tenantId);
 
-  const paidQb = kdb('finances')
-    .where({ type: 'revenue' })
-    .whereNotNull('student_id')
-    .select('student_id', kdb.raw('COALESCE(SUM(amount), 0) as total'))
-    .groupBy('student_id');
-  if (isAdmin) paidQb.where('is_admin_only', 1);
-  else paidQb.where(function (this: any) { this.where('is_admin_only', 0).orWhereNull('is_admin_only'); });
-  if (category) paidQb.where('category', category);
-  if (startDate && endDate) paidQb.whereBetween('date', [startDate, endDate]);
-
-  const [students, paidRows] = await Promise.all([studentsQuery, paidQb]);
+  // The invoice is the same figure the student profile uses (room price wins,
+  // agreed_price is the fallback) and `paid` is posted ledger payments only —
+  // so this report and StudentProfile can no longer disagree.
+  const [students, paidRows] = await Promise.all([
+    studentsQuery,
+    getLedgerPaymentTotalsByStudent(ledgerScope(filters)),
+  ]);
   const paidMap = new Map<string, number>();
-  for (const r of paidRows) paidMap.set(r.student_id, Number(r.total || 0));
+  for (const r of paidRows) paidMap.set(r.student_id, Number(r.paid || 0));
 
   let invoice = 0, paid = 0, remaining = 0;
   const rows: StudentAccountRow[] = students.map((s: any) => {
-    const totalInvoice = Number(s.agreed_price || 0);
+    const totalInvoice = invoiceForStudent(s).invoice;
     const totalPaid = paidMap.get(s.id) || 0;
     const rem = totalInvoice - totalPaid;
     invoice += totalInvoice;

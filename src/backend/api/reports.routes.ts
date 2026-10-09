@@ -1,8 +1,8 @@
 import express from "express";
 import { kdb } from "../infrastructure/db";
-import { dateFormatColumn } from "../infrastructure/knex";
 import { authenticate, authorizePermission, computeUserTenantIds } from "./middleware";
 import { AppPermission } from "../../types/permissions";
+import { getLedgerClassTotals, getLedgerByMonth } from "../services/ledger.service";
 
 const router = express.Router();
 
@@ -47,16 +47,12 @@ router.get("/global-stats", authenticate, authorizePermission(AppPermission.VIEW
       .where("current_occupancy", 0)
       .count("* as count").first() as any;
 
-    let financeQuery = kdb("finances").where(function () { scopeQuery(this); });
-    if (startDate) financeQuery = financeQuery.where('date', '>=', startDate);
-    if (endDate) financeQuery = financeQuery.where('date', '<=', endDate);
-
-    const totalFinance = await financeQuery
-        .select(
-            kdb.raw("COALESCE(SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END), 0) as income"),
-            kdb.raw("COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expenses")
-        )
-        .first() as any;
+    const ledgerScope = { tenantIds: tenantIds?.length ? tenantIds : null, startDate: startDate || null, endDate: endDate || null };
+    const ledgerTotals = await getLedgerClassTotals(ledgerScope);
+    const totalFinance = {
+      income: ledgerTotals.income,
+      expenses: ledgerTotals.expense + ledgerTotals.penalty + ledgerTotals.discount,
+    };
 
     let maintQuery = kdb("maintenance_requests").where(function () {
       scopeQuery(this);
@@ -96,11 +92,7 @@ router.get("/global-stats", authenticate, authorizePermission(AppPermission.VIEW
             .select(kdb.raw("COALESCE(SUM(capacity), 0) as total"), kdb.raw("COALESCE(SUM(current_occupancy), 0) as occ"))
             .first() as any;
           const empty = await kdb("rooms").where({ tenant_id: tid }).where("current_occupancy", 0).count("* as count").first() as any;
-          const fin = await kdb("finances").where({ tenant_id: tid })
-            .select(
-              kdb.raw("COALESCE(SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END), 0) as income"),
-              kdb.raw("COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expenses")
-            ).first() as any;
+          const fin = await getLedgerClassTotals({ tenantId: tid });
           return {
             id: t.id,
             name: t.name,
@@ -108,8 +100,8 @@ router.get("/global-stats", authenticate, authorizePermission(AppPermission.VIEW
             totalCapacity: caps?.total || 0,
             occupancy: caps?.occ || 0,
             emptyRooms: empty?.count || 0,
-            income: fin?.income || 0,
-            expenses: fin?.expenses || 0,
+            income: fin.income,
+            expenses: fin.expense + fin.penalty + fin.discount,
           };
         })
       );
@@ -152,22 +144,16 @@ router.get("/finance-summary", authenticate, authorizePermission(AppPermission.V
       return res.json({ success: true, data: [], summary: [] });
     }
 
-    const monthCol = dateFormatColumn('date', 'yyyy-MM');
-    let query = kdb("finances")
-        .select(
-            kdb.raw(`${monthCol} as month`),
-            kdb.raw("COALESCE(SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END), 0) as revenue"),
-            kdb.raw("COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expenses")
-        )
-        .whereIn('tenant_id', tenantList)
-        .groupByRaw(monthCol)
-        .orderBy("month", "desc")
-        .limit(12);
+    const monthly = await getLedgerByMonth({
+      tenantIds: tenantList,
+      startDate: startDate || null,
+      endDate: endDate || null,
+    });
 
-    if (startDate) query = query.where('date', '>=', startDate);
-    if (endDate) query = query.where('date', '<=', endDate);
-
-    const rows: any[] = await query;
+    const rows = monthly
+      .map((m) => ({ month: m.month, revenue: m.income, expenses: m.expense }))
+      .sort((a, b) => String(b.month).localeCompare(String(a.month)))
+      .slice(0, 12);
 
     let totalRevenue = 0, totalExpenses = 0;
     for (const row of rows) {
