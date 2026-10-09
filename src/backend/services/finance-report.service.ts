@@ -44,9 +44,9 @@ export interface StudentAccountsResult {
 }
 
 /**
- * Phase 4: every figure below is derived from the journal (see ledger.service
- * read helpers), not from `finances`. `finances` is still dual-written and still
- * backs the raw editable finance list, but the reports are now the ledger.
+ * Every figure below is derived from the journal (see ledger.service read
+ * helpers). `finances` is not read anywhere at runtime anymore — it is frozen
+ * historical data kept only for import reconciliation.
  */
 function ledgerScope(filters: FinanceFilters) {
   return {
