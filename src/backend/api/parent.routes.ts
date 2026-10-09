@@ -167,7 +167,7 @@ router.get("/child/:id/report", authenticate, async (req, res) => {
 
     const attendance = await kdb("attendance").where({ student_id: studentId }).orderBy("created_at", "desc").limit(10);
 
-    const finance = await getLedgerMovements({ studentId });
+    const finance = await getLedgerMovements({ studentId, isAdmin: false });
 
     const points = await kdb("student_points").where({ student_id: studentId }).orderBy("created_at", "desc");
     const warnings = await kdb("student_warnings").where({ student_id: studentId }).orderBy("created_at", "desc");

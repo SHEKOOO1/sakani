@@ -79,8 +79,10 @@ export function StudentProfile() {
   const points = profile?.points || [];
   const warnings = profile?.warnings || [];
 
-  const totalPoints = behaviorSummary?.totalPoints || 0;
-  const activeWarnings = behaviorSummary?.activeWarnings || (warnings.filter((w: any) => w.status === 'active').length);
+  const behavior = behaviorSummary?.data && typeof behaviorSummary.data === 'object' ? behaviorSummary.data : (behaviorSummary || {});
+  const totalPoints = Number(behavior?.points || 0);
+  const activeWarnings = Number(behavior?.activeWarnings ?? (warnings.filter((w: any) => w.status === 'active').length));
+  const totalPenalties = Number(behavior?.totalPenalties || 0);
 
   const tier = totalPoints >= 1000 ? 'بلاتينيوم' : totalPoints >= 500 ? 'ذهبي' : totalPoints >= 200 ? 'فضي' : 'برونزي';
   const tierColor = totalPoints >= 1000 ? 'text-purple-600' : totalPoints >= 500 ? 'text-amber-600' : totalPoints >= 200 ? 'text-slate-500' : 'text-orange-600';
@@ -121,7 +123,7 @@ export function StudentProfile() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <MiniStat value={totalPoints} label="نقاط" color={totalPoints >= 0 ? 'emerald' : 'red'} />
         <MiniStat value={activeWarnings} label="إنذار" color={activeWarnings > 0 ? 'red' : 'emerald'} />
-        <MiniStat value={behaviorSummary?.totalPenalties || 0} label="عقوبات" color="amber" />
+        <MiniStat value={totalPenalties} label="عقوبات" color="amber" />
         <MiniStat value={`${finSummary?.data?.remaining ?? 0} ج`} label="متبقي" color={(finSummary?.data?.remaining ?? 0) > 0 ? 'red' : 'emerald'} />
       </div>
 

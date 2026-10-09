@@ -11,7 +11,8 @@ import {
 } from "./ledger.service";
 
 interface FinanceFilters {
-  tenantId?: string;
+  tenantId?: string | null;
+  tenantIds?: string[] | null;
   type?: string;
   category?: string;
   startDate?: string;
@@ -51,6 +52,7 @@ export interface StudentAccountsResult {
 function ledgerScope(filters: FinanceFilters) {
   return {
     tenantId: filters.tenantId ?? null,
+    tenantIds: filters.tenantIds && filters.tenantIds.length ? filters.tenantIds : null,
     isAdmin: filters.isAdmin,
     category: filters.category ?? null,
     startDate: filters.startDate ?? null,
@@ -267,6 +269,7 @@ export async function getStudentAccounts(filters: FinanceFilters): Promise<Stude
     )
     .orderBy('u.name');
   if (!isAdmin && tenantId) studentsQuery.where('s.tenant_id', tenantId);
+  else if (!isAdmin && filters.tenantIds?.length) studentsQuery.whereIn('s.tenant_id', filters.tenantIds);
 
   // The invoice is the same figure the student profile uses (room price wins,
   // agreed_price is the fallback) and `paid` is posted ledger payments only —

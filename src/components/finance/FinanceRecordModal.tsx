@@ -44,6 +44,11 @@ export function FinanceRecordModal({ isOpen, onClose, formData, onChange, onSave
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const REVENUE_CATEGORIES = ['رسوم سكن', 'رسوم فعاليات'];
+  const EXPENSE_CATEGORIES = ['صيانة', 'كهرباء ومياه', 'رواتب', 'أدوات نظافة', 'أخرى'];
+  const ALL_CATEGORIES = [...new Set([...REVENUE_CATEGORIES, ...EXPENSE_CATEGORIES])];
+  const isKnownCategory = ALL_CATEGORIES.includes(formData.category);
+
   const selectedMethod = (paymentMethods || []).find((m: any) => m.id === formData.paymentMethodId);
   const paymentText = formData.paymentMethodName || selectedMethod?.name || '';
   const isNewMethod = !!paymentText.trim() && !(paymentMethods || []).some((m: any) => m.name.toLowerCase() === paymentText.trim().toLowerCase());
@@ -78,7 +83,7 @@ export function FinanceRecordModal({ isOpen, onClose, formData, onChange, onSave
               <div className="grid grid-cols-2 gap-4">
                 <button
                   type="button"
-                  onClick={() => onChange({ ...formData, type: 'revenue' })}
+                  onClick={() => onChange({ ...formData, type: 'revenue', category: EXPENSE_CATEGORIES.includes(formData.category) ? 'رسوم سكن' : formData.category })}
                   className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${formData.type === 'revenue' ? 'bg-emerald-50 dark:bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-300' : 'bg-slate-50 dark:bg-white/5 border-transparent text-slate-400 dark:text-slate-300'}`}
                 >
                   <TrendingUp size={24} />
@@ -86,7 +91,7 @@ export function FinanceRecordModal({ isOpen, onClose, formData, onChange, onSave
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChange({ ...formData, type: 'expense' })}
+                  onClick={() => onChange({ ...formData, type: 'expense', category: REVENUE_CATEGORIES.includes(formData.category) ? 'أخرى' : formData.category })}
                   className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${formData.type === 'expense' ? 'bg-rose-50 dark:bg-rose-500/20 border-rose-500 text-rose-700 dark:text-rose-300' : 'bg-slate-50 dark:bg-white/5 border-transparent text-slate-400 dark:text-slate-300'}`}
                 >
                   <TrendingDown size={24} />
@@ -102,6 +107,9 @@ export function FinanceRecordModal({ isOpen, onClose, formData, onChange, onSave
                     onChange={(e) => onChange({ ...formData, category: e.target.value })}
                     className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border-none rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-700 dark:text-white"
                   >
+                    {!isKnownCategory && formData.category && (
+                      <option value={formData.category}>{formData.category} (الحالية)</option>
+                    )}
                     <option>رسوم سكن</option>
                     <option>رسوم فعاليات</option>
                     <option>صيانة</option>
@@ -114,7 +122,7 @@ export function FinanceRecordModal({ isOpen, onClose, formData, onChange, onSave
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 dark:text-slate-300 uppercase tracking-wider pr-2">المبلغ ($)</label>
+                    <label className="text-xs font-bold text-slate-500 dark:text-slate-300 uppercase tracking-wider pr-2">المبلغ (ج.م)</label>
                     <input
                       type="number"
                       required

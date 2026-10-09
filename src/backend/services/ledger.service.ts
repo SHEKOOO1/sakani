@@ -475,13 +475,18 @@ export async function getStudentLedgerTotals(
 
   const row = await query;
 
-  const balanceRow = await db('journal_lines as l')
+  const balanceQuery = db('journal_lines as l')
     .join('journal_entries as e', 'e.id', 'l.entry_id')
     .where('l.student_id', studentId)
     .where('l.account', 'STUDENT_PAYMENT')
     .whereIn('e.status', ['posted', 'reversed'])
-    .select(db.raw("COALESCE(SUM(l.debit - l.credit), 0) as balance"))
-    .first();
+    .select(db.raw("COALESCE(SUM(l.debit - l.credit), 0) as balance"));
+  if (opts.visibility === 'tenant') {
+    balanceQuery.where(function (this: any) {
+      this.whereNull('e.is_admin_only').orWhere('e.is_admin_only', 0);
+    });
+  }
+  const balanceRow = await balanceQuery.first();
 
   const penaltiesCharged = Number(row?.penalties_charged || 0);
   const penaltiesCancelled = Number(row?.penalties_cancelled || 0);
@@ -637,8 +642,12 @@ function applyLedgerScope(qb: any, f: LedgerScopeFilter): any {
       this.whereNull('e.is_admin_only').orWhere('e.is_admin_only', 0);
     });
   }
-  if (f.tenantIds && f.tenantIds.length) qb.whereIn('e.tenant_id', f.tenantIds);
-  else if (f.tenantId) qb.where('e.tenant_id', f.tenantId);
+  if (f.tenantIds) {
+    // An empty list means "no access", not "everyone": a scoped user with zero
+    // allowed tenants must not see other housings' (or the admin's) books.
+    if (f.tenantIds.length) qb.whereIn('e.tenant_id', f.tenantIds);
+    else qb.whereRaw('1 = 0');
+  } else if (f.tenantId) qb.where('e.tenant_id', f.tenantId);
   if (f.studentId) qb.where('e.student_id', f.studentId);
   if (f.category) qb.where('e.category', f.category);
   if (f.startDate) qb.where('e.entry_date', '>=', f.startDate);

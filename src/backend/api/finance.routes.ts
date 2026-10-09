@@ -139,6 +139,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_FINANCE), a
 router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_FINANCE_REPORTS), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
   const tenantId = req.user.tenantId;
+  const { category, startDate, endDate, studentId } = req.query;
 
   try {
     if (!isAdmin && !tenantId && !(req.user.tenantIds && req.user.tenantIds.length)) {
@@ -149,6 +150,10 @@ router.get("/summary", authenticate, authorizePermission(AppPermission.VIEW_FINA
       isAdmin,
       tenantId: isAdmin ? null : tenantId,
       tenantIds: !isAdmin && !tenantId ? (req.user.tenantIds || []) : null,
+      category: (category as string) || null,
+      startDate: (startDate as string) || null,
+      endDate: (endDate as string) || null,
+      studentId: (studentId as string) || null,
     });
 
     const data = [
@@ -379,9 +384,20 @@ router.put("/:id", authenticate, async (req, res, next) => {
 router.get("/export", authenticate, authorizePermission(AppPermission.VIEW_FINANCE_REPORTS), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
   const tenantId = req.user.tenantId;
-  if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+  const scopedTenantIds = !isAdmin && !tenantId ? (req.user.tenantIds || []) : null;
+  if (!tenantId && !isAdmin && !(scopedTenantIds && scopedTenantIds.length)) {
+    return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+  }
   const q = req.query;
-  const filters = { tenantId, type: q.type as string | undefined, category: q.category as string | undefined, startDate: q.startDate as string | undefined, endDate: q.endDate as string | undefined, isAdmin };
+  const filters = {
+    tenantId: isAdmin ? null : tenantId,
+    tenantIds: scopedTenantIds,
+    type: q.type as string | undefined,
+    category: q.category as string | undefined,
+    startDate: q.startDate as string | undefined,
+    endDate: q.endDate as string | undefined,
+    isAdmin,
+  };
 
   try {
     const rows = await getFilteredFinances(filters);
@@ -406,9 +422,20 @@ router.get("/export", authenticate, authorizePermission(AppPermission.VIEW_FINAN
 router.get("/report", authenticate, authorizePermission(AppPermission.VIEW_FINANCE_REPORTS), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
   const tenantId = req.user.tenantId;
-  if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+  const scopedTenantIds = !isAdmin && !tenantId ? (req.user.tenantIds || []) : null;
+  if (!tenantId && !isAdmin && !(scopedTenantIds && scopedTenantIds.length)) {
+    return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+  }
   const q = req.query;
-  const filters = { tenantId, type: q.type as string | undefined, category: q.category as string | undefined, startDate: q.startDate as string | undefined, endDate: q.endDate as string | undefined, isAdmin };
+  const filters = {
+    tenantId: isAdmin ? null : tenantId,
+    tenantIds: scopedTenantIds,
+    type: q.type as string | undefined,
+    category: q.category as string | undefined,
+    startDate: q.startDate as string | undefined,
+    endDate: q.endDate as string | undefined,
+    isAdmin,
+  };
 
   try {
     const report = await getReportSummary(filters);
@@ -422,9 +449,18 @@ router.get("/report", authenticate, authorizePermission(AppPermission.VIEW_FINAN
 router.get("/student-accounts", authenticate, authorizePermission(AppPermission.VIEW_FINANCE_REPORTS), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
   const tenantId = req.user.tenantId;
-  if (!tenantId && !isAdmin) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+  const scopedTenantIds = !isAdmin && !tenantId ? (req.user.tenantIds || []) : null;
+  if (!tenantId && !isAdmin && !(scopedTenantIds && scopedTenantIds.length)) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   const q = req.query;
-  const filters = { tenantId, type: 'revenue' as string | undefined, category: q.category as string | undefined, startDate: q.startDate as string | undefined, endDate: q.endDate as string | undefined, isAdmin };
+  const filters = {
+    tenantId: isAdmin ? null : tenantId,
+    tenantIds: scopedTenantIds,
+    type: 'revenue' as string | undefined,
+    category: q.category as string | undefined,
+    startDate: q.startDate as string | undefined,
+    endDate: q.endDate as string | undefined,
+    isAdmin,
+  };
 
   try {
     const result = await getStudentAccounts(filters);
@@ -438,9 +474,18 @@ router.get("/student-accounts", authenticate, authorizePermission(AppPermission.
 router.get("/student-accounts/export", authenticate, authorizePermission(AppPermission.VIEW_FINANCE_REPORTS), async (req, res) => {
   const isAdmin = req.user.role === 'admin';
   const tenantId = req.user.tenantId;
-  if (!tenantId && !isAdmin) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
+  const scopedTenantIds = !isAdmin && !tenantId ? (req.user.tenantIds || []) : null;
+  if (!tenantId && !isAdmin && !(scopedTenantIds && scopedTenantIds.length)) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   const q = req.query;
-  const filters = { tenantId, type: 'revenue' as string | undefined, category: q.category as string | undefined, startDate: q.startDate as string | undefined, endDate: q.endDate as string | undefined, isAdmin };
+  const filters = {
+    tenantId: isAdmin ? null : tenantId,
+    tenantIds: scopedTenantIds,
+    type: 'revenue' as string | undefined,
+    category: q.category as string | undefined,
+    startDate: q.startDate as string | undefined,
+    endDate: q.endDate as string | undefined,
+    isAdmin,
+  };
 
   try {
     const result = await getStudentAccounts(filters);

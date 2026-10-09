@@ -38,7 +38,8 @@ export function FinancePage() {
   const { request } = useApi();
   const { showSnackbar, confirm } = useSnackbar();
   const [loading, setLoading] = useState(true);
-  const [finances, setFinances] = useState([]);
+  const [finances, setFinances] = useState<any[]>([]);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [summary, setSummary] = useState<any>({ income: 0, expense: 0 });
   const [filter, setFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
@@ -91,16 +92,25 @@ export function FinancePage() {
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
       if (searchTerm) params.set('search', searchTerm);
-      params.set('limit', '500');
+      params.set('page', String(page));
+      params.set('limit', String(pageSize));
 
       const resp = await request(`/api/finances?${params.toString()}`);
       if (!mounted.current) return;
-      setFinances(resp.data);
+      setFinances(Array.isArray(resp.data) ? resp.data : []);
+      setTotalRecords(Number(resp.total || 0));
 
-      const summaryResp = await request('/api/finances/summary');
+      // The stat cards reflect the active date/category scope so they line up
+      // with the filtered list instead of always showing all-time totals.
+      const summaryParams = new URLSearchParams();
+      if (categoryFilter) summaryParams.set('category', categoryFilter);
+      if (startDate) summaryParams.set('startDate', startDate);
+      if (endDate) summaryParams.set('endDate', endDate);
+
+      const summaryResp = await request(`/api/finances/summary?${summaryParams.toString()}`);
       if (!mounted.current) return;
       const sum = { income: 0, expense: 0 };
-      (summaryResp.data || []).forEach((item: any) => {
+      (Array.isArray(summaryResp.data) ? summaryResp.data : []).forEach((item: any) => {
         if (item.type === 'revenue') sum.income = item.total;
         if (item.type === 'expense') sum.expense = item.total;
       });
@@ -110,7 +120,7 @@ export function FinancePage() {
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }, [request, filter, categoryFilter, startDate, endDate, searchTerm]);
+  }, [request, filter, categoryFilter, startDate, endDate, searchTerm, page]);
 
   const fetchReport = useCallback(async () => {
     setReportLoading(true);
@@ -152,13 +162,19 @@ export function FinancePage() {
   }, [request]);
 
   const loadRef = useRef(() => {});
-  loadRef.current = () => { fetchData(); fetchStudents(); fetchPaymentMethods(); };
+  loadRef.current = () => { fetchStudents(); fetchPaymentMethods(); };
 
   useEffect(() => {
-
     loadRef.current();
-    
   }, []);
+
+  // Refetch whenever any list filter, the page, or the search term changes.
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  useEffect(() => {
+    if (page > totalPages && totalPages >= 1) setPage(totalPages);
+  }, [page, totalPages]);
 
   const handleExport = async (format: 'excel' | 'pdf') => {
     setShowExportMenu(false);
@@ -260,21 +276,6 @@ export function FinancePage() {
     }
   };
 
-  const filteredFinances = finances.filter((f: any) => {
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      const matchDesc = (f.description || '').toLowerCase().includes(term);
-      const matchCategory = (f.category || '').toLowerCase().includes(term);
-      const matchStudent = (f.student_name || '').toLowerCase().includes(term);
-      const matchAmount = String(f.amount ?? '').includes(term);
-      if (!matchDesc && !matchCategory && !matchStudent && !matchAmount) return false;
-    }
-    return true;
-  });
-
-  const totalPages = Math.ceil(filteredFinances.length / pageSize);
-  const paginatedFinances = filteredFinances.slice((page - 1) * pageSize, page * pageSize);
-
   const clearFilters = () => {
     setStartDate('');
     setEndDate('');
@@ -362,7 +363,7 @@ export function FinancePage() {
               </div>
               <span className="text-[10px] font-bold text-slate-400 dark:text-slate-300 uppercase tracking-wider">صافي الرصيد</span>
            </div>
-           <h3 className="text-3xl font-black text-slate-800 dark:text-white">{(summary.income - summary.expense).toLocaleString()}$</h3>
+           <h3 className="text-3xl font-black text-slate-800 dark:text-white">{(summary.income - summary.expense).toLocaleString()} ج.م</h3>
            <p className="text-xs text-slate-400 dark:text-slate-300 mt-2">إجمالي المتوفر في الخزينة حالياً</p>
         </motion.div>
 
@@ -373,7 +374,7 @@ export function FinancePage() {
               </div>
               <span className="text-[10px] font-bold text-slate-400 dark:text-slate-300 uppercase tracking-wider">إجمالي الإيرادات</span>
            </div>
-           <h3 className="text-3xl font-black text-emerald-600 dark:text-emerald-400">{summary.income.toLocaleString()}$</h3>
+           <h3 className="text-3xl font-black text-emerald-600 dark:text-emerald-400">{summary.income.toLocaleString()} ج.م</h3>
            <p className="text-xs text-emerald-500 dark:text-emerald-400 mt-2 font-bold">+ {summary.income > 0 ? 100 : 0}% نمو إيجابي</p>
         </motion.div>
 
@@ -384,7 +385,7 @@ export function FinancePage() {
               </div>
               <span className="text-[10px] font-bold text-slate-400 dark:text-slate-300 uppercase tracking-wider">إجمالي المصروفات</span>
            </div>
-           <h3 className="text-3xl font-black text-rose-600 dark:text-rose-400">{summary.expense.toLocaleString()}$</h3>
+           <h3 className="text-3xl font-black text-rose-600 dark:text-rose-400">{summary.expense.toLocaleString()} ج.م</h3>
            <p className="text-xs text-rose-500 dark:text-rose-400 mt-2 font-bold">تغطية تشغيلية مستقرة</p>
         </motion.div>
       </div>
@@ -501,7 +502,7 @@ export function FinancePage() {
                         <td key={j} className="px-8 py-6"><Skeleton className="h-6 w-full" /></td>
                       ))}
                    </tr>
-                 )) : paginatedFinances.length > 0 ? paginatedFinances.map((f: any) => (
+                 )) : finances.length > 0 ? finances.map((f: any) => (
                     <tr key={f.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
                        <td className="px-8 py-6">
                           <div className="flex items-center gap-4">
@@ -510,22 +511,22 @@ export function FinancePage() {
                             </div>
                             <div>
                                 <p className="font-bold text-slate-800 dark:text-white">{f.description || 'بدون وصف'}</p>
-                                <p className="text-[10px] text-slate-400 dark:text-slate-300 font-medium">كود العملية: {f.id.split('-')[0]}</p>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-300 font-medium">كود العملية: {f.id ? String(f.id).split('-')[0] : '—'}</p>
                             </div>
                          </div>
                       </td>
                       <td className="px-8 py-6">
-                          <span className="px-3 py-1 bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold">{f.category}</span>
+                          <span className="px-3 py-1 bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold">{f.category || '—'}</span>
                       </td>
                       <td className="px-8 py-6">
                           <div className="flex items-center gap-2 text-slate-500 dark:text-slate-300 text-xs">
                             <Calendar size={14} />
-                            <span>{new Date(f.date).toLocaleDateString('ar-EG')}</span>
+                            <span>{f.date ? new Date(f.date).toLocaleDateString('ar-EG') : '—'}</span>
                          </div>
                       </td>
                       <td className="px-8 py-6 font-black text-lg">
                           <span className={f.type === 'revenue' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
-                             {f.type === 'revenue' ? '+' : '-'}{f.amount.toLocaleString()}$
+                             {f.type === 'revenue' ? '+' : '-'}{Number(f.amount || 0).toLocaleString()} ج.م
                           </span>
                       </td>
                       <td className="px-8 py-6">
@@ -577,7 +578,7 @@ export function FinancePage() {
            </table>
          </div>
 
-        <Pagination page={page} totalPages={totalPages} total={filteredFinances.length} onPageChange={setPage} />
+        <Pagination page={page} totalPages={totalPages} total={totalRecords} onPageChange={setPage} />
        </div>
 
       <FinanceRecordModal

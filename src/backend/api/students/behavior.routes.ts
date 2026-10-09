@@ -27,11 +27,19 @@ router.get("/behavior/my-summary", authenticate, async (req, res) => {
       .count('id as count')
       .first();
 
+    // عدد الغرامات/خصومات النقاط المسجلة (amount سالب)
+    const penaltiesResult = await kdb('student_points')
+      .where({ student_id: student.id })
+      .where('amount', '<', 0)
+      .count('id as count')
+      .first();
+
     res.json({
       success: true,
       data: {
         points: Number(pointsResult?.total || 0),
-        activeWarnings: Number(warningsResult?.count || 0)
+        activeWarnings: Number(warningsResult?.count || 0),
+        totalPenalties: Number(penaltiesResult?.count || 0)
       }
     });
   } catch (error: any) {

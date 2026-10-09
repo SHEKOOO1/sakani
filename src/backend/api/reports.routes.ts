@@ -47,7 +47,15 @@ router.get("/global-stats", authenticate, authorizePermission(AppPermission.VIEW
       .where("current_occupancy", 0)
       .count("* as count").first() as any;
 
-    const ledgerScope = { tenantIds: tenantIds?.length ? tenantIds : null, startDate: startDate || null, endDate: endDate || null };
+    // A global admin with no tenant list sees everything; any other user with
+    // an empty list has no access and an empty whereIn must yield zero rows,
+    // never the whole books (see applyLedgerScope).
+    const isAdmin = (req.user as any).role === 'admin';
+    const ledgerScope = tenantIds?.length
+      ? { tenantIds, startDate: startDate || null, endDate: endDate || null }
+      : isAdmin
+        ? { startDate: startDate || null, endDate: endDate || null }
+        : { tenantIds: [] as string[], startDate: startDate || null, endDate: endDate || null };
     const ledgerTotals = await getLedgerClassTotals(ledgerScope);
     const totalFinance = {
       income: ledgerTotals.income,
@@ -150,13 +158,16 @@ router.get("/finance-summary", authenticate, authorizePermission(AppPermission.V
       endDate: endDate || null,
     });
 
-    const rows = monthly
+    // Sum the totals over every month in the range; only the chart rows (the
+    // most recent 12) get cut for the UI, otherwise a >12-month range silently
+    // drops the older months from totalRevenue/totalExpenses.
+    const sorted = monthly
       .map((m) => ({ month: m.month, revenue: m.income, expenses: m.expense }))
-      .sort((a, b) => String(b.month).localeCompare(String(a.month)))
-      .slice(0, 12);
+      .sort((a, b) => String(b.month).localeCompare(String(a.month)));
+    const rows = sorted.slice(0, 12);
 
     let totalRevenue = 0, totalExpenses = 0;
-    for (const row of rows) {
+    for (const row of sorted) {
       totalRevenue += Number(row.revenue || 0);
       totalExpenses += Number(row.expenses || 0);
     }

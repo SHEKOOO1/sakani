@@ -769,8 +769,8 @@ router.get("/parent-summary/:studentId", authenticate, async (req, res) => {
       }
     }
 
-    // جلب ملخص مالي
-    const finance = await getLedgerClassTotals({ studentId });
+    // جلب ملخص مالي — للطالب فقط يظهر دفتره العادي، من غير قيود الأداره الخاصة
+    const finance = await getLedgerClassTotals({ studentId, isAdmin: false });
 
     const now = new Date();
     // جلب الإعلانات النشطة الموجهة لأولياء الأمور
