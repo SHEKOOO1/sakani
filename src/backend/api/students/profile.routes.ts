@@ -623,7 +623,6 @@ router.delete("/:id/notes/:noteId", authenticate, async (req, res) => {
 // مسموح بالعرض لـ: مدير التطبيق، الأسقف، الكاهن، مشرف السكن، الطالب (نفسه)، ولي الأمر (ابنه) فقط.
 router.get("/:id/finance", authenticate, async (req, res) => {
   const role = req.user.role;
-  const isAdminBishop = role === 'admin' || role === 'bishop';
   const allowedStaff = ['admin', 'bishop', 'priest', 'supervisor'].includes(role);
   if (!allowedStaff && role !== 'student' && role !== 'parent') {
     return res.status(403).json({ success: false, message: "غير مصرح بعرض الحساب المالي" });
@@ -655,7 +654,10 @@ router.get("/:id/finance", authenticate, async (req, res) => {
       }
     }
 
-    const isAdminScope = isAdminBishop;
+    // Only the app admin reads admin-only books. The bishop is trusted at the
+    // tenant level but not granted the admin ledger scope, so their student
+    // account view stays limited to the housing's own (non-admin) entries.
+    const isAdminScope = role === 'admin';
 
     const account = await getStudentAccount(student.id, { visibility: isAdminScope ? 'all' : 'tenant' });
     if (!account) return res.status(500).json({ success: false, message: "تعذر حساب بيانات الغرفة" });

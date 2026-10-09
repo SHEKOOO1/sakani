@@ -273,10 +273,17 @@ export async function getStudentAccounts(filters: FinanceFilters): Promise<Stude
 
   // The invoice is the same figure the student profile uses (room price wins,
   // agreed_price is the fallback) and `paid` is posted ledger payments only —
-  // so this report and StudentProfile can no longer disagree.
+  // so this report and StudentProfile can no longer disagree. The invoice has
+  // no date/category dimension, so the paid scope deliberately drops those
+  // filters: a date/category window must not shrink `paid` against an unfiltered
+  // invoice, producing a misleading `remaining`.
   const [students, paidRows] = await Promise.all([
     studentsQuery,
-    getLedgerPaymentTotalsByStudent(ledgerScope(filters)),
+    getLedgerPaymentTotalsByStudent({
+      tenantId: filters.tenantId ?? null,
+      tenantIds: filters.tenantIds && filters.tenantIds.length ? filters.tenantIds : null,
+      isAdmin: filters.isAdmin,
+    }),
   ]);
   const paidMap = new Map<string, number>();
   for (const r of paidRows) paidMap.set(r.student_id, Number(r.paid || 0));
@@ -363,8 +370,7 @@ export async function generateStudentAccountsPDF(result: StudentAccountsResult, 
       const FONT = fontRegistered ? 'Arabic' : 'Helvetica';
 
       doc.font(FONT).fontSize(22).fillColor('#1E293B').text('Sakani - تقرير حسابات الطلاب', { align: 'right' });
-      doc.fontSize(10).fillColor('#64748B').text(`الفترة: ${filters.startDate || 'كامل الترم'} إلى ${filters.endDate || 'اليوم'}`, { align: 'right' });
-      if (filters.category) doc.text(`التصنيف: ${filters.category}`, { align: 'right' });
+      doc.fontSize(10).fillColor('#64748B').text('فاتورة الغرفة مقابل المدفوعات المسجلة — رصيد كامل حتى اليوم (لا يتقيد بتاريخ أو تصنيف)', { align: 'right' });
       doc.moveDown(2);
 
       const pageWidth = doc.page.width - 100;
@@ -396,9 +402,9 @@ export async function generateStudentAccountsPDF(result: StudentAccountsResult, 
         const cells = [
           r.student_name.substring(0, 30),
           r.room_number || '',
-          `${r.totalInvoice.toLocaleString()}$`,
-          `${r.totalPaid.toLocaleString()}$`,
-          `${r.remaining.toLocaleString()}$`,
+          `${r.totalInvoice.toLocaleString()} ج.م`,
+          `${r.totalPaid.toLocaleString()} ج.م`,
+          `${r.remaining.toLocaleString()} ج.م`,
         ];
         doc.fillColor('#334155').fontSize(8);
         cells.forEach((c, i) => {
@@ -409,9 +415,9 @@ export async function generateStudentAccountsPDF(result: StudentAccountsResult, 
       }
 
       doc.moveDown(2);
-      doc.fontSize(11).fillColor('#059669').text(`إجمالي المدفوع: ${result.totals.paid.toLocaleString()}$`, { align: 'right' });
-      doc.fillColor('#334155').text(`إجمالي الفواتير: ${result.totals.invoice.toLocaleString()}$`, { align: 'right' });
-      doc.fontSize(12).fillColor('#E11D48').text(`إجمالي المتبقي: ${result.totals.remaining.toLocaleString()}$`, { align: 'right' });
+      doc.fontSize(11).fillColor('#059669').text(`إجمالي المدفوع: ${result.totals.paid.toLocaleString()} ج.م`, { align: 'right' });
+      doc.fillColor('#334155').text(`إجمالي الفواتير: ${result.totals.invoice.toLocaleString()} ج.م`, { align: 'right' });
+      doc.fontSize(12).fillColor('#E11D48').text(`إجمالي المتبقي: ${result.totals.remaining.toLocaleString()} ج.م`, { align: 'right' });
 
       const timeout = setTimeout(() => reject(new Error('PDF generation timed out')), 30000);
       doc.on('end', () => { clearTimeout(timeout); resolve(Buffer.concat(buffers)); });
