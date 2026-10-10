@@ -50,6 +50,8 @@ const rolePermissions: Record<string, AppPermission[]> = {
     AppPermission.MANAGE_EMPLOYEES, AppPermission.VIEW_USERS, AppPermission.MANAGE_USERS, AppPermission.ASSIGN_ROLES,
     AppPermission.VIEW_SETTINGS, AppPermission.MANAGE_SETTINGS,
     AppPermission.SEND_BROADCAST, AppPermission.VIEW_BROADCASTS,
+    AppPermission.VIEW_RESTAURANT, AppPermission.ORDER_RESTAURANT, AppPermission.MANAGE_RESTAURANT, AppPermission.MANAGE_RESTAURANT_OPERATORS,
+    AppPermission.VIEW_CANTEEN, AppPermission.ORDER_CANTEEN, AppPermission.MANAGE_CANTEEN, AppPermission.MANAGE_CANTEEN_OPERATORS,
     AppPermission.VIEW_RADIO
   ],
   bishop: [
@@ -77,18 +79,22 @@ const rolePermissions: Record<string, AppPermission[]> = {
     AppPermission.MANAGE_EMPLOYEES, AppPermission.VIEW_USERS, AppPermission.MANAGE_USERS, AppPermission.ASSIGN_ROLES,
     AppPermission.VIEW_SETTINGS, AppPermission.MANAGE_SETTINGS,
     AppPermission.SEND_BROADCAST, AppPermission.VIEW_BROADCASTS,
+    AppPermission.VIEW_RESTAURANT, AppPermission.ORDER_RESTAURANT, AppPermission.MANAGE_RESTAURANT, AppPermission.MANAGE_RESTAURANT_OPERATORS,
+    AppPermission.VIEW_CANTEEN, AppPermission.ORDER_CANTEEN, AppPermission.MANAGE_CANTEEN, AppPermission.MANAGE_CANTEEN_OPERATORS,
     AppPermission.VIEW_RADIO
   ],
   assistant_supervisor: [
     AppPermission.VIEW_STUDENT, AppPermission.VIEW_ROOMS, AppPermission.VIEW_ATTENDANCE,
     AppPermission.VIEW_MAINTENANCE, AppPermission.HANDLE_MAINTENANCE,
     AppPermission.VIEW_LAUNDRY_QUEUE, AppPermission.VIEW_DASHBOARD, AppPermission.VIEW_REPORTS,
+    AppPermission.VIEW_RESTAURANT, AppPermission.VIEW_CANTEEN,
     AppPermission.VIEW_POINTS, AppPermission.VIEW_COMPETITIONS, AppPermission.VIEW_EVENTS,
     AppPermission.MANAGE_EVENT_ATTENDANCE, AppPermission.OPERATE_EVENT_ATTENDANCE
   ],
   student: [
     AppPermission.VIEW_DASHBOARD, AppPermission.VIEW_STUDENT, AppPermission.CHECKIN_ATTENDANCE, AppPermission.JOIN_LAUNDRY,
     AppPermission.VIEW_LAUNDRY_QUEUE, AppPermission.REQUEST_MAINTENANCE,
+    AppPermission.VIEW_RESTAURANT, AppPermission.ORDER_RESTAURANT, AppPermission.VIEW_CANTEEN, AppPermission.ORDER_CANTEEN,
     AppPermission.ATTEND_EVENT, AppPermission.VIEW_EVENTS, AppPermission.VIEW_NOTIFICATIONS,
     AppPermission.VIEW_RADIO,
     AppPermission.VIEW_POINTS, AppPermission.VIEW_COMPETITIONS, AppPermission.JOIN_COMPETITIONS,
@@ -104,6 +110,7 @@ const rolePermissions: Record<string, AppPermission[]> = {
   ],
   employee: [
     AppPermission.VIEW_DASHBOARD,
+    AppPermission.VIEW_RESTAURANT, AppPermission.VIEW_CANTEEN,
     AppPermission.VIEW_RADIO
   ]
 };

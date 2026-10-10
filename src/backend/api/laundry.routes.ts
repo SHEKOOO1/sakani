@@ -8,6 +8,7 @@ import { logger } from "../infrastructure/logger.ts";
 import { validate } from "../validation/middleware";
 import { createMachineSchema, updateMachineStatusSchema, createOperatorSchema, laundrySettingsSchema, queueCallSchema, queueActionSchema } from "../validation/schemas";
 import { sameId } from "../infrastructure/id-match";
+import { requireServiceEnabled } from "../infrastructure/service-features";
 
 const router = express.Router();
 
@@ -29,7 +30,7 @@ router.get("/machines", authenticate, async (req, res) => {
   }
 });
 
-router.post("/machines", authenticate, authorizePermission(AppPermission.MANAGE_LAUNDRY), validate(createMachineSchema), async (req, res) => {
+router.post("/machines", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.MANAGE_LAUNDRY), validate(createMachineSchema), async (req, res) => {
   const { name, id } = req.body;
   const tenantId = req.user.tenantId;
 
@@ -46,7 +47,7 @@ router.post("/machines", authenticate, authorizePermission(AppPermission.MANAGE_
   }
 });
 
-router.patch("/machines/:id/status", authenticate, authorizePermission(AppPermission.MANAGE_LAUNDRY), validate(updateMachineStatusSchema), async (req, res) => {
+router.patch("/machines/:id/status", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.MANAGE_LAUNDRY), validate(updateMachineStatusSchema), async (req, res) => {
   const { status } = req.body;
   const { id } = req.params;
   const tenantId = req.user.tenantId;
@@ -72,7 +73,7 @@ router.get("/operators", authenticate, authorizePermission(AppPermission.MANAGE_
   }
 });
 
-router.post("/operators", authenticate, authorizePermission(AppPermission.MANAGE_LAUNDRY_OPERATORS), validate(createOperatorSchema), async (req, res) => {
+router.post("/operators", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.MANAGE_LAUNDRY_OPERATORS), validate(createOperatorSchema), async (req, res) => {
   const { userId } = req.body;
   const tenantId = req.user.tenantId;
   const id = uuidv4();
@@ -91,7 +92,7 @@ router.post("/operators", authenticate, authorizePermission(AppPermission.MANAGE
   }
 });
 
-router.delete("/operators/:userId", authenticate, authorizePermission(AppPermission.MANAGE_LAUNDRY_OPERATORS), async (req, res) => {
+router.delete("/operators/:userId", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.MANAGE_LAUNDRY_OPERATORS), async (req, res) => {
   const { userId } = req.params;
   const tenantId = req.user.tenantId;
   try {
@@ -137,7 +138,7 @@ router.get("/session/active", authenticate, async (req, res) => {
   }
 });
 
-router.post("/session/start", authenticate, async (req, res) => {
+router.post("/session/start", authenticate, requireServiceEnabled('laundry'), async (req, res) => {
   const { id: userId, tenantId, role } = req.user;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   
@@ -162,7 +163,7 @@ router.post("/session/start", authenticate, async (req, res) => {
   }
 });
 
-router.post("/session/close", authenticate, async (req, res) => {
+router.post("/session/close", authenticate, requireServiceEnabled('laundry'), async (req, res) => {
   const { id: userId, tenantId, role } = req.user;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   
@@ -199,7 +200,7 @@ router.get("/settings", authenticate, async (req, res) => {
     }
 });
 
-router.post("/settings", authenticate, authorizePermission(AppPermission.MANAGE_LAUNDRY), validate(laundrySettingsSchema), async (req, res) => {
+router.post("/settings", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.MANAGE_LAUNDRY), validate(laundrySettingsSchema), async (req, res) => {
     const tenantId = req.user.tenantId;
     const { days, start_hour, end_hour } = req.body;
     try {
@@ -263,7 +264,7 @@ router.get("/queue", authenticate, authorizePermission(AppPermission.VIEW_LAUNDR
   }
 });
 
-router.post("/queue/join", authenticate, authorizePermission(AppPermission.JOIN_LAUNDRY), async (req, res) => {
+router.post("/queue/join", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.JOIN_LAUNDRY), async (req, res) => {
   const { id: userId, tenantId } = req.user;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   
@@ -297,7 +298,7 @@ router.post("/queue/join", authenticate, authorizePermission(AppPermission.JOIN_
 });
 
 
-router.post("/queue/call", authenticate, validate(queueCallSchema), async (req, res) => {
+router.post("/queue/call", authenticate, requireServiceEnabled('laundry'), validate(queueCallSchema), async (req, res) => {
   const { id: userId, tenantId, role } = req.user;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   const { queueId, machineId } = req.body;
@@ -343,7 +344,7 @@ router.post("/queue/call", authenticate, validate(queueCallSchema), async (req, 
   }
 });
 
-router.post("/queue/complete", authenticate, validate(queueActionSchema), async (req, res) => {
+router.post("/queue/complete", authenticate, requireServiceEnabled('laundry'), validate(queueActionSchema), async (req, res) => {
   const { queueId } = req.body;
   const { id: userId, role, tenantId } = req.user;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
@@ -366,7 +367,7 @@ router.post("/queue/complete", authenticate, validate(queueActionSchema), async 
   }
 });
 
-router.post("/queue/cancel", authenticate, validate(queueActionSchema), async (req, res) => {
+router.post("/queue/cancel", authenticate, requireServiceEnabled('laundry'), validate(queueActionSchema), async (req, res) => {
   const { queueId } = req.body;
   const { id: userId, role, tenantId } = req.user;
 
@@ -390,7 +391,7 @@ router.post("/queue/cancel", authenticate, validate(queueActionSchema), async (r
   }
 });
 
-router.post("/queue/clear-all", authenticate, authorizePermission(AppPermission.MANAGE_LAUNDRY), async (req, res) => {
+router.post("/queue/clear-all", authenticate, requireServiceEnabled('laundry'), authorizePermission(AppPermission.MANAGE_LAUNDRY), async (req, res) => {
   const tenantId = req.user.tenantId;
 
   try {

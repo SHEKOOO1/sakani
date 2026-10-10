@@ -269,6 +269,9 @@ export const createTenantSchema = z.object({
   priest_ids: z.array(z.string()).optional().default([]),
   daily_readings_enabled: z.boolean().or(z.number()).optional().default(true),
   radio_514_enabled: z.boolean().or(z.number()).optional().default(true),
+  laundry_enabled: z.boolean().or(z.number()).optional().default(true),
+  restaurant_enabled: z.boolean().or(z.number()).optional().default(true),
+  canteen_enabled: z.boolean().or(z.number()).optional().default(true),
 });
 
 export const updateTenantSchema = z.object({
@@ -277,6 +280,9 @@ export const updateTenantSchema = z.object({
   supervisor_ids: z.array(z.string()).optional(),
   daily_readings_enabled: z.boolean().or(z.number()).optional(),
   radio_514_enabled: z.boolean().or(z.number()).optional(),
+  laundry_enabled: z.boolean().or(z.number()).optional(),
+  restaurant_enabled: z.boolean().or(z.number()).optional(),
+  canteen_enabled: z.boolean().or(z.number()).optional(),
   priest_ids: z.array(z.string()).optional(),
   bishop_id: z.string().nullable().optional(),
   is_active: z.boolean().or(z.number()).optional(),
@@ -610,4 +616,131 @@ export const disciplinaryDecisionSchema = z.object({
   reason: z.string().max(2000).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
   effective_date: z.string().max(50).nullable().optional(),
+});
+
+// ─── Tenant services (تفعيل/تعطيل الخدمات لكل سكن) ───
+export const tenantServicesSchema = z.object({
+  laundry_enabled: z.boolean().or(z.number()).optional(),
+  restaurant_enabled: z.boolean().or(z.number()).optional(),
+  canteen_enabled: z.boolean().or(z.number()).optional(),
+});
+
+// ─── Restaurant ───
+const toggle = z.boolean().or(z.number());
+
+export const restaurantCategorySchema = z.object({
+  name: z.string().min(1, 'اسم التصنيف مطلوب').max(100),
+  sort_order: z.number().int().min(0).max(10000).optional().default(0),
+  is_active: toggle.optional().default(true),
+});
+
+export const updateRestaurantCategorySchema = z.object({
+  name: z.string().min(1, 'اسم التصنيف مطلوب').max(100).optional(),
+  sort_order: z.number().int().min(0).max(10000).optional(),
+  is_active: toggle.optional(),
+});
+
+export const restaurantItemSchema = z.object({
+  name: z.string().min(1, 'اسم الوجبة مطلوب').max(200),
+  category_id: z.string().max(128).nullable().optional().default(null),
+  description: z.string().max(2000).nullable().optional().default(null),
+  price: z.number().min(0).max(10_000_000).optional().default(0),
+  is_available: toggle.optional().default(true),
+  is_included_meal: toggle.optional().default(false),
+  sort_order: z.number().int().min(0).max(10000).optional().default(0),
+  image_url: z.string().max(500).nullable().optional().default(null),
+});
+
+export const updateRestaurantItemSchema = restaurantItemSchema.partial();
+
+export const restaurantOrderItemInputSchema = z.object({
+  item_id: z.string().min(1, 'معرف الوجبة مطلوب').max(128),
+  quantity: z.number().int('الكمية لازم تكون رقم صحيح').min(1, 'الكمية لازم تكون 1 على الأقل').max(100),
+});
+
+export const placeRestaurantOrderSchema = z.object({
+  items: z.array(restaurantOrderItemInputSchema).min(1, 'اختار وجبة واحدة على الأقل').max(50),
+  student_id: z.string().max(128).nullable().optional().default(null),
+  meal_slot: z.string().max(50).nullable().optional().default(null),
+  notes: z.string().max(2000).nullable().optional().default(null),
+});
+
+export const restaurantOrderStatusSchema = z.object({
+  action: z.enum(['confirm', 'preparing', 'ready', 'serve', 'cancel'], {
+    message: 'إجراء غير صحيح',
+  }),
+  reason: z.string().max(2000).nullable().optional(),
+});
+
+export const restaurantOperatorSchema = z.object({
+  userId: z.string().min(1, 'معرف المستخدم مطلوب').max(128),
+});
+
+// ─── Canteen ───
+export const canteenCategorySchema = z.object({
+  name: z.string().min(1, 'اسم التصنيف مطلوب').max(100),
+  sort_order: z.number().int().min(0).max(10000).optional().default(0),
+  is_active: toggle.optional().default(true),
+});
+
+export const updateCanteenCategorySchema = z.object({
+  name: z.string().min(1, 'اسم التصنيف مطلوب').max(100).optional(),
+  sort_order: z.number().int().min(0).max(10000).optional(),
+  is_active: toggle.optional(),
+});
+
+export const canteenProductSchema = z.object({
+  name: z.string().min(1, 'اسم المنتج مطلوب').max(200),
+  category_id: z.string().max(128).nullable().optional().default(null),
+  unit: z.string().max(20).optional().default('قطعة'),
+  barcode: z.string().max(128).nullable().optional().default(null),
+  cost_price: z.number().min(0).max(10_000_000).optional().default(0),
+  sell_price: z.number().min(0).max(10_000_000).optional().default(0),
+  quantity_on_hand: z.number().min(0).max(100_000_000).optional().default(0),
+  min_quantity: z.number().min(0).max(100_000_000).optional().default(0),
+  is_active: toggle.optional().default(true),
+});
+
+export const updateCanteenProductSchema = canteenProductSchema.partial();
+
+export const canteenStockInSchema = z.object({
+  product_id: z.string().min(1, 'معرف المنتج مطلوب').max(128),
+  quantity: z.number().positive('الكمية لازم تكون أكبر من صفر').max(100_000_000),
+  unit_cost: z.number().min(0).max(10_000_000).optional().default(0),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+export const canteenSaleItemInputSchema = z.object({
+  product_id: z.string().min(1, 'معرف المنتج مطلوب').max(128),
+  quantity: z.number().positive('الكمية لازم تكون أكبر من صفر').max(1_000_000),
+});
+
+export const canteenSaleSchema = z.object({
+  sale_ref: z.string().min(1, 'معرف الفاتورة مطلوب').max(64),
+  items: z.array(canteenSaleItemInputSchema).min(1, 'الفاتورة فاضية').max(100),
+  student_id: z.string().max(128).nullable().optional().default(null),
+  payment_method: z.enum(['cash', 'card', 'account', 'other']).optional().default('cash'),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+export const canteenReturnSchema = z.object({
+  sale_id: z.string().min(1, 'معرف الفاتورة مطلوب').max(128),
+  items: z.array(canteenSaleItemInputSchema).min(1, 'اختار منتج للإرجاع').max(100),
+  reason: z.string().min(3, 'سبب الإرجاع مطلوب').max(2000),
+});
+
+export const canteenWasteSchema = z.object({
+  product_id: z.string().min(1, 'معرف المنتج مطلوب').max(128),
+  quantity: z.number().positive('الكمية لازم تكون أكبر من صفر').max(100_000_000),
+  reason: z.string().min(3, 'سبب التالف مطلوب').max(2000),
+});
+
+export const canteenAdjustmentSchema = z.object({
+  product_id: z.string().min(1, 'معرف المنتج مطلوب').max(128),
+  new_quantity: z.number().min(0, 'الكمية لازم تكون صفر أو أكبر').max(100_000_000),
+  reason: z.string().min(3, 'سبب الجرد مطلوب').max(2000),
+});
+
+export const canteenOperatorSchema = z.object({
+  userId: z.string().min(1, 'معرف المستخدم مطلوب').max(128),
 });

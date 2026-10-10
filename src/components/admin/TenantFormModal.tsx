@@ -26,6 +26,9 @@ export interface TenantFormData {
   semester2_end: string;
   daily_readings_enabled: boolean;
   radio_514_enabled: boolean;
+  laundry_enabled: boolean;
+  restaurant_enabled: boolean;
+  canteen_enabled: boolean;
 }
 
 interface Tenant {
@@ -54,6 +57,9 @@ interface Tenant {
   semester2_end?: string;
   daily_readings_enabled?: number;
   radio_514_enabled?: number;
+  laundry_enabled?: number;
+  restaurant_enabled?: number;
+  canteen_enabled?: number;
   apartment_count?: number;
   room_count?: number;
   total_capacity?: number;
@@ -244,6 +250,33 @@ export const TenantFormModal: React.FC<TenantFormModalProps> = ({
               <span className="text-sm font-bold text-slate-700 dark:text-slate-200">تمكين راديو 5:14 للسكن</span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" checked={form.radio_514_enabled} onChange={e => onFormChange({...form, radio_514_enabled: e.target.checked})} className="sr-only peer" />
+                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-600 rounded-full peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 transition-colors after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all rtl:peer-checked:after:-translate-x-full peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+            )}
+            {isAdmin && (
+            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/[0.03] rounded-2xl border border-slate-100 dark:border-white/5">
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">تمكين خدمة الغسيل</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.laundry_enabled} onChange={e => onFormChange({...form, laundry_enabled: e.target.checked})} className="sr-only peer" />
+                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-600 rounded-full peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 transition-colors after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all rtl:peer-checked:after:-translate-x-full peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+            )}
+            {isAdmin && (
+            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/[0.03] rounded-2xl border border-slate-100 dark:border-white/5">
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">تمكين خدمة المطعم</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.restaurant_enabled} onChange={e => onFormChange({...form, restaurant_enabled: e.target.checked})} className="sr-only peer" />
+                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-600 rounded-full peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 transition-colors after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all rtl:peer-checked:after:-translate-x-full peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+            )}
+            {isAdmin && (
+            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/[0.03] rounded-2xl border border-slate-100 dark:border-white/5">
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">تمكين خدمة الكانتين</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.canteen_enabled} onChange={e => onFormChange({...form, canteen_enabled: e.target.checked})} className="sr-only peer" />
                 <div className="w-11 h-6 bg-slate-300 dark:bg-slate-600 rounded-full peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 transition-colors after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all rtl:peer-checked:after:-translate-x-full peer-checked:after:translate-x-full"></div>
               </label>
             </div>

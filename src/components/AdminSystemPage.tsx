@@ -36,6 +36,9 @@ interface Tenant {
   semester2_end?: string;
   daily_readings_enabled?: number;
   radio_514_enabled?: number;
+  laundry_enabled?: number;
+  restaurant_enabled?: number;
+  canteen_enabled?: number;
   apartment_count?: number;
   room_count?: number;
   total_capacity?: number;
@@ -87,7 +90,10 @@ export const AdminSystemPage: React.FC = () => {
     semester2_start: '',
     semester2_end: '',
     daily_readings_enabled: true,
-    radio_514_enabled: true
+    radio_514_enabled: true,
+    laundry_enabled: true,
+    restaurant_enabled: true,
+    canteen_enabled: true
   });
 
   const mountedRef = useRef(true);
@@ -165,7 +171,10 @@ export const AdminSystemPage: React.FC = () => {
       exit_lat: '', exit_lng: '', exit_radius: '50',
       open_time: '', curfew_time: '', semester1_start: '', semester1_end: '', semester2_start: '', semester2_end: '',
       daily_readings_enabled: true,
-      radio_514_enabled: true
+      radio_514_enabled: true,
+      laundry_enabled: true,
+      restaurant_enabled: true,
+      canteen_enabled: true
     });
     setEditingTenant(null);
   };
@@ -235,7 +244,10 @@ export const AdminSystemPage: React.FC = () => {
       semester2_start: tenant.semester2_start ? tenant.semester2_start.split('T')[0] : '',
       semester2_end: tenant.semester2_end ? tenant.semester2_end.split('T')[0] : '',
       daily_readings_enabled: tenant.daily_readings_enabled != 0,
-      radio_514_enabled: tenant.radio_514_enabled != 0
+      radio_514_enabled: tenant.radio_514_enabled != 0,
+      laundry_enabled: tenant.laundry_enabled != 0,
+      restaurant_enabled: tenant.restaurant_enabled != 0,
+      canteen_enabled: tenant.canteen_enabled != 0
     });
     setShowForm(true); // Ensure form is shown for editing
   };
@@ -279,6 +291,9 @@ export const AdminSystemPage: React.FC = () => {
       if (isAdmin) {
         body.daily_readings_enabled = form.daily_readings_enabled ? 1 : 0;
         body.radio_514_enabled = form.radio_514_enabled ? 1 : 0;
+        body.laundry_enabled = form.laundry_enabled ? 1 : 0;
+        body.restaurant_enabled = form.restaurant_enabled ? 1 : 0;
+        body.canteen_enabled = form.canteen_enabled ? 1 : 0;
       }
 
       if (editingTenant) {

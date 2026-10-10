@@ -1,4 +1,4 @@
-import { Shield, Users, Home, BookOpen, Calendar, DollarSign, Settings, Bell, AlertTriangle, CheckCircle, XCircle, Target, BarChart3, Wrench } from 'lucide-react';
+import { Shield, Users, Home, BookOpen, Calendar, DollarSign, Settings, Bell, AlertTriangle, CheckCircle, XCircle, Target, BarChart3, Wrench, Store } from 'lucide-react';
 
 export interface PermissionGroup {
   icon: any;
@@ -49,6 +49,16 @@ export const ALL_PERMISSIONS: PermissionInfo[] = [
   { key: 'MANAGE_LAUNDRY_OPERATORS', label: 'إدارة مشغّلي المغسلة', description: 'تعيين وإدارة الأشخاص المسؤولين عن تشغيل المغسلة وتوزيع المناوبات', group: 'المغسلة' },
   { key: 'START_LAUNDRY_SESSION', label: 'بدء جلسة غسيل', description: 'بدء تشغيل دورة غسيل جديدة في إحدى الغسالات وتسجيلها في النظام', group: 'المغسلة' },
   { key: 'CLOSE_LAUNDRY_SESSION', label: 'إنهاء جلسة غسيل', description: 'إنهاء جلسة الغسيل الحالية وتحديث حالة الغسالة وتسليم الملابس', group: 'المغسلة' },
+
+  // ====== المطعم والكانتين ======
+  { key: 'VIEW_RESTAURANT', label: 'عرض المطعم', description: 'مشاهدة قائمة وجبات المطعم وأسعارها وحالة الطلبات', group: 'المطعم والكانتين' },
+  { key: 'ORDER_RESTAURANT', label: 'طلب من المطعم', description: 'إنشاء طلبات جديدة على المطعم ومتابعتها', group: 'المطعم والكانتين' },
+  { key: 'MANAGE_RESTAURANT', label: 'إدارة المطعم', description: 'إدارة تصنيفات ووجبات المطعم وأسعارها ومعالجة الطلبات', group: 'المطعم والكانتين' },
+  { key: 'MANAGE_RESTAURANT_OPERATORS', label: 'إدارة مشغّلي المطعم', description: 'تعيين وإدارة المسؤولين عن تشغيل المطعم', group: 'المطعم والكانتين' },
+  { key: 'VIEW_CANTEEN', label: 'عرض الكانتين', description: 'مشاهدة منتجات الكانتين ومخزونها', group: 'المطعم والكانتين' },
+  { key: 'ORDER_CANTEEN', label: 'طلبات الكانتين', description: 'استخدام خدمات الكانتين', group: 'المطعم والكانتين' },
+  { key: 'MANAGE_CANTEEN', label: 'إدارة الكانتين', description: 'إدارة منتجات الكانتين ومخزونها وتسجيل المبيعات والمرتجعات', group: 'المطعم والكانتين' },
+  { key: 'MANAGE_CANTEEN_OPERATORS', label: 'إدارة مشغّلي الكانتين', description: 'تعيين وإدارة المسؤولين عن تشغيل الكانتين', group: 'المطعم والكانتين' },
 
   // ====== إدارة النظام ======
   { key: 'MANAGE_BISHOPS', label: 'إدارة الأساقفة', description: 'إضافة وتعديل وحذف حسابات الأساقفة المسؤولين عن الأبرشيات', group: 'إدارة النظام' },
@@ -259,6 +269,17 @@ export const PERMISSION_GROUPS: Record<string, PermissionGroup[]> = {
       ],
     },
     {
+      icon: Store, label: 'المطعم والكانتين',
+      permissions: [
+        { key: 'VIEW_RESTAURANT', label: 'عرض المطعم' },
+        { key: 'MANAGE_RESTAURANT', label: 'إدارة المطعم' },
+        { key: 'MANAGE_RESTAURANT_OPERATORS', label: 'إدارة مشغّلي المطعم' },
+        { key: 'VIEW_CANTEEN', label: 'عرض الكانتين' },
+        { key: 'MANAGE_CANTEEN', label: 'إدارة الكانتين' },
+        { key: 'MANAGE_CANTEEN_OPERATORS', label: 'إدارة مشغّلي الكانتين' },
+      ],
+    },
+    {
       icon: Bell, label: 'الإشعارات والبث',
       permissions: [
         { key: 'SEND_BROADCAST', label: 'إرسال بث للسكنات' },
@@ -310,6 +331,13 @@ export const PERMISSION_GROUPS: Record<string, PermissionGroup[]> = {
         { key: 'VIEW_REPORTS', label: 'عرض التقارير' },
         { key: 'VIEW_COMPETITIONS', label: 'عرض المسابقات' },
         { key: 'VIEW_EVENTS', label: 'عرض الأحداث' },
+      ],
+    },
+    {
+      icon: Store, label: 'المطعم والكانتين',
+      permissions: [
+        { key: 'VIEW_RESTAURANT', label: 'عرض المطعم' },
+        { key: 'VIEW_CANTEEN', label: 'عرض الكانتين' },
       ],
     },
   ],
@@ -372,6 +400,17 @@ export const PERMISSION_GROUPS: Record<string, PermissionGroup[]> = {
         { key: 'SEND_NOTIFICATIONS', label: 'إرسال إشعارات' },
       ],
     },
+    {
+      icon: Store, label: 'المطعم والكانتين',
+      permissions: [
+        { key: 'VIEW_RESTAURANT', label: 'عرض المطعم' },
+        { key: 'MANAGE_RESTAURANT', label: 'إدارة المطعم' },
+        { key: 'MANAGE_RESTAURANT_OPERATORS', label: 'إدارة مشغّلي المطعم' },
+        { key: 'VIEW_CANTEEN', label: 'عرض الكانتين' },
+        { key: 'MANAGE_CANTEEN', label: 'إدارة الكانتين' },
+        { key: 'MANAGE_CANTEEN_OPERATORS', label: 'إدارة مشغّلي الكانتين' },
+      ],
+    },
   ],
   employee: [],
   parent: [
@@ -415,6 +454,9 @@ export const PERMISSION_GROUPS: Record<string, PermissionGroup[]> = {
       permissions: [
         { key: 'JOIN_LAUNDRY', label: 'حجز المغسلة' },
         { key: 'VIEW_LAUNDRY_QUEUE', label: 'عرض طابور المغسلة' },
+        { key: 'VIEW_RESTAURANT', label: 'عرض المطعم' },
+        { key: 'ORDER_RESTAURANT', label: 'طلب من المطعم' },
+        { key: 'VIEW_CANTEEN', label: 'عرض الكانتين' },
         { key: 'REQUEST_MAINTENANCE', label: 'طلب صيانة' },
         { key: 'VIEW_NOTIFICATIONS', label: 'عرض الإشعارات' },
       ],
@@ -568,6 +610,8 @@ const ROLE_VISIBLE_PERMISSION_KEYS: Record<string, string[]> = {
     'VIEW_ATTENDANCE', 'CHECKIN_ATTENDANCE', 'MANAGE_ATTENDANCE',
     'JOIN_LAUNDRY', 'VIEW_LAUNDRY_QUEUE', 'MANAGE_LAUNDRY', 'MANAGE_LAUNDRY_OPERATORS',
     'START_LAUNDRY_SESSION', 'CLOSE_LAUNDRY_SESSION',
+    'VIEW_RESTAURANT', 'ORDER_RESTAURANT', 'MANAGE_RESTAURANT', 'MANAGE_RESTAURANT_OPERATORS',
+    'VIEW_CANTEEN', 'ORDER_CANTEEN', 'MANAGE_CANTEEN', 'MANAGE_CANTEEN_OPERATORS',
     'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
     'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS',
     'VIEW_MAINTENANCE', 'REQUEST_MAINTENANCE', 'HANDLE_MAINTENANCE',
@@ -598,6 +642,8 @@ const ROLE_VISIBLE_PERMISSION_KEYS: Record<string, string[]> = {
     'VIEW_ATTENDANCE', 'CHECKIN_ATTENDANCE', 'MANAGE_ATTENDANCE',
     'VIEW_PRIEST_DASHBOARD', 'MANAGE_PRIEST_REPORTS',
     'VIEW_DASHBOARD', 'VIEW_REPORTS',
+    'VIEW_RESTAURANT', 'ORDER_RESTAURANT', 'MANAGE_RESTAURANT', 'MANAGE_RESTAURANT_OPERATORS',
+    'VIEW_CANTEEN', 'ORDER_CANTEEN', 'MANAGE_CANTEEN', 'MANAGE_CANTEEN_OPERATORS',
     'VIEW_MAINTENANCE', 'REQUEST_MAINTENANCE', 'HANDLE_MAINTENANCE',
     'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
     'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS',
@@ -616,17 +662,19 @@ const ROLE_VISIBLE_PERMISSION_KEYS: Record<string, string[]> = {
     'VIEW_ROOMS',
     'VIEW_ATTENDANCE',
     'VIEW_LAUNDRY_QUEUE',
+    'VIEW_RESTAURANT', 'VIEW_CANTEEN',
     'VIEW_DASHBOARD', 'VIEW_REPORTS',
     'VIEW_POINTS',
     'VIEW_COMPETITIONS',
     'VIEW_MAINTENANCE', 'HANDLE_MAINTENANCE',
     'VIEW_EVENTS', 'MANAGE_EVENT_ATTENDANCE', 'OPERATE_EVENT_ATTENDANCE',
   ],
-  employee: [],
+  employee: ['VIEW_RESTAURANT', 'VIEW_CANTEEN'],
   student: [
     'VIEW_DASHBOARD', 'VIEW_STUDENT',
     'CHECKIN_ATTENDANCE',
     'JOIN_LAUNDRY', 'VIEW_LAUNDRY_QUEUE',
+    'VIEW_RESTAURANT', 'ORDER_RESTAURANT', 'VIEW_CANTEEN', 'ORDER_CANTEEN',
     'REQUEST_MAINTENANCE',
     'ATTEND_EVENT', 'VIEW_EVENTS',
     'VIEW_NOTIFICATIONS',

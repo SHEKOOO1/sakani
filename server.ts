@@ -76,6 +76,8 @@ import studentRoutes from "./src/backend/api/students/index.ts";
 import attendanceRoutes from "./src/backend/api/attendance.routes.ts";
 import maintenanceRoutes from "./src/backend/api/maintenance.routes.ts";
 import laundryRoutes from "./src/backend/api/laundry.routes.ts";
+import restaurantRoutes from "./src/backend/api/restaurant.routes.ts";
+import canteenRoutes from "./src/backend/api/canteen.routes.ts";
 import inventoryRoutes from "./src/backend/api/inventory.routes.ts";
 import userRoutes from "./src/backend/api/user.routes.ts";
 import statsRoutes from "./src/backend/api/stats.routes.ts";
@@ -492,6 +494,8 @@ async function startServer() {
   app.use("/api/attendance", attendanceRoutes);
   app.use("/api/maintenance", maintenanceRoutes);
   app.use("/api/laundry", laundryRoutes);
+  app.use("/api/restaurant", restaurantRoutes);
+  app.use("/api/canteen", canteenRoutes);
   app.use("/api/inventory", inventoryRoutes);
   app.use("/api/users", userRoutes);
   app.use("/api/stats", statsRoutes);

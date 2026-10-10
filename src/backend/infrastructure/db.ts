@@ -392,6 +392,223 @@ export async function initializeDb() {
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_event_attendance_detailed_final_status' AND object_id = OBJECT_ID('event_attendance_detailed')) CREATE INDEX IX_event_attendance_detailed_final_status ON event_attendance_detailed (event_id, final_status);
     `);
 
+    // ─── Tenant service features: restaurant + canteen (mirrors migrations/048) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'laundry_enabled') ALTER TABLE [dbo].[tenants] ADD [laundry_enabled] BIT NOT NULL CONSTRAINT DF_tenants_laundry_enabled DEFAULT 1;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'restaurant_enabled') ALTER TABLE [dbo].[tenants] ADD [restaurant_enabled] BIT NOT NULL CONSTRAINT DF_tenants_restaurant_enabled DEFAULT 1;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'canteen_enabled') ALTER TABLE [dbo].[tenants] ADD [canteen_enabled] BIT NOT NULL CONSTRAINT DF_tenants_canteen_enabled DEFAULT 1;
+    `);
+
+    await kdb.raw(`
+      IF OBJECT_ID('restaurant_categories') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[restaurant_categories] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [name] NVARCHAR(200) NOT NULL,
+          [sort_order] INT NOT NULL DEFAULT 0,
+          [is_active] BIT NOT NULL DEFAULT 1,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('restaurant_items') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[restaurant_items] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [category_id] NVARCHAR(128) NULL,
+          [name] NVARCHAR(200) NOT NULL,
+          [description] NVARCHAR(MAX) NULL,
+          [price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [is_available] BIT NOT NULL DEFAULT 1,
+          [is_included_meal] BIT NOT NULL DEFAULT 0,
+          [sort_order] INT NOT NULL DEFAULT 0,
+          [image_url] NVARCHAR(500) NULL,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
+          [updated_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('restaurant_operators') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[restaurant_operators] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [user_id] NVARCHAR(128) NOT NULL,
+          [created_by] NVARCHAR(128) NULL,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('restaurant_orders') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[restaurant_orders] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [student_id] NVARCHAR(128) NULL,
+          [ordered_by] NVARCHAR(128) NOT NULL,
+          [status] NVARCHAR(20) NOT NULL DEFAULT 'pending',
+          [meal_slot] NVARCHAR(50) NULL,
+          [notes] NVARCHAR(MAX) NULL,
+          [total] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [item_count] INT NOT NULL DEFAULT 0,
+          [ledger_entry_id] NVARCHAR(128) NULL,
+          [processed_by] NVARCHAR(128) NULL,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
+          [updated_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
+          [cancelled_at] DATETIME2 NULL,
+          [cancelled_by] NVARCHAR(128) NULL,
+          [cancel_reason] NVARCHAR(MAX) NULL
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('restaurant_order_items') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[restaurant_order_items] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [order_id] NVARCHAR(128) NOT NULL,
+          [item_id] NVARCHAR(128) NULL,
+          [item_name] NVARCHAR(200) NOT NULL,
+          [unit_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [quantity] INT NOT NULL DEFAULT 1,
+          [line_total] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [is_included_meal] BIT NOT NULL DEFAULT 0
+        );
+      END;
+    `);
+
+    await kdb.raw(`
+      IF OBJECT_ID('canteen_categories') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[canteen_categories] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [name] NVARCHAR(200) NOT NULL,
+          [sort_order] INT NOT NULL DEFAULT 0,
+          [is_active] BIT NOT NULL DEFAULT 1,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('canteen_products') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[canteen_products] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [category_id] NVARCHAR(128) NULL,
+          [name] NVARCHAR(200) NOT NULL,
+          [unit] NVARCHAR(20) NOT NULL DEFAULT 'قطعة',
+          [barcode] NVARCHAR(128) NULL,
+          [cost_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [sell_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [quantity_on_hand] DECIMAL(12,3) NOT NULL DEFAULT 0,
+          [min_quantity] DECIMAL(12,3) NOT NULL DEFAULT 0,
+          [is_active] BIT NOT NULL DEFAULT 1,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
+          [updated_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('canteen_operators') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[canteen_operators] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [user_id] NVARCHAR(128) NOT NULL,
+          [created_by] NVARCHAR(128) NULL,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('canteen_stock_movements') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[canteen_stock_movements] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [product_id] NVARCHAR(128) NOT NULL,
+          [movement_type] NVARCHAR(20) NOT NULL,
+          [quantity] DECIMAL(12,3) NOT NULL,
+          [unit_cost] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [note] NVARCHAR(MAX) NULL,
+          [actor_id] NVARCHAR(128) NULL,
+          [student_id] NVARCHAR(128) NULL,
+          [sale_id] NVARCHAR(128) NULL,
+          [sale_item_id] NVARCHAR(128) NULL,
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('canteen_sales') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[canteen_sales] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id] NVARCHAR(128) NOT NULL,
+          [sale_ref] NVARCHAR(64) NOT NULL,
+          [operator_id] NVARCHAR(128) NULL,
+          [student_id] NVARCHAR(128) NULL,
+          [total] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [payment_method] NVARCHAR(20) NOT NULL DEFAULT 'cash',
+          [status] NVARCHAR(20) NOT NULL DEFAULT 'completed',
+          [ledger_entry_id] NVARCHAR(128) NULL,
+          [note] NVARCHAR(MAX) NULL,
+          [sold_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
+          [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF OBJECT_ID('canteen_sale_items') IS NULL
+      BEGIN
+        CREATE TABLE [dbo].[canteen_sale_items] (
+          [id] NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [sale_id] NVARCHAR(128) NOT NULL,
+          [product_id] NVARCHAR(128) NULL,
+          [product_name] NVARCHAR(200) NOT NULL,
+          [quantity] DECIMAL(12,3) NOT NULL,
+          [unit_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [line_total] DECIMAL(10,2) NOT NULL DEFAULT 0
+        );
+      END;
+    `);
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_restaurant_items_tenant' AND object_id = OBJECT_ID('restaurant_items')) CREATE INDEX IX_restaurant_items_tenant ON restaurant_items (tenant_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_restaurant_orders_tenant_status' AND object_id = OBJECT_ID('restaurant_orders')) CREATE INDEX IX_restaurant_orders_tenant_status ON restaurant_orders (tenant_id, status);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_restaurant_order_items_order' AND object_id = OBJECT_ID('restaurant_order_items')) CREATE INDEX IX_restaurant_order_items_order ON restaurant_order_items (order_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_restaurant_operators_tenant_user' AND object_id = OBJECT_ID('restaurant_operators')) CREATE UNIQUE INDEX UX_restaurant_operators_tenant_user ON restaurant_operators (tenant_id, user_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_canteen_products_tenant' AND object_id = OBJECT_ID('canteen_products')) CREATE INDEX IX_canteen_products_tenant ON canteen_products (tenant_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_canteen_stock_movements_tenant_product' AND object_id = OBJECT_ID('canteen_stock_movements')) CREATE INDEX IX_canteen_stock_movements_tenant_product ON canteen_stock_movements (tenant_id, product_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_canteen_operators_tenant_user' AND object_id = OBJECT_ID('canteen_operators')) CREATE UNIQUE INDEX UX_canteen_operators_tenant_user ON canteen_operators (tenant_id, user_id);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_canteen_sales_tenant_ref' AND object_id = OBJECT_ID('canteen_sales')) CREATE UNIQUE INDEX UX_canteen_sales_tenant_ref ON canteen_sales (tenant_id, sale_ref);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_canteen_sale_items_sale' AND object_id = OBJECT_ID('canteen_sale_items')) CREATE INDEX IX_canteen_sale_items_sale ON canteen_sale_items (sale_id);
+    `);
+
+    // منح الصلاحيات الجديدة للأدوار (مرة واحدة عند غيابها) — يطابق 048
+    const newServicePermissions: Array<[string, string]> = [
+      ['priest', 'VIEW_RESTAURANT'], ['priest', 'ORDER_RESTAURANT'], ['priest', 'MANAGE_RESTAURANT'], ['priest', 'MANAGE_RESTAURANT_OPERATORS'],
+      ['priest', 'VIEW_CANTEEN'], ['priest', 'ORDER_CANTEEN'], ['priest', 'MANAGE_CANTEEN'], ['priest', 'MANAGE_CANTEEN_OPERATORS'],
+      ['supervisor', 'VIEW_RESTAURANT'], ['supervisor', 'ORDER_RESTAURANT'], ['supervisor', 'MANAGE_RESTAURANT'], ['supervisor', 'MANAGE_RESTAURANT_OPERATORS'],
+      ['supervisor', 'VIEW_CANTEEN'], ['supervisor', 'ORDER_CANTEEN'], ['supervisor', 'MANAGE_CANTEEN'], ['supervisor', 'MANAGE_CANTEEN_OPERATORS'],
+      ['assistant_supervisor', 'VIEW_RESTAURANT'], ['assistant_supervisor', 'VIEW_CANTEEN'],
+      ['employee', 'VIEW_RESTAURANT'], ['employee', 'VIEW_CANTEEN'],
+      ['student', 'VIEW_RESTAURANT'], ['student', 'ORDER_RESTAURANT'], ['student', 'VIEW_CANTEEN'], ['student', 'ORDER_CANTEEN'],
+    ];
+    for (const [role, permission] of newServicePermissions) {
+      await kdb.raw(
+        `IF NOT EXISTS (SELECT 1 FROM role_permissions WHERE role = ? AND permission = ?)
+           INSERT INTO role_permissions (role, permission) VALUES (?, ?)`,
+        [role, permission, role, permission],
+      );
+    }
+
     // تنظيف الرموز منتهية الصلاحية
     await kdb.raw("DELETE FROM [dbo].[token_blacklist] WHERE expires_at < GETDATE()");
 
@@ -439,6 +656,8 @@ async function seedPermissions() {
       'VIEW_MAINTENANCE', 'REQUEST_MAINTENANCE', 'HANDLE_MAINTENANCE',
       'JOIN_LAUNDRY', 'VIEW_LAUNDRY_QUEUE', 'MANAGE_LAUNDRY',
       'MANAGE_LAUNDRY_OPERATORS', 'START_LAUNDRY_SESSION', 'CLOSE_LAUNDRY_SESSION',
+      'VIEW_RESTAURANT', 'ORDER_RESTAURANT', 'MANAGE_RESTAURANT', 'MANAGE_RESTAURANT_OPERATORS',
+      'VIEW_CANTEEN', 'ORDER_CANTEEN', 'MANAGE_CANTEEN', 'MANAGE_CANTEEN_OPERATORS',
       'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT',
       'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_PENALTIES',
@@ -459,6 +678,8 @@ async function seedPermissions() {
       'VIEW_ROOMS', 'ADD_ROOM', 'EDIT_ROOM', 'DELETE_ROOM',
       'VIEW_ATTENDANCE', 'CHECKIN_ATTENDANCE', 'MANAGE_ATTENDANCE', 'VIEW_MAINTENANCE', 'REQUEST_MAINTENANCE', 'HANDLE_MAINTENANCE',
       'JOIN_LAUNDRY', 'VIEW_LAUNDRY_QUEUE', 'MANAGE_LAUNDRY', 'MANAGE_LAUNDRY_OPERATORS', 'START_LAUNDRY_SESSION', 'CLOSE_LAUNDRY_SESSION',
+      'VIEW_RESTAURANT', 'ORDER_RESTAURANT', 'MANAGE_RESTAURANT', 'MANAGE_RESTAURANT_OPERATORS',
+      'VIEW_CANTEEN', 'ORDER_CANTEEN', 'MANAGE_CANTEEN', 'MANAGE_CANTEEN_OPERATORS',
       'VIEW_EVENTS', 'CREATE_EVENT', 'EDIT_EVENT', 'DELETE_EVENT', 'ATTEND_EVENT', 'MANAGE_EVENT_ATTENDANCE', 'MANAGE_EVENT_PAYMENTS', 'OPERATE_EVENT_ATTENDANCE',
       'MANAGE_POINTS', 'VIEW_POINTS', 'MANAGE_REWARDS', 'MANAGE_PENALTIES',
       'MANAGE_COMPETITIONS', 'VIEW_COMPETITIONS', 'JOIN_COMPETITIONS', 'VIEW_DECISION_LOG', 'UNDO_DECISION',
@@ -470,12 +691,14 @@ async function seedPermissions() {
     ],
     employee: [
       'VIEW_DASHBOARD',
+      'VIEW_RESTAURANT', 'VIEW_CANTEEN',
       'VIEW_RADIO'
     ],
     assistant_supervisor: [
       'VIEW_STUDENT', 'VIEW_ROOMS', 'VIEW_ATTENDANCE',
       'VIEW_MAINTENANCE', 'HANDLE_MAINTENANCE',
       'VIEW_LAUNDRY_QUEUE', 'VIEW_DASHBOARD', 'VIEW_REPORTS',
+      'VIEW_RESTAURANT', 'VIEW_CANTEEN',
       'VIEW_POINTS', 'VIEW_COMPETITIONS', 'VIEW_EVENTS',
       'MANAGE_EVENT_ATTENDANCE', 'OPERATE_EVENT_ATTENDANCE'
     ],
@@ -484,6 +707,7 @@ async function seedPermissions() {
       'CHECKIN_ATTENDANCE',
       'JOIN_LAUNDRY',
       'VIEW_LAUNDRY_QUEUE',
+      'VIEW_RESTAURANT', 'ORDER_RESTAURANT', 'VIEW_CANTEEN', 'ORDER_CANTEEN',
       'REQUEST_MAINTENANCE',
       'VIEW_EVENTS',
       'VIEW_NOTIFICATIONS',

@@ -3,13 +3,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppPermission } from '../types/permissions';
 import { useLaundrySocket } from '../hooks/useLaundrySocket';
+import { useTenantServices } from '../hooks/useTenantServices';
 import {
   LayoutDashboard, Users, Building, Bed, CreditCard, Calendar, Settings,
   LogOut, Bell, Search, Wrench, MapPin, Waves, BarChart3, UserCog,
   Package, Trophy, Target, History as HistoryIcon, ClipboardList,
   UserCheck, LayoutGrid, Sun, Moon, Menu, X, Gift, Award, Wallet,
   ShieldCheck, Church, UserCircle, Radio, Film, Tv, ChevronLeft, Sparkles,
-  QrCode, ClipboardCheck
+  QrCode, ClipboardCheck, UtensilsCrossed, Store
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Suspense, lazy } from 'react';
@@ -27,6 +28,8 @@ const ApartmentsPage = lazy(() => import('./ApartmentsPage').then(m => ({ defaul
 const RoomsPage = lazy(() => import('./RoomsPage').then(m => ({ default: m.RoomsPage })));
 const AttendancePage = lazy(() => import('./AttendancePage').then(m => ({ default: m.AttendancePage })));
 const LaundryPage = lazy(() => import('./LaundryPage').then(m => ({ default: m.LaundryPage })));
+const RestaurantPage = lazy(() => import('./RestaurantPage').then(m => ({ default: m.RestaurantPage })));
+const CanteenPage = lazy(() => import('./CanteenPage').then(m => ({ default: m.CanteenPage })));
 const BishopReportsPage = lazy(() => import('./BishopReportsPage').then(m => ({ default: m.BishopReportsPage })));
 const EmployeesPage = lazy(() => import('./EmployeesPage').then(m => ({ default: m.EmployeesPage })));
 const AdminSystemPage = lazy(() => import('./AdminSystemPage').then(m => ({ default: m.AdminSystemPage })));
@@ -70,6 +73,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshPermissions]);
   useLaundrySocket();
+  const services = useTenantServices();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -111,7 +115,9 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     { id: 'rooms', icon: Bed, label: 'الغرف', permission: AppPermission.VIEW_ROOMS, path: '/rooms', hide: isParent },
     { id: 'users', icon: UserCog, label: 'إدارة المستخدمين', permission: AppPermission.VIEW_USERS, path: '/users', hide: isStudent || isParent },
     { id: 'attendance', icon: MapPin, label: 'تسجيل حضور', permission: AppPermission.CHECKIN_ATTENDANCE, path: '/attendance', hide: false },
-    { id: 'laundry', icon: Waves, label: 'الغسيل', permission: AppPermission.VIEW_LAUNDRY_QUEUE, path: '/laundry', hide: isParent },
+    { id: 'laundry', icon: Waves, label: 'الغسيل', permission: AppPermission.VIEW_LAUNDRY_QUEUE, path: '/laundry', hide: isParent || services.laundry_enabled === false },
+    { id: 'restaurant', icon: UtensilsCrossed, label: 'المطعم', permission: AppPermission.VIEW_RESTAURANT, path: '/restaurant', hide: isParent || services.restaurant_enabled === false },
+    { id: 'canteen', icon: Store, label: 'الكانتين', permission: AppPermission.VIEW_CANTEEN, path: '/canteen', hide: isParent || services.canteen_enabled === false },
     { id: 'maintenance', icon: Wrench, label: 'الصيانة', permission: AppPermission.VIEW_MAINTENANCE, path: '/maintenance', hide: isParent, allowStudent: isStudent && hasPermission(AppPermission.REQUEST_MAINTENANCE) },
     { id: 'finance', icon: CreditCard, label: 'النظام المالي', permission: AppPermission.VIEW_FINANCE, path: '/finance', hide: isStudent || isParent },
 
@@ -181,6 +187,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     decisions: 'سجل القرارات', events: 'الفعاليات', events_attendance: 'حضور الفعاليات',
     students: 'الطلاب', attendance: 'الحضور', maintenance: 'الصيانة',
     inventory: 'المخزون', reports: 'التقارير', laundry: 'المغسلة',
+    restaurant: 'المطعم', canteen: 'الكانتين',
     admin_management: 'إدارة النظام', employees: 'الموظفون', badges_admin: 'الشارات',
     payment_methods: 'طرق الدفع', bishop_reports: 'تقارير الأسقف',
     settings: 'الإعدادات', apartments: 'الشقق', profile: 'الملف الشخصي',
@@ -226,6 +233,8 @@ export function Layout({ children }: { children?: React.ReactNode }) {
       case 'inventory': return hasPermission(AppPermission.VIEW_INVENTORY) ? <div className="p-10 text-center"><p className="text-lg font-bold text-slate-400">لا توجد بيانات متاحة حالياً</p></div> : defaultDashboard;
       case 'reports': return hasPermission(AppPermission.VIEW_REPORTS) ? <div className="p-10 text-center"><p className="text-lg font-bold text-slate-400">لا توجد بيانات متاحة حالياً</p></div> : defaultDashboard;
       case 'laundry': return hasPermission(AppPermission.VIEW_LAUNDRY_QUEUE) ? <LaundryPage /> : defaultDashboard;
+      case 'restaurant': return hasPermission(AppPermission.VIEW_RESTAURANT) ? <RestaurantPage /> : defaultDashboard;
+      case 'canteen': return hasPermission(AppPermission.VIEW_CANTEEN) ? <CanteenPage /> : defaultDashboard;
       case 'admin_management': return hasPermission(AppPermission.MANAGE_GLOBAL_TENANTS) ? <AdminGuard onBack={() => setCurrentView(initialView)} allowedRoles={['admin', 'bishop']}><AdminSystemPage /></AdminGuard> : defaultDashboard;
       case 'employees': return hasPermission(AppPermission.MANAGE_EMPLOYEES) ? <EmployeesPage /> : defaultDashboard;
       case 'badges_admin': return (['supervisor', 'priest'].includes(user?.role?.toLowerCase() || '') && hasPermission(AppPermission.MANAGE_REWARDS)) ? <AdminBadgesPage /> : defaultDashboard;

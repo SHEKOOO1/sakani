@@ -7,6 +7,8 @@ export const LEDGER_ACCOUNTS = [
   'CASH',
   'STUDENT_PAYMENT',
   'ROOM_REVENUE',
+  'RESTAURANT_REVENUE',
+  'CANTEEN_REVENUE',
   'PENALTY',
   'DISCOUNT',
   'EXPENSE',
@@ -149,6 +151,25 @@ export function paymentLines(amount: number): JournalLineInput[] {
   return [
     { account: 'CASH', debit: amount },
     { account: 'STUDENT_PAYMENT', credit: amount },
+  ];
+}
+
+/**
+ * Restaurant/canteen income is NOT a student housing payment: the credit goes
+ * to the dedicated revenue account (studentId stays null so it never mixes
+ * with a student's account balance). Categories قِطع: 'مطعم' / 'كانتين'.
+ */
+export function restaurantRevenueLines(amount: number): JournalLineInput[] {
+  return [
+    { account: 'CASH', debit: amount },
+    { account: 'RESTAURANT_REVENUE', credit: amount },
+  ];
+}
+
+export function canteenRevenueLines(amount: number): JournalLineInput[] {
+  return [
+    { account: 'CASH', debit: amount },
+    { account: 'CANTEEN_REVENUE', credit: amount },
   ];
 }
 

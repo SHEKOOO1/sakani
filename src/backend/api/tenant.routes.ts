@@ -3,10 +3,11 @@ import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
 import { kdb } from "../infrastructure/db.ts";
 import { invalidateUserPermissionCache } from "../infrastructure/cache";
+import { invalidateServiceCache } from "../infrastructure/service-features";
 import { authenticate, authorize, authorizePermission, computeUserTenantIds } from "./middleware.ts";
 import { AppPermission, UserRole } from "../../types/permissions";
 import { validate } from "../validation/middleware";
-import { createTenantSchema, updateTenantSchema } from "../validation/schemas";
+import { createTenantSchema, updateTenantSchema, tenantServicesSchema } from "../validation/schemas";
 import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../config/default-password.ts";
 import { issueActivationInvites } from "../services/activation.service";
 import { collapseDuplicateColumnsIn } from "../infrastructure/duplicate-columns";
@@ -104,7 +105,10 @@ router.post("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), val
     bishop_id,
     supervisor_ids, priest_ids,
     daily_readings_enabled,
-    radio_514_enabled
+    radio_514_enabled,
+    laundry_enabled,
+    restaurant_enabled,
+    canteen_enabled
   } = req.body;
   const id = uuidv4();
 
@@ -149,13 +153,19 @@ router.post("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), val
         semester1_start: semester1_start || null, semester1_end: semester1_end || null, semester2_start: semester2_start || null, semester2_end: semester2_end || null,
         bishop_id: req.user.role === UserRole.Bishop ? req.user.id : bishop_id || null,
         daily_readings_enabled: 1,
-        radio_514_enabled: 1
+        radio_514_enabled: 1,
+        laundry_enabled: 1,
+        restaurant_enabled: 1,
+        canteen_enabled: 1
   };
 
-  // Only admin can set daily_readings/radio toggles on tenant creation
+  // Only admin can set daily_readings/radio/service toggles on tenant creation
   if (req.user.role === 'admin') {
     if (daily_readings_enabled !== undefined) dataToInsert.daily_readings_enabled = daily_readings_enabled ? 1 : 0;
     if (radio_514_enabled !== undefined) dataToInsert.radio_514_enabled = radio_514_enabled ? 1 : 0;
+    if (laundry_enabled !== undefined) dataToInsert.laundry_enabled = laundry_enabled ? 1 : 0;
+    if (restaurant_enabled !== undefined) dataToInsert.restaurant_enabled = restaurant_enabled ? 1 : 0;
+    if (canteen_enabled !== undefined) dataToInsert.canteen_enabled = canteen_enabled ? 1 : 0;
   }
 
   try {
@@ -254,6 +264,50 @@ router.put("/config", authenticate, authorizePermission(AppPermission.MANAGE_SET
   }
 });
 
+// Get current tenant's service toggles (any authenticated member — drives menu visibility)
+router.get("/services", authenticate, async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    if (!tenantId) {
+      return res.json({ success: true, data: { laundry_enabled: true, restaurant_enabled: true, canteen_enabled: true } });
+    }
+    const tenant = await kdb('tenants').select('laundry_enabled', 'restaurant_enabled', 'canteen_enabled').where({ id: tenantId }).first();
+    res.json({
+      success: true,
+      data: {
+        laundry_enabled: tenant ? tenant.laundry_enabled !== 0 && tenant.laundry_enabled !== false : true,
+        restaurant_enabled: tenant ? tenant.restaurant_enabled !== 0 && tenant.restaurant_enabled !== false : true,
+        canteen_enabled: tenant ? tenant.canteen_enabled !== 0 && tenant.canteen_enabled !== false : true,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
+  }
+});
+
+// Update current tenant's service toggles (supervisor/priest/admin) — لا يمس خدمتي القراءات/الراديو
+router.patch("/services", authenticate, authorizePermission(AppPermission.MANAGE_SETTINGS), validate(tenantServicesSchema), async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ success: false, message: "لا توجد بيانات سكن مرتبطة بحسابك" });
+    }
+    const { laundry_enabled, restaurant_enabled, canteen_enabled } = req.body;
+    const updateData: Record<string, number> = {};
+    if (laundry_enabled !== undefined) updateData.laundry_enabled = laundry_enabled ? 1 : 0;
+    if (restaurant_enabled !== undefined) updateData.restaurant_enabled = restaurant_enabled ? 1 : 0;
+    if (canteen_enabled !== undefined) updateData.canteen_enabled = canteen_enabled ? 1 : 0;
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: "لا توجد بيانات للتحديث" });
+    }
+    await kdb('tenants').where({ id: tenantId }).update(updateData);
+    invalidateServiceCache(tenantId);
+    res.json({ success: true, message: "تم تحديث الخدمات بنجاح" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
+  }
+});
+
 // Get single tenant details
 router.get("/:id", authenticate, async (req, res) => {
   if (!await canAccessTenant(req, req.params.id)) {
@@ -307,7 +361,10 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
     curfew_time, open_time,
     semester1_start, semester1_end, semester2_start, semester2_end,
     daily_readings_enabled,
-    radio_514_enabled
+    radio_514_enabled,
+    laundry_enabled,
+    restaurant_enabled,
+    canteen_enabled
   } = req.body;
   
   if (!supervisor_ids || supervisor_ids.length === 0) {
@@ -380,7 +437,7 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
             await trx('user_tenant_assignments').insert({ tenant_id: id, user_id: userId });
         }
 
-        // Only admin can change daily_readings/radio toggles on tenant + cascade to all users
+        // Only admin can change daily_readings/radio/service toggles on tenant + cascade to all users
         if (req.user.role === 'admin') {
           const tenantUpdate: any = {};
           if (daily_readings_enabled !== undefined) {
@@ -393,11 +450,18 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
             tenantUpdate.radio_514_enabled = value;
             await trx('users').where({ tenant_id: id }).update({ radio_514_enabled: value });
           }
+          if (laundry_enabled !== undefined) tenantUpdate.laundry_enabled = laundry_enabled ? 1 : 0;
+          if (restaurant_enabled !== undefined) tenantUpdate.restaurant_enabled = restaurant_enabled ? 1 : 0;
+          if (canteen_enabled !== undefined) tenantUpdate.canteen_enabled = canteen_enabled ? 1 : 0;
           if (Object.keys(tenantUpdate).length > 0) {
             await trx('tenants').where({ id }).update(tenantUpdate);
           }
         }
     });
+
+    if (laundry_enabled !== undefined || restaurant_enabled !== undefined || canteen_enabled !== undefined) {
+      invalidateServiceCache(id);
+    }
 
     // مسح كاش الصلاحيات/السكنات للأسماء المعاد تعيينها فورًا
     const affectedUsers = [...new Set([
@@ -415,7 +479,7 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
 // Toggle tenant services (daily readings / radio) — bypasses full-tenant validation
 router.patch("/:id/toggle-services", authenticate, authorizePermission(AppPermission.MANAGE_GLOBAL_TENANTS), async (req, res) => {
   const { id } = req.params;
-  const { daily_readings_enabled, radio_514_enabled } = req.body;
+  const { daily_readings_enabled, radio_514_enabled, laundry_enabled, restaurant_enabled, canteen_enabled } = req.body;
   try {
     if (!await canAccessTenant(req, id)) {
       return res.status(403).json({ success: false, message: "Forbidden" });
@@ -431,6 +495,9 @@ router.patch("/:id/toggle-services", authenticate, authorizePermission(AppPermis
       tenantUpdate.radio_514_enabled = value;
       await kdb('users').where({ tenant_id: id }).update({ radio_514_enabled: value });
     }
+    if (laundry_enabled !== undefined) tenantUpdate.laundry_enabled = laundry_enabled ? 1 : 0;
+    if (restaurant_enabled !== undefined) tenantUpdate.restaurant_enabled = restaurant_enabled ? 1 : 0;
+    if (canteen_enabled !== undefined) tenantUpdate.canteen_enabled = canteen_enabled ? 1 : 0;
     if (Object.keys(tenantUpdate).length > 0) {
       await kdb('tenants').where({ id }).update(tenantUpdate);
 
@@ -451,6 +518,9 @@ router.patch("/:id/toggle-services", authenticate, authorizePermission(AppPermis
           await kdb('users').whereIn('id', parentIds).update({ radio_514_enabled: radio_514_enabled ? 1 : 0 });
         }
       }
+    }
+    if (laundry_enabled !== undefined || restaurant_enabled !== undefined || canteen_enabled !== undefined) {
+      invalidateServiceCache(id);
     }
     res.json({ success: true, message: 'تم تحديث الخدمات للسكن وأولياء الأمور' });
   } catch (error: any) {
@@ -566,6 +636,30 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
       await trx('laundry_queue').where({ tenant_id: id }).del();
       await trx('laundry_operators').where({ tenant_id: id }).del();
       await trx('laundry_settings').where({ tenant_id: id }).del();
+
+      // Restaurant cascade (children first)
+      const orderRows = await trx('restaurant_orders').where({ tenant_id: id }).select('id');
+      const orderIds = orderRows.map((o: any) => o.id);
+      if (orderIds.length > 0) {
+        await trx('restaurant_order_items').whereIn('order_id', orderIds).del();
+      }
+      await trx('restaurant_orders').where({ tenant_id: id }).del();
+      await trx('restaurant_operators').where({ tenant_id: id }).del();
+      await trx('restaurant_items').where({ tenant_id: id }).del();
+      await trx('restaurant_categories').where({ tenant_id: id }).del();
+
+      // Canteen cascade (children first)
+      const saleRows = await trx('canteen_sales').where({ tenant_id: id }).select('id');
+      const saleIds = saleRows.map((s: any) => s.id);
+      if (saleIds.length > 0) {
+        await trx('canteen_sale_items').whereIn('sale_id', saleIds).del();
+      }
+      await trx('canteen_stock_movements').where({ tenant_id: id }).del();
+      await trx('canteen_sales').where({ tenant_id: id }).del();
+      await trx('canteen_operators').where({ tenant_id: id }).del();
+      await trx('canteen_products').where({ tenant_id: id }).del();
+      await trx('canteen_categories').where({ tenant_id: id }).del();
+
       await trx('badges').where({ tenant_id: id }).del();
       await trx('rewards_definitions').where({ tenant_id: id }).del();
       await trx('profile_shares').where({ tenant_id: id }).del();
@@ -593,6 +687,7 @@ router.delete("/:id/force", authenticate, authorize([UserRole.Admin]), async (re
 
       await trx('tenants').where({ id }).del();
     });
+    invalidateServiceCache(id);
     res.json({ success: true, message: "Tenant and associated data deleted successfully" });
   } catch (error: any) {
     res.status(400).json({ success: false, message: "لم يتم الحذف. قد يكون هناك بيانات مرتبطة لم يتم حذفها." });

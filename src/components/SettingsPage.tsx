@@ -7,7 +7,8 @@ import { ALL_PERMISSIONS, getVisiblePermissions, type PermissionInfo } from './p
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Settings, Shield, Clock, MapPin, Save, Lock,
-  Users, AlertCircle, Sparkles, Building2, DoorOpen, DoorClosed, Navigation
+  Users, AlertCircle, Sparkles, Building2, DoorOpen, DoorClosed, Navigation,
+  Waves, UtensilsCrossed, Store
 } from 'lucide-react';
 import { CustomRolesManager } from './CustomRolesManager';
 import { LocationMapPicker } from './LocationMapPicker';
@@ -32,6 +33,12 @@ export function SettingsPage() {
   const [locationData, setLocationData] = useState({
     entry: { lat: null as number | null, lng: null as number | null, radius: 50 },
     exit: { lat: null as number | null, lng: null as number | null, radius: 50 },
+  });
+
+  const [services, setServices] = useState({
+    laundry_enabled: true,
+    restaurant_enabled: true,
+    canteen_enabled: true,
   });
 
   const visiblePermissionKeys = useMemo(() => {
@@ -73,6 +80,14 @@ export function SettingsPage() {
           },
         });
       }
+      const svc = await request('/api/tenants/services');
+      if (svc.success && svc.data) {
+        setServices({
+          laundry_enabled: svc.data.laundry_enabled !== false,
+          restaurant_enabled: svc.data.restaurant_enabled !== false,
+          canteen_enabled: svc.data.canteen_enabled !== false,
+        });
+      }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }, [request]);
@@ -104,6 +119,18 @@ export function SettingsPage() {
   ] as const;
 
   const canManageSettings = hasPermission(AppPermission.MANAGE_SETTINGS);
+
+  const toggleService = async (key: 'laundry_enabled' | 'restaurant_enabled' | 'canteen_enabled', value: boolean) => {
+    const prev = services;
+    setServices(s => ({ ...s, [key]: value }));
+    try {
+      await request('/api/tenants/services', { method: 'PATCH', body: JSON.stringify({ [key]: value }) });
+      showSnackbar('تم تحديث حالة الخدمة', 'success');
+    } catch (err: any) {
+      setServices(prev);
+      showSnackbar(err.message || 'تعذر تحديث الخدمة', 'error');
+    }
+  };
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -198,6 +225,38 @@ export function SettingsPage() {
                     </div>
                   </div>
                 </div>
+
+                {canManageSettings && (
+                <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm dark:border-white/[0.04] dark:bg-card-dark">
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-vibrant-50 dark:bg-vibrant-500/10">
+                      <Sparkles size={18} className="text-vibrant-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 dark:text-white">الخدمات</h3>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-300">تفعيل/تعطيل خدمات السكن</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {([
+                      { key: 'laundry_enabled', label: 'خدمة الغسيل', icon: Waves },
+                      { key: 'restaurant_enabled', label: 'خدمة المطعم', icon: UtensilsCrossed },
+                      { key: 'canteen_enabled', label: 'خدمة الكانتين', icon: Store },
+                    ] as const).map(item => (
+                      <div key={item.key} className="flex items-center justify-between rounded-xl bg-slate-50 p-4 dark:bg-white/5">
+                        <div className="flex items-center gap-2">
+                          <item.icon size={16} className="text-slate-400" />
+                          <span className="text-xs font-black text-slate-600 dark:text-slate-300">{item.label}</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={services[item.key]} onChange={e => toggleService(item.key, e.target.checked)} className="sr-only peer" />
+                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                )}
               </div>
 
               {/* الموقع الجغرافي */}
