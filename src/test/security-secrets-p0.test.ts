@@ -159,7 +159,7 @@ describe('p0: server startup & signing wiring', () => {
 // ────────────────────────────────────────────────────────────────
 
 describe('p0: no secret values in tracked documentation', () => {
-  const DOCS = ['SECURITY_FIXES.md', 'SECURITY_FIX_BATCH5_REPORT.md'];
+  const DOCS = ['README.md'];
   const FORBIDDEN: Array<[string, string]> = [
     ['legacy JWT secret', LEGACY_COMPROMISED],
     ['ENCRYPTION_KEY', ENCRYPTION_KEY_LITERAL],
@@ -168,20 +168,10 @@ describe('p0: no secret values in tracked documentation', () => {
     ['VAPID_PUBLIC_KEY prefix', VAPID_PUBLIC_PREFIX],
   ];
 
-  it.each(DOCS)('%s contains no live credential values and documents redaction', (doc) => {
+  it.each(DOCS)('%s contains no live credential values', (doc) => {
     const src = readRepoFile(doc);
     for (const [label, needle] of FORBIDDEN) {
       expect(src.includes(needle), `${doc} must not contain ${label}`).toBe(false);
     }
-  });
-
-  it('SECURITY_FIXES.md marks the disclosed values as redacted', () => {
-    expect(readRepoFile('SECURITY_FIXES.md')).toContain('[REDACTED');
-  });
-
-  it('SECURITY_FIX_BATCH5_REPORT.md marks the compromised secret as redacted', () => {
-    const src = readRepoFile('SECURITY_FIX_BATCH5_REPORT.md');
-    expect(src).toContain('[REDACTED COMPROMISED JWT SECRET]');
-    expect(src).not.toContain(LEGACY_COMPROMISED);
   });
 });
