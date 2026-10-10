@@ -33,7 +33,7 @@ export function LiveBroadcastCard({ currentTrack, isPlaying, onTogglePlay, onLik
             src={currentTrack.cover_url || "/img/default-track.png"}
             alt={currentTrack.title}
             className="w-24 h-24 rounded-2xl object-cover shadow-md"
-          />
+           loading="lazy" decoding="async" />
           {isPlaying && (
             <div className="absolute -bottom-1 -right-1 bg-green-500 rounded-full p-1.5">
               <div className="w-2 h-2 bg-white rounded-full" />

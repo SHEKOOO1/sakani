@@ -29,7 +29,7 @@ export function SongHistoryPanel({ songHistory, open }: SongHistoryPanelProps) {
                     <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-slate-100 dark:bg-slate-800/50 ring-1 ring-slate-200 dark:ring-white/10">
                       <img src={song.cover_url || DEFAULT_COVER} alt=""
                         className="w-full h-full object-cover"
-                        onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }} />
+                        onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }}  loading="lazy" decoding="async" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-black text-slate-900 dark:text-white truncate">{song.title}</p>

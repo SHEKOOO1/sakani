@@ -30,7 +30,7 @@ export function LibraryProgramsView({ programsCategoryId, categories, playlists,
             className="group bg-white dark:bg-card-dark rounded-xl border border-slate-100 dark:border-white/[0.05] overflow-hidden text-right shadow-sm hover:shadow-md hover:border-primary-200 dark:hover:border-primary-500/30 transition-all">
             <div className="relative aspect-[16/9] bg-slate-100 dark:bg-slate-800 overflow-hidden">
               {pl.cover_image ? (
-                <img src={pl.cover_image} alt={pl.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                <img src={pl.cover_image} alt={pl.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"  loading="lazy" decoding="async" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary-100 to-vibrant-100 dark:from-primary-900/30 dark:to-vibrant-900/30">
                   <Film size={40} className="text-primary-300 dark:text-primary-600" />

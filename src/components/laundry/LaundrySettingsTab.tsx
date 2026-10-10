@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { Settings } from 'lucide-react';
+import { Skeleton } from '../Skeleton';
 
 interface LaundrySettingsTabProps {
   settings: any;
@@ -15,9 +16,20 @@ export function LaundrySettingsTab({ settings, loading, onSettingsChange, onUpda
       className="bg-white dark:bg-card-dark p-8 rounded-xl border border-slate-100 dark:border-white/[0.05] shadow-sm space-y-8"
     >
       {loading ? (
-        <div className="py-20 text-center">
-          <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-400 font-bold">جاري تحميل الإعدادات...</p>
+        <div className="space-y-6" aria-busy="true">
+          <Skeleton className="h-6 w-40" />
+          <div className="grid grid-cols-2 gap-6">
+            <Skeleton className="h-12 rounded-2xl" />
+            <Skeleton className="h-12 rounded-2xl" />
+            <Skeleton className="h-12 rounded-2xl" />
+            <Skeleton className="h-12 rounded-2xl" />
+          </div>
+          <div className="flex gap-1.5">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 flex-1 rounded-xl" />
+            ))}
+          </div>
+          <Skeleton className="h-12 rounded-2xl" />
         </div>
       ) : !settings ? (
         <div className="py-20 text-center space-y-4">
@@ -43,14 +55,14 @@ export function LaundrySettingsTab({ settings, loading, onSettingsChange, onUpda
           </div>
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-4">أيام العمل</label>
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'].map((day, i) => (
                 <button key={i}
                   onClick={() => {
                     const days = settings.days.includes(i) ? settings.days.filter((d: any) => d !== i) : [...settings.days, i];
                     onSettingsChange({...settings, days});
                   }}
-                  className={`p-4 rounded-2xl font-black ${settings.days.includes(i) ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                  className={`p-1 text-xs sm:text-sm sm:p-4 rounded-2xl font-black ${settings.days.includes(i) ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
                 >
                   {day}
                 </button>

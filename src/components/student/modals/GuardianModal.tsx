@@ -69,11 +69,11 @@ export function GuardianModal({ isOpen, onClose, data, onChange, onSave }: Guard
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">رقم الهاتف</label>
-                  <input type="text" value={data.phone} onChange={e => onChange({ ...data, phone: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                  <input type="tel" inputMode="numeric" value={data.phone} onChange={e => onChange({ ...data, phone: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">واتساب</label>
-                  <input type="text" value={data.whatsapp} onChange={e => onChange({ ...data, whatsapp: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                  <input type="tel" inputMode="numeric" value={data.whatsapp} onChange={e => onChange({ ...data, whatsapp: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
                 </div>
                 <div className="space-y-2 col-span-2">
                   <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">الوظيفة</label>

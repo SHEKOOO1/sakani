@@ -65,11 +65,11 @@ export function PriestEditModal({ isOpen, onClose, form, onChange, onSave, savin
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">تليفون أب الاعتراف</label>
-                <input type="text" value={form.confession_father_phone || ''} onChange={e => onChange({ ...form, confession_father_phone: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                <input type="tel" inputMode="numeric" value={form.confession_father_phone || ''} onChange={e => onChange({ ...form, confession_father_phone: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">واتساب أب الاعتراف</label>
-                <input type="text" value={form.confession_father_whatsapp || ''} onChange={e => onChange({ ...form, confession_father_whatsapp: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                <input type="tel" inputMode="numeric" value={form.confession_father_whatsapp || ''} onChange={e => onChange({ ...form, confession_father_whatsapp: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">خدمة أب الاعتراف</label>

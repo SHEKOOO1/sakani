@@ -374,7 +374,7 @@ export function EventAttendanceOperatorPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-center">
               <p className="text-lg font-black text-emerald-600 dark:text-emerald-300">{c.present}</p>
               <p className="text-[10px] font-bold text-emerald-500/70">حاضر</p>

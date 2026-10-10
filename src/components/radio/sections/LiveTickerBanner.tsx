@@ -41,7 +41,7 @@ export function LiveTickerBanner({ show, liveVideos, liveViewerCount, user, live
                 </span>
               </motion.div>
             </div>
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur-sm rounded-lg border border-white/20 text-white text-[10px] font-bold shrink-0">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur-sm rounded-lg border border-white/20 text-white text-[10px] font-bold shrink-0">
               <Eye size={12} />
               {liveViewerCount} مشاهد
             </div>

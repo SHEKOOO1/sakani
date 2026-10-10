@@ -132,7 +132,7 @@ export function LibraryPlayerView({ playerVideo, playerVideoComments, playerComm
                 <button key={item.id} onClick={() => { if (video) onOpenPlayer(video); else if (fallbackVideo) onOpenPlayer(fallbackVideo); }}
                   className="shrink-0 w-48 group bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/[0.04] rounded-xl overflow-hidden text-right hover:shadow-md transition-all">
                   <div className="relative aspect-video bg-slate-100 dark:bg-slate-800">
-                    {item.item_thumbnail && <img src={item.item_thumbnail} alt={item.item_title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />}
+                    {item.item_thumbnail && <img src={item.item_thumbnail} alt={item.item_title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"  loading="lazy" decoding="async" />}
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Play size={16} fill="white" className="text-white mr-0.5" />
                     </div>

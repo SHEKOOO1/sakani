@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, PenSquare, Plus, Trash2 } from 'lucide-react';
+import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape';
 
 interface PhoneEntry {
   phoneType: string;
@@ -18,6 +19,7 @@ interface EditStudentModalProps {
 }
 
 export function EditStudentModal({ isOpen, onClose, editForm, setEditForm, handleSaveEdit, isAdmin, rooms }: EditStudentModalProps) {
+  useCloseOnEscape(onClose, isOpen);
   const phoneNumbers: PhoneEntry[] = editForm.phoneNumbers || [];
 
   const addPhone = () => {
@@ -101,11 +103,11 @@ export function EditStudentModal({ isOpen, onClose, editForm, setEditForm, handl
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">تليفون أب الاعتراف</label>
-                <input type="text" value={editForm.confession_father_phone || ''} onChange={e => setEditForm({ ...editForm, confession_father_phone: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                <input type="tel" inputMode="numeric" value={editForm.confession_father_phone || ''} onChange={e => setEditForm({ ...editForm, confession_father_phone: e.target.value.replace(/[^\d+ ]/g, '') })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">واتساب أب الاعتراف</label>
-                <input type="text" value={editForm.confession_father_whatsapp || ''} onChange={e => setEditForm({ ...editForm, confession_father_whatsapp: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                <input type="tel" inputMode="numeric" value={editForm.confession_father_whatsapp || ''} onChange={e => setEditForm({ ...editForm, confession_father_whatsapp: e.target.value.replace(/[^\d+ ]/g, '') })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">خدمة أب الاعتراف</label>
@@ -118,7 +120,7 @@ export function EditStudentModal({ isOpen, onClose, editForm, setEditForm, handl
                   {phoneNumbers.map((phone: any, idx: number) => (
                     <div key={idx} className="flex items-start gap-2 bg-slate-50 dark:bg-white/5 p-3 rounded-2xl">
                       <div className="flex-1 space-y-2">
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <select value={phone.phoneType} onChange={e => updatePhone(idx, 'phoneType', e.target.value)} className="p-2 bg-white dark:bg-card-dark rounded-xl outline-none font-bold text-xs dark:text-white">
                             <option value="mobile">موبايل</option>
                             <option value="whatsapp">واتساب</option>
@@ -126,7 +128,7 @@ export function EditStudentModal({ isOpen, onClose, editForm, setEditForm, handl
                             <option value="other">أخرى</option>
                           </select>
                           <input type="text" value={phone.label} onChange={e => updatePhone(idx, 'label', e.target.value)} placeholder="تسمية" className="p-2 bg-white dark:bg-card-dark rounded-xl outline-none font-bold text-xs dark:text-white" />
-                          <input type="text" value={phone.phoneNumber} onChange={e => updatePhone(idx, 'phoneNumber', e.target.value)} placeholder="رقم الهاتف" className="p-2 bg-white dark:bg-card-dark rounded-xl outline-none font-bold text-xs dark:text-white" />
+                          <input type="tel" inputMode="numeric" value={phone.phoneNumber} onChange={e => updatePhone(idx, 'phoneNumber', e.target.value.replace(/[^\d+ ]/g, ''))} placeholder="رقم الهاتف" className="p-2 bg-white dark:bg-card-dark rounded-xl outline-none font-bold text-xs dark:text-white" />
                         </div>
                       </div>
                       <button onClick={() => removePhone(idx)} className="p-2 text-red-400 hover:text-red-600 transition-colors shrink-0">
@@ -142,7 +144,7 @@ export function EditStudentModal({ isOpen, onClose, editForm, setEditForm, handl
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">واتساب الطالب</label>
-                <input type="text" value={editForm.whatsapp_number || ''} onChange={e => setEditForm({ ...editForm, whatsapp_number: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                <input type="tel" inputMode="numeric" value={editForm.whatsapp_number || ''} onChange={e => setEditForm({ ...editForm, whatsapp_number: e.target.value.replace(/[^\d+ ]/g, '') })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
               </div>
 
               <div className="border-t border-slate-100 dark:border-white/10 pt-4">

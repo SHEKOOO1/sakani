@@ -55,7 +55,7 @@ export function LibraryProgramDetail({ selectedProgram, programItems, videos, pr
               className="group bg-white dark:bg-card-dark rounded-xl border border-slate-100 dark:border-white/[0.05] overflow-hidden text-right shadow-sm hover:shadow-md transition-all">
               <div className="relative aspect-video bg-slate-100 dark:bg-slate-800">
                 {item.item_thumbnail && (
-                  <img src={item.item_thumbnail} alt={item.item_title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={item.item_thumbnail} alt={item.item_title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"  loading="lazy" decoding="async" />
                 )}
                 <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
                   <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">

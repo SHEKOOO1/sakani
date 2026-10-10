@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import type { Knex } from 'knex';
+import { readCaCertificate } from './src/backend/config/db-ca';
 
 // package.json sets "type": "module", so __dirname does not exist in this file —
 // referencing it threw "ReferenceError: __dirname is not defined in ES module scope"
@@ -13,27 +13,14 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // P1-DB-4: honor the same trusted-CA bundle as the runtime connection so the
 // migration CLI can talk to a SQL Server with a private/self-signed certificate
-// WITHOUT setting trustServerCertificate=true. Fail closed if it is unreadable.
-let productionCa: { ca: string } | undefined;
-if (process.env.DB_SSL_CA_PATH) {
-  try {
-    productionCa = { ca: fs.readFileSync(process.env.DB_SSL_CA_PATH, 'utf8') };
-  } catch {
-    throw new Error('DB_SSL_CA_PATH is set but the CA certificate could not be read.');
-  }
-}
+// WITHOUT setting trustServerCertificate=true. The helper FAILS CLOSED if the
+// bundle is missing, unreadable, or not a valid PEM certificate.
+const productionCa = readCaCertificate(process.env.DB_SSL_CA_PATH);
 
 // Mirrors the runtime pool in src/backend/infrastructure/knex.ts so the migration
-// CLI and the server agree on TLS behavior. DB_TRUST_SERVER_CERT=true is the
-// explicit opt-out for instances carrying only SQL Server's auto-generated
-// self-signed certificate.
-const trustServerCertificate =
-  process.env.DB_TRUST_SERVER_CERT === 'true'
-    ? true
-    : process.env.NODE_ENV === 'production'
-      ? false
-      : true;
-
+// CLI and the server agree on TLS behavior. Production always validates the SQL
+// Server certificate (encrypt: true, trustServerCertificate: false) with no
+// escape hatch; provide DB_SSL_CA_PATH for private/self-signed certificates.
 const config: Record<string, Knex.Config> = {
   development: {
     client: 'mssql',
@@ -68,10 +55,10 @@ const config: Record<string, Knex.Config> = {
       instanceName: process.env.DB_INSTANCE || undefined,
       options: {
         encrypt: true,
-        trustServerCertificate,
+        trustServerCertificate: false,
         enableArithAbort: true,
         connectTimeout: 30000,
-        ...(productionCa ? { cryptoCredentialsDetails: productionCa } : {}),
+        ...(productionCa ? { cryptoCredentialsDetails: { ca: productionCa.ca }, ...(productionCa.serverName ? { serverName: productionCa.serverName } : {}) } : {}),
       } as any,
     },
     pool: { min: 1, max: 10, acquireTimeoutMillis: 60000 },

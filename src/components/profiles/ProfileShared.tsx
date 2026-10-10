@@ -41,7 +41,7 @@ export function AvatarUpload({ currentUrl, name, onSave }: { currentUrl?: string
     <div className="relative group">
       <div className="w-28 h-28 rounded-[2rem] bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-5xl font-black text-slate-400 dark:text-slate-500 overflow-hidden border-2 border-slate-200 dark:border-white/10">
         {currentUrl ? (
-          <img src={currentUrl} alt={name} className="w-full h-full object-cover" />
+          <img src={currentUrl} alt={name} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
         ) : (
           name?.[0] || '?'
         )}

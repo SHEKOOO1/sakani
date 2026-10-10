@@ -367,7 +367,7 @@ export function StudentProfileView({
             <div className="flex flex-col items-center gap-4 border-l border-slate-50 dark:border-white/10 pl-8">
               <div className="w-32 h-32 bg-slate-100 dark:bg-white/10 rounded-[2.5rem] overflow-hidden border-4 border-slate-50 dark:border-white/10 shadow-inner relative group">
                 {selectedStudent.student_photo || selectedStudent.photo_url ? (
-                  <img src={normalizeFilePath(selectedStudent.student_photo || selectedStudent.photo_url)} className="w-full h-full object-cover" />
+                  <img src={normalizeFilePath(selectedStudent.student_photo || selectedStudent.photo_url)} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-500">
                     <UserCircle size={64} />
@@ -559,7 +559,7 @@ export function StudentProfileView({
                 <div key={guardian.id} className="p-5 bg-slate-50 dark:bg-white/5 rounded-[2rem] border border-slate-100 dark:border-white/10 relative group">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-white dark:bg-card-dark rounded-2xl flex items-center justify-center text-slate-400 dark:text-slate-300 border border-slate-100 dark:border-white/10 overflow-hidden shadow-sm">
-                      {guardian.photo ? <img src={normalizeFilePath(guardian.photo)} className="w-full h-full object-cover" /> : <UserCircle size={24} />}
+                      {guardian.photo ? <img src={normalizeFilePath(guardian.photo)} className="w-full h-full object-cover"  loading="lazy" decoding="async" /> : <UserCircle size={24} />}
                     </div>
                     <div>
                       <p className="font-black text-slate-800 dark:text-white text-sm">{guardian.name}</p>
@@ -677,7 +677,7 @@ export function StudentProfileView({
                       return (
                         <div key={idx} className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-white/5 rounded-2xl border border-white/10">
                           {preview ? (
-                            <img src={preview} alt="" className="w-16 h-16 object-cover rounded-xl border border-white/10" />
+                            <img src={preview} alt="" className="w-16 h-16 object-cover rounded-xl border border-white/10"  loading="lazy" decoding="async" />
                           ) : (
                             <div className="w-16 h-16 flex items-center justify-center bg-white/10 rounded-xl border border-white/10 text-slate-400 dark:text-slate-300">
                               <FileTextIcon size={22} />
@@ -724,7 +724,7 @@ export function StudentProfileView({
                       className="w-full text-left flex items-center justify-between p-3 bg-slate-50 dark:bg-white/5 rounded-2xl group hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
                         {isImg && filePath ? (
-                          <img src={normalizeFilePath(filePath)} alt="" className="w-10 h-10 object-cover rounded-lg border border-white/10" />
+                          <img src={normalizeFilePath(filePath)} alt="" className="w-10 h-10 object-cover rounded-lg border border-white/10"  loading="lazy" decoding="async" />
                         ) : (
                           <FileText size={14} className="text-slate-400 dark:text-slate-300" />
                         )}
@@ -780,7 +780,7 @@ export function StudentProfileView({
                       onClick={() => setViewerFile({ id: doc.id, file_name: doc.file_name, doc_type: doc.doc_type, file_path: doc.file_path })}
                       className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-white/5 rounded-2xl hover:bg-slate-100 dark:hover:bg-white/10 transition-colors text-left">
                       {isImg && docSrc ? (
-                        <img src={docSrc} alt="" className="w-12 h-12 object-cover rounded-xl border border-white/10" />
+                        <img src={docSrc} alt="" className="w-12 h-12 object-cover rounded-xl border border-white/10"  loading="lazy" decoding="async" />
                       ) : (
                         <FileText size={20} className="text-slate-400 dark:text-slate-300" />
                       )}

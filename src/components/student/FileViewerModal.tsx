@@ -72,7 +72,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose 
         </div>
         <div className="flex-1 overflow-auto p-6 flex items-center justify-center min-h-[300px] bg-slate-50 dark:bg-black/20">
           {isImage && url ? (
-            <img src={url} alt={file.file_name || 'ملف'} className="max-h-[70vh] max-w-full rounded-2xl shadow-lg object-contain" />
+            <img src={url} alt={file.file_name || 'ملف'} className="max-h-[70vh] max-w-full rounded-2xl shadow-lg object-contain"  loading="lazy" decoding="async" />
           ) : (
             <div className="text-center py-10">
               <FileText size={56} className="mx-auto text-slate-300 dark:text-slate-500 mb-3" />

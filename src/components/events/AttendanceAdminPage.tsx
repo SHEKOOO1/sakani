@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useApi } from '../../hooks/useApi';
+import { Skeleton } from '../Skeleton';
 import {
   ShieldCheck, Settings2, AlertTriangle, Loader2, RefreshCw, Save, CheckCircle2,
   XCircle, Gavel, FileText, Calendar, Users, Filter, ChevronDown, Plus, Trash2, ListChecks, Info, CalendarClock
@@ -416,7 +417,9 @@ export function AttendanceAdminPage() {
         </div>
         <div className="divide-y divide-slate-50 dark:divide-white/5 max-h-[28rem] overflow-y-auto custom-scrollbar">
           {riskLoading ? (
-            <div className="flex items-center justify-center py-12 text-slate-400"><Loader2 size={22} className="animate-spin" /></div>
+            <div className="space-y-3 p-4">
+              {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-2xl" />)}
+            </div>
           ) : risk.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
               <CheckCircle2 size={28} />
@@ -585,7 +588,9 @@ export function AttendanceAdminPage() {
     <div className="space-y-3">
       <h2 className="text-lg font-black text-slate-800 dark:text-white">اختر فعالية لتكوين قواعد الحضور</h2>
       {eventsLoading ? (
-        <div className="flex items-center justify-center py-12 text-slate-400"><Loader2 size={22} className="animate-spin" /></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full rounded-2xl" />)}
+        </div>
       ) : events.length === 0 ? (
         <p className="p-8 text-center text-sm font-bold text-slate-400">لا توجد فعاليات</p>
       ) : (

@@ -84,7 +84,7 @@ export function EventSubscriptionsView({
                       <img src={normalizeFilePath(sub.receipt_image)} alt="Receipt"
                         className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() => window.open(normalizeFilePath(sub.receipt_image), '_blank')}
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}  loading="lazy" decoding="async" />
                       <button onClick={() => window.open(normalizeFilePath(sub.receipt_image), '_blank')}
                         className="px-3 py-2 bg-white dark:bg-white/5 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold hover:border-blue-500/30 transition-all">
                         <Eye size={14} className="inline ml-1" />عرض الإيصال

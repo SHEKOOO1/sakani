@@ -222,6 +222,7 @@ export function EmployeeFormModal({
                   <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input
                     required={!editingEmployee}
+                    minLength={6}
                     type="password"
                     value={formData.password}
                     onChange={e => onChange({...formData, password: e.target.value})}

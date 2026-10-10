@@ -340,7 +340,7 @@ export function EventCreateModal({
                         <input type="text" placeholder="اسم وسيلة الدفع" value={newPaymentName}
                           onChange={e => setNewPaymentName(e.target.value)}
                           className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500/50" />
-                        <input type="text" placeholder="رقم الهاتف" value={newPaymentPhone}
+                        <input type="tel" inputMode="numeric" placeholder="رقم الهاتف" value={newPaymentPhone}
                           onChange={e => setNewPaymentPhone(e.target.value)}
                           className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500/50" />
                         <div className="flex gap-2">

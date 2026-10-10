@@ -1,5 +1,6 @@
 import React from 'react';
 import { Building, X, Save, Shield, Clock, LogIn, LogOut } from 'lucide-react';
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 
 export interface TenantFormData {
   name: string;
@@ -102,6 +103,7 @@ export const TenantFormModal: React.FC<TenantFormModalProps> = ({
   onSave,
   toggleSelect,
 }) => {
+  useCloseOnEscape(onClose, showForm);
   if (!showForm) return null;
 
   return (

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 import {
   Send, Plus, X, Building, Target, Image, Video, Volume2, File,
   Eye
@@ -225,6 +226,7 @@ export function BroadcastFormModal({
   toggleTarget, toggleExclude,
   searchStudents,
 }: BroadcastFormModalProps) {
+  useCloseOnEscape(onClose, isOpen);
   return (
     <AnimatePresence>
       {isOpen && (

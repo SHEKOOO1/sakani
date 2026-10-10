@@ -441,7 +441,7 @@ export function ManageRadioPermissions() {
                       </span>
                     </div>
                   </div>
-                  <div className="hidden sm:flex items-center gap-1">
+                  <div className="flex items-center gap-1">
                     {member.permissions.can_moderate_comments_chat && (
                       <span className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20" title="صلاحية الشات">
                         <MessageCircle size={12} />

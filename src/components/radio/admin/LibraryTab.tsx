@@ -275,7 +275,7 @@ export function LibraryTab({
                     <img src={featuredVideos[featuredIndex].thumbnail || `https://img.youtube.com/vi/${featuredVideos[featuredIndex].youtube_id}/hqdefault.jpg`}
                       alt={featuredVideos[featuredIndex].title}
                       className="w-full h-full object-cover opacity-40"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}  loading="lazy" decoding="async" />
                   ) : null}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
                   <div className="absolute bottom-0 right-0 left-0 p-6" dir="rtl">
@@ -462,7 +462,7 @@ export function LibraryTab({
                   <GripVertical size={12} className="shrink-0 text-slate-300 dark:text-slate-600" />
                   <span className="text-[10px] font-bold text-slate-400 w-5 text-center">{idx + 1}</span>
                   <div className="w-10 h-7 rounded overflow-hidden bg-slate-100 dark:bg-slate-800/50 shrink-0">
-                    {item.item_thumbnail && <img src={item.item_thumbnail} alt="" className="w-full h-full object-cover" />}
+                    {item.item_thumbnail && <img src={item.item_thumbnail} alt="" className="w-full h-full object-cover"  loading="lazy" decoding="async" />}
                   </div>
                   <p className="flex-1 text-xs font-bold text-slate-900 dark:text-white truncate">{item.item_title}</p>
                   <button onClick={() => handleDeletePlaylistItem(item.id, item.item_title)}
@@ -505,7 +505,7 @@ export function LibraryTab({
                   {fetchedPlaylistItems.slice(0, 20).map((item, idx) => (
                     <div key={idx} className="flex items-center gap-2 p-1.5 bg-white dark:bg-white/[0.03] rounded">
                       <div className="w-8 h-6 rounded overflow-hidden bg-slate-100 dark:bg-slate-800/50 shrink-0">
-                        {item.thumbnail && <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />}
+                        {item.thumbnail && <img src={item.thumbnail} alt="" className="w-full h-full object-cover"  loading="lazy" decoding="async" />}
                       </div>
                       <p className="text-[10px] font-medium text-slate-700 dark:text-slate-300 truncate flex-1">{item.title}</p>
                     </div>
@@ -653,7 +653,7 @@ export function LibraryTab({
                   {v.thumbnail || v.platform !== 'facebook' ? (
                     <img src={v.thumbnail || `https://img.youtube.com/vi/${v.youtube_id}/hqdefault.jpg`}
                       alt={v.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      onError={(e) => { (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${v.youtube_id}/hqdefault.jpg`; }} />
+                      onError={(e) => { (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${v.youtube_id}/hqdefault.jpg`; }}  loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-blue-50 dark:bg-blue-950/30">
                       <svg viewBox="0 0 24 24" className="w-8 h-8 text-blue-500/60"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>

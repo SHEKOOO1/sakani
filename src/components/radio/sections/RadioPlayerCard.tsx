@@ -32,7 +32,7 @@ export function RadioPlayerCard({ currentTrack, playing, likeCounts, likedByMe, 
               alt={currentTrack?.title || 'راديو 5:14'}
               className="w-full h-full object-cover"
               onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }}
-            />
+             loading="lazy" decoding="async" />
           </div>
           {playing && (
             <>

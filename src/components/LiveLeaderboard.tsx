@@ -25,7 +25,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
   const sortedTeams = [...teams].sort((a, b) => b.total_score - a.total_score);
   
   return (
-    <div className="min-h-screen bg-[#050608] text-white p-8 lg:p-16 font-sans overflow-hidden relative" dir="rtl">
+    <div className="min-h-screen bg-[#050608] text-white p-4 sm:p-8 lg:p-16 font-sans overflow-hidden relative" dir="rtl">
       {/* Exit Button */}
       <button 
         onClick={() => window.dispatchEvent(new CustomEvent('closeLeaderboard'))}
@@ -39,7 +39,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-amber-400/5 blur-[120px] rounded-full -z-10 animate-pulse"></div>
       
       {/* Header */}
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-end gap-8 mb-20">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-end gap-6 md:gap-8 mb-10 md:mb-20">
         <div className="space-y-4">
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
@@ -53,7 +53,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-6xl lg:text-8xl font-black tracking-tighter"
+            className="text-4xl sm:text-6xl lg:text-8xl font-black tracking-tighter"
           >
             {eventTitle}
           </motion.h1>
@@ -63,16 +63,16 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.2 }}
-            className="bg-white/5 border border-white/10 p-8 rounded-card backdrop-blur-xl flex items-center gap-8"
+            className="bg-white/5 border border-white/10 p-5 sm:p-8 rounded-card backdrop-blur-xl flex items-center gap-5 sm:gap-8"
         >
             <div className="text-center">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">درجة الحسم</p>
-                <p className="text-4xl font-black text-amber-400">{winningThreshold}</p>
+                <p className="text-3xl sm:text-4xl font-black text-amber-400">{winningThreshold}</p>
             </div>
             <div className="w-px h-12 bg-white/10"></div>
             <div className="text-center">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">الدرجة النهائية</p>
-                <p className="text-4xl font-black text-white">{maxScore}</p>
+                <p className="text-3xl sm:text-4xl font-black text-white">{maxScore}</p>
             </div>
         </motion.div>
       </div>
@@ -93,9 +93,9 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
               transition={{ delay: idx * 0.1 }}
               className={`relative p-1 rounded-[32px] transition-all ${isWinner ? 'bg-gradient-to-r from-amber-400 to-amber-600 shadow-[0_20px_50px_rgba(251,191,36,0.3)]' : 'bg-white/5'}`}
             >
-              <div className={`p-8 rounded-[28px] flex items-center gap-8 ${isWinner ? 'bg-black/90' : 'bg-[#0A0C10] border border-white/5 shadow-huge'}`}>
+              <div className={`p-5 sm:p-8 rounded-[28px] flex flex-col sm:flex-row items-center gap-4 sm:gap-8 ${isWinner ? 'bg-black/90' : 'bg-[#0A0C10] border border-white/5 shadow-huge'}`}>
                 {/* Rank Indicator */}
-                <div className="flex flex-col items-center justify-center w-24 h-24 relative">
+                <div className="flex flex-col items-center justify-center w-20 h-20 sm:w-24 sm:h-24 relative">
                    {isFirst ? (
                      <motion.div 
                         animate={{ rotate: [0, 10, -10, 0] }}
@@ -107,18 +107,18 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
                    ) : (
                      <span className="text-2xl font-black text-slate-400 italic">#{idx + 1}</span>
                    )}
-                   <span className={`text-5xl font-black mt-2 ${isWinner ? 'text-amber-400' : 'text-white'}`}>{team.total_score}</span>
+                   <span className={`text-3xl sm:text-5xl font-black mt-2 ${isWinner ? 'text-amber-400' : 'text-white'}`}>{team.total_score}</span>
                 </div>
 
                 {/* Team Info */}
                 <div className="flex-1 space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                      <div className="flex items-center gap-4">
                         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isWinner ? 'bg-amber-400 text-black' : 'bg-white/5 text-slate-400'}`}>
                            {isFirst ? <Trophy size={28} /> : <Sword size={28} />}
                         </div>
                         <div>
-                           <h2 className="text-3xl font-black text-white group-hover:text-amber-400 transition-colors uppercase tracking-tight">{team.name}</h2>
+                           <h2 className="text-2xl sm:text-3xl font-black text-white group-hover:text-amber-400 transition-colors uppercase tracking-tight">{team.name}</h2>
                            <div className="flex items-center gap-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
                               <span className="flex items-center gap-2"><Users size={12} /> {team.members_count || 0} عضو</span>
                               <span className="w-1.5 h-1.5 rounded-full bg-slate-800"></span>
@@ -130,7 +130,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
                        <motion.div 
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        className="px-6 py-2 bg-amber-400 text-black text-[12px] font-black rounded-full shadow-[0_0_20px_rgba(251,191,36,0.4)]"
+                        className="px-4 sm:px-6 py-2 bg-amber-400 text-black text-[11px] sm:text-[12px] font-black rounded-full shadow-[0_0_20px_rgba(251,191,36,0.4)]"
                        >
                          تم تحقيق الهدف 🏆
                        </motion.div>

@@ -5,7 +5,7 @@ import { DailyReadingsCard } from './DailyReadingsCard';
 import {
   Users, MapPin, Wrench, Waves, Activity, TrendingUp, TrendingDown, Wallet,
   Home, Clock, Calendar, FileText, ShieldAlert, Plane, Star, GraduationCap,
-  Building, UserCheck, Sparkles,
+  Building, UserCheck, Sparkles, LayoutGrid, AlertTriangle,
 } from 'lucide-react';
 import { SupervisorContactSettings } from './SupervisorContactSettings';
 import { QuickActionCard, AlertBadge, StatusDot, StatusBadge, DecisionIcon } from './supervisor/DashboardHelpers';
@@ -68,24 +68,38 @@ export function SupervisorDashboard({ onNavigate }: any) {
         <Activity className="absolute -left-10 -top-10 text-white/5 w-48 h-48" />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <QuickActionCard label="الطلاب المسجلين" value={stats?.studentCount || 0} icon={<Users />} color="primary" onClick={() => onNavigate?.('students')} />
-        <QuickActionCard label={`الخريجون ${year}`} value={stats?.graduatesCount || 0} icon={<GraduationCap />} color="vibrant" onClick={() => onNavigate?.('students')} />
-        <QuickActionCard label="عدد الشقق" value={stats?.apartmentsCount || 0} icon={<Building />} color="vibrant" onClick={() => onNavigate?.('apartments')} />
-        <QuickActionCard label="حضور اليوم" value={stats?.presentToday || 0} icon={<MapPin />} color="ocean" onClick={() => onNavigate?.('attendance')} />
-        <QuickActionCard label="صيانة معلقة" value={stats?.pendingMaintenance || 0} icon={<Wrench />} color="rose" onClick={() => onNavigate?.('maintenance')} />
-        <QuickActionCard label="إشغال الأسرة" value={`${stats?.roomStats?.occupancyRate || 0}%`} icon={<Home />} color="warm" subtitle={`${stats?.roomStats?.occupied || 0}/${stats?.roomStats?.total || 0}`} />
-        <QuickActionCard label="طابور المغسلة" value={stats?.laundryQueue || 0} icon={<Waves />} color="primary" onClick={() => onNavigate?.('laundry')} />
-      </div>
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-base font-black text-slate-700 dark:text-slate-200">
+            <LayoutGrid size={18} className="text-primary-500" />
+            نظرة عامة على السكن
+          </h2>
+          <span className="text-xs font-bold text-slate-400 dark:text-slate-300">{stats?.studentCount || 0} طالبًا مسجلًا</span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <QuickActionCard label="الطلاب المسجلين" value={stats?.studentCount || 0} icon={<Users />} color="primary" onClick={() => onNavigate?.('students')} />
+          <QuickActionCard label="حضور اليوم" value={stats?.presentToday || 0} icon={<MapPin />} color="ocean" onClick={() => onNavigate?.('attendance')} />
+          <QuickActionCard label="عدد الشقق" value={stats?.apartmentsCount || 0} icon={<Building />} color="vibrant" onClick={() => onNavigate?.('apartments')} />
+          <QuickActionCard label="إشغال الأسرة" value={`${stats?.roomStats?.occupancyRate || 0}%`} icon={<Home />} color="warm" subtitle={`${stats?.roomStats?.occupied || 0} مشغولة من ${stats?.roomStats?.total || 0}`} />
+          <QuickActionCard label="طابور المغسلة" value={stats?.laundryQueue || 0} icon={<Waves />} color="ocean" onClick={() => onNavigate?.('laundry')} />
+          <QuickActionCard label={`الخريجون ${year}`} value={stats?.graduatesCount || 0} icon={<GraduationCap />} color="primary" onClick={() => onNavigate?.('students')} />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-base font-black text-slate-700 dark:text-slate-200">
+          <AlertTriangle size={18} className="text-rose-500" />
+          يحتاج متابعة
+        </h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <AlertBadge label="صيانة معلقة" value={stats?.pendingMaintenance || 0} icon={<Wrench />} color="warm" onClick={() => onNavigate?.('maintenance')} />
+          <AlertBadge label="إنذارات نشطة" value={stats?.activeWarnings || 0} icon={<ShieldAlert />} color="rose" onClick={() => onNavigate?.('behavior')} />
+          <AlertBadge label="شكاوى معلقة" value={stats?.pendingComplaints || 0} icon={<FileText />} color="vibrant" onClick={() => onNavigate?.('complaints')} />
+          <AlertBadge label="طلاب مسافرون" value={stats?.travelingStudents || 0} icon={<Plane />} color="primary" onClick={() => onNavigate?.('students')} />
+        </div>
+      </section>
 
       <SupervisorContactSettings />
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <AlertBadge label="إنذارات نشطة" value={stats?.activeWarnings || 0} icon={<ShieldAlert />} color="rose" onClick={() => onNavigate?.('behavior')} />
-        <AlertBadge label="شكاوى معلقة" value={stats?.pendingComplaints || 0} icon={<FileText />} color="warm" onClick={() => onNavigate?.('complaints')} />
-        <AlertBadge label="طلاب مسافرون" value={stats?.travelingStudents || 0} icon={<Plane />} color="primary" onClick={() => onNavigate?.('students')} />
-        <AlertBadge label="مهام المغسلة" value={stats?.laundryQueue || 0} icon={<Waves />} color="vibrant" onClick={() => onNavigate?.('laundry')} />
-      </div>
 
       <DailyReadingsCard />
 

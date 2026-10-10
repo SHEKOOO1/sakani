@@ -53,7 +53,7 @@ export function LibraryMainView({ featuredVideos, categories, playlists, categor
                   <img src={featuredVideos[featuredIdx].thumbnail || `https://img.youtube.com/vi/${featuredVideos[featuredIdx].youtube_id}/hqdefault.jpg`}
                     alt={featuredVideos[featuredIdx].title}
                     className="w-full h-full object-cover opacity-40"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}  loading="lazy" decoding="async" />
                 ) : null}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
                 <div className="absolute bottom-0 right-0 left-0 p-6 md:p-8">
@@ -187,7 +187,7 @@ export function LibraryMainView({ featuredVideos, categories, playlists, categor
                       className="shrink-0 w-56 snap-start group bg-white dark:bg-card-dark rounded-xl border border-slate-100 dark:border-white/[0.05] overflow-hidden text-right shadow-sm hover:shadow-md hover:border-primary-200 dark:hover:border-primary-500/30 transition-all">
                       <div className="relative aspect-[16/9] bg-slate-100 dark:bg-slate-800 overflow-hidden">
                         {pl.cover_image ? (
-                          <img src={pl.cover_image} alt={pl.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                          <img src={pl.cover_image} alt={pl.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"  loading="lazy" decoding="async" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary-100 to-vibrant-100 dark:from-primary-900/30 dark:to-vibrant-900/30">
                             <Film size={32} className="text-primary-300 dark:text-primary-600" />

@@ -2,8 +2,8 @@ import knex from 'knex';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { assertProductionDbConfig, describeDbConfigRejection } from '../src/backend/config/db-config';
+import { readCaCertificate } from '../src/backend/config/db-ca';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -42,14 +42,12 @@ if (!process.env.DB_PASSWORD) {
   process.exit(1);
 }
 
-let dbCa: { ca: string } | undefined;
-if (process.env.DB_SSL_CA_PATH) {
-  try {
-    dbCa = { ca: fs.readFileSync(process.env.DB_SSL_CA_PATH, 'utf8') };
-  } catch {
-    console.error('❌ DB_SSL_CA_PATH مضبوط لكن تعذّر قراءة شهادة CA. رُفض التشغيل.');
-    process.exit(1);
-  }
+let dbCa: ReturnType<typeof readCaCertificate>;
+try {
+  dbCa = readCaCertificate(process.env.DB_SSL_CA_PATH);
+} catch (error: any) {
+  console.error(`❌ ${error.message}`);
+  process.exit(1);
 }
 
 const kdb = knex({
@@ -65,7 +63,7 @@ const kdb = knex({
       trustServerCertificate: !isProduction,
       enableArithAbort: true,
       connectTimeout: 10000,
-      ...(dbCa ? { cryptoCredentialsDetails: dbCa } : {}),
+      ...(dbCa ? { cryptoCredentialsDetails: { ca: dbCa.ca }, ...(dbCa.serverName ? { serverName: dbCa.serverName } : {}) } : {}),
     },
   },
   pool: { min: 1, max: 1 },

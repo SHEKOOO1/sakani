@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 import {
   Calendar, MapPin, Users, DollarSign, Smartphone, Upload,
   Check, Info, X, Clock
@@ -14,6 +15,7 @@ interface EventDetailModalProps {
 }
 
 export function EventDetailModal({ open, detailEvent, onClose }: EventDetailModalProps) {
+  useCloseOnEscape(onClose, open);
   const { request } = useApi();
   const { showSnackbar } = useSnackbar();
 
@@ -209,7 +211,7 @@ export function EventDetailModal({ open, detailEvent, onClose }: EventDetailModa
                             {receiptPreview && (
                               <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 cursor-pointer"
                                 onClick={() => window.open(receiptPreview, '_blank')}>
-                                <img src={receiptPreview} alt="Receipt" className="w-full h-full object-cover" />
+                                <img src={receiptPreview} alt="Receipt" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                               </div>
                             )}
                           </div>

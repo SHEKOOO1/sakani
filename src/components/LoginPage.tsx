@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useMounted } from '../hooks/useMounted';
 import { useAuth } from '../contexts/AuthContext';
 import { useApi } from '../hooks/useApi';
+import { isValidEmail, isValidPassword } from '../utils/validators';
 import { motion } from 'motion/react';
 import { Mail, Lock, User, ShieldCheck, Send } from 'lucide-react';
 
@@ -48,6 +49,14 @@ export function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isValidEmail(email)) {
+      setError('صيغة البريد الإلكتروني غير صحيحة.');
+      return;
+    }
+    if (needsSetup && !isValidPassword(password)) {
+      setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل.');
+      return;
+    }
     setIsSubmitting(true);
     setError('');
 

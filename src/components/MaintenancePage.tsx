@@ -268,7 +268,7 @@ export function MaintenancePage() {
               {(req.photo_url || (req.attachments && req.attachments.length > 0)) && (
                 <div className="mb-6 grid grid-cols-2 gap-2">
                   {req.photo_url && (
-                    <img src={normalizeFilePath(req.photo_url)} className="w-full h-32 object-cover rounded-2xl cursor-pointer" onClick={() => window.open(normalizeFilePath(req.photo_url), '_blank')} />
+                    <img src={normalizeFilePath(req.photo_url)} className="w-full h-32 object-cover rounded-2xl cursor-pointer" onClick={() => window.open(normalizeFilePath(req.photo_url), '_blank')}  loading="lazy" decoding="async" />
                   )}
                   {req.attachments?.map((att: any, idx: number) => (
                     <div key={att.id || `att-${idx}`} className="relative h-32 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/10 group/att border border-slate-50 dark:border-white/5">
@@ -280,7 +280,7 @@ export function MaintenancePage() {
                            </div>
                         </div>
                       ) : (
-                        <img src={normalizeFilePath(att.file_path)} className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => window.open(normalizeFilePath(att.file_path), '_blank')} />
+                        <img src={normalizeFilePath(att.file_path)} className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => window.open(normalizeFilePath(att.file_path), '_blank')}  loading="lazy" decoding="async" />
                       )}
                     </div>
                   ))}

@@ -9,7 +9,7 @@ interface RadioHeaderProps {
 export function RadioHeader({ activeTab, onTabChange }: RadioHeaderProps) {
   return (
     <div className="sticky top-0 z-50 bg-white/90 dark:bg-card-dark/90 backdrop-blur-xl border-b border-slate-100 dark:border-white/5 -mx-3 md:-mx-4 lg:-mx-5 px-3 md:px-4 lg:px-5 -mt-3 md:-mt-4 lg:-mt-5 mb-6 pt-3 md:pt-4 lg:pt-5 pb-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <span className="relative flex h-3 w-3">
@@ -19,9 +19,9 @@ export function RadioHeader({ activeTab, onTabChange }: RadioHeaderProps) {
             <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Live Broadcast</span>
           </div>
           <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-white/10" />
-          <div className="hidden sm:block">
+          <div className="block">
             <h1 className="text-lg font-black text-slate-900 dark:text-white leading-none">راديو 5:14</h1>
-            <p className="text-[9px] text-slate-500 font-bold leading-tight mt-0.5">أنتم نور العالم — الراديو الرسمي لايبارشية السويس</p>
+            <p className="text-[9px] text-slate-500 font-bold leading-tight mt-0.5 hidden sm:block">أنتم نور العالم — الراديو الرسمي لايبارشية السويس</p>
           </div>
         </div>
 
@@ -46,7 +46,7 @@ export function RadioHeader({ activeTab, onTabChange }: RadioHeaderProps) {
                 )}
                 <span className="relative z-10 flex items-center gap-1.5">
                   <Icon size={16} />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="inline">{tab.label}</span>
                 </span>
               </button>
             );

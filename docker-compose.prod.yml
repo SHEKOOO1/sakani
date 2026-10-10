@@ -51,6 +51,11 @@ services:
       # with "migration directory is corrupt" otherwise).
       - ./migrations:/app/migrations:ro
       - ./schema_mssql.sql:/app/schema_mssql.sql:ro
+      # SQL Server auto-generated self-signed cert, pinned as the app's trust
+      # anchor via DB_SSL_CA_PATH (readCaCertificate). Mounted inside /app so the
+      # relative path in .env (./ssl/db/ca.pem) resolves to the same file on the
+      # host and in the container. Read-only; a public cert, never a private key.
+      - ./ssl/db:/app/ssl/db:ro
     networks:
       - proxy
       - sql_default

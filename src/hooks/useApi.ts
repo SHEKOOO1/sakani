@@ -63,6 +63,10 @@ export function useApi() {
         const error: any = new Error(data?.message || 'حدث خطأ في الخادم');
         error.status = response.status;
         error.code = data?.code;
+        if (response.status >= 500 && data?.requestId) {
+          error.requestId = data.requestId;
+          error.message = `${error.message} (رمز: ${data.requestId})`;
+        }
         throw error;
       }
 

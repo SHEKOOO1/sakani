@@ -2,8 +2,8 @@ import knex from 'knex';
 import mssql from 'mssql';
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { assertProductionDbConfig, describeDbConfigRejection } from '../config/db-config.ts';
+import { readCaCertificate, type DbCaBundle } from '../config/db-ca.ts';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -24,20 +24,17 @@ if (isProduction) {
 }
 
 // Optional trusted-CA bundle for SQL Server instances using a private or
-// self-signed certificate. Supplying the CA keeps `trustServerCertificate` at
-// false instead of disabling certificate validation.
-function loadDbCa(): { ca: string } | undefined {
-  const caPath = process.env.DB_SSL_CA_PATH;
-  if (!caPath) return undefined;
-  try {
-    return { ca: fs.readFileSync(caPath, 'utf8') };
-  } catch {
-    console.error('❌ ERROR: DB_SSL_CA_PATH is set but the CA certificate could not be read. Refusing to start.');
-    process.exit(1);
-  }
+// self-signed certificate. Supplying the CA (DB_SSL_CA_PATH) keeps
+// `trustServerCertificate` at false instead of disabling certificate
+// validation: the bundle becomes the ONLY trust anchor injected via
+// `cryptoCredentialsDetails`. Missing/unreadable/non-PEM files FAIL CLOSED.
+let dbCa: DbCaBundle | undefined;
+try {
+  dbCa = readCaCertificate(process.env.DB_SSL_CA_PATH);
+} catch (error: any) {
+  console.error(`❌ ERROR: ${error.message}`);
+  process.exit(1);
 }
-
-const dbCa = loadDbCa();
 
 // Production has NO fallbacks (invalid values were rejected above); development
 // keeps the local SQL Express defaults so the local workflow is unchanged.
@@ -48,33 +45,24 @@ const dbDatabase = process.env.DB_NAME || (isProduction ? undefined : 'DormMaste
 const dbPort = parseInt(process.env.DB_PORT || '1433', 10);
 const dbInstance = process.env.DB_INSTANCE || undefined;
 
-// Production keeps `trustServerCertificate: false` so a private/self-signed SQL
-// Server certificate is still validated against the trusted CA (DB_SSL_CA_PATH).
-// DB_TRUST_SERVER_CERT=true is the explicit opt-out for instances that only carry
-// SQL Server's auto-generated self-signed certificate (the mssql container
-// fallback cert). It lowers protection to encryption-without-authentication, so
-// it is only safe when the DB is reached over a private, non-routable network.
-// It never affects `encrypt`, which stays on in production either way.
-const trustServerCertificate =
-  process.env.DB_TRUST_SERVER_CERT === 'true'
-    ? true
-    : process.env.NODE_ENV === 'production'
-      ? false
-      : true;
-
-if (isProduction && trustServerCertificate) {
-  console.warn(
-    '⚠️  DB_TRUST_SERVER_CERT=true — the SQL Server certificate will NOT be verified. ' +
-      'Traffic stays encrypted, but the server identity is unverified. Use only over a private network.',
-  );
-}
-
+// Production ALWAYS validates the SQL Server certificate: encryption is on and
+// `trustServerCertificate` is false, with NO environment escape hatch (such as
+// the former DB_TRUST_SERVER_CERT) that could silently disable verification.
+// For instances using a private or self-signed certificate, inject the trusted
+// CA via DB_SSL_CA_PATH (read above) so the certificate is validated against it
+// instead of being ignored. Development keeps encryption off and
+// trustServerCertificate on for the local workflow.
+//
+// `serverName` (from the pinned cert's CN) is applied when available: SQL
+// Server's auto-generated certificate has no SAN and a CN that never matches the
+// container hostname, so the hostname check must be pointed at the pinned
+// identity — validation against the trust anchor stays fully enabled.
 const sharedOptions = {
   encrypt: process.env.NODE_ENV === 'production',
-  trustServerCertificate,
+  trustServerCertificate: process.env.NODE_ENV === 'production' ? false : true,
   enableArithAbort: true,
   connectTimeout: 30000,
-  ...(dbCa ? { cryptoCredentialsDetails: dbCa } : {}),
+  ...(dbCa ? { cryptoCredentialsDetails: { ca: dbCa.ca }, ...(dbCa.serverName ? { serverName: dbCa.serverName } : {}) } : {}),
 } as any;
 
 const config: knex.Knex.Config = {

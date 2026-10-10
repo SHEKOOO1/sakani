@@ -256,6 +256,12 @@ export function Layout({ children }: { children?: React.ReactNode }) {
   return (
     <>
       <PageHelmet title={viewTitles[currentView]} description={currentView === 'radio' ? 'راديو 5:14 — استمع إلى البث المباشر والبرامج المسيحية' : undefined} />
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:right-3 focus:z-[9999] focus:bg-white dark:focus:bg-card-dark focus:text-primary-700 focus:px-5 focus:py-3 focus:rounded-xl focus:shadow-xl focus:text-sm font-black"
+      >
+        تخطَّ إلى المحتوى
+      </a>
       <div className={`flex h-screen overflow-hidden ${darkMode ? 'dark' : ''} bg-surface dark:bg-surface-dark`} dir="rtl">
       <div className="fixed inset-0 bg-surface dark:bg-surface-dark transition-colors duration-500 -z-10" />
 
@@ -355,6 +361,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
           <div className="flex items-center gap-2 sm:gap-4 flex-1">
             <button
               onClick={() => setIsSidebarOpen(true)}
+              aria-label="فتح القائمة الجانبية"
               className="p-2.5 bg-surface dark:bg-white/5 text-slate-600 dark:text-white rounded-xl md:hidden hover:bg-slate-100 dark:hover:bg-white/10 transition-all"
             >
               <Menu size={20} />
@@ -382,7 +389,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
 
             <div className="flex items-center gap-1 sm:gap-3">
               <TenantSelector />
-              <div className="hidden sm:block">
+              <div className="block">
                 <NotificationBell onNavigate={(sid) => { setSharedProfileStudentId(sid); setCurrentView('shared_profile'); }} onNavigateToFinance={(sid) => {
                   const role = user?.role?.toLowerCase();
                   if (role === 'parent') {
@@ -420,7 +427,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto custom-scrollbar">
+        <main id="main-content" className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="min-h-full p-3 md:p-4 lg:p-5">
             <ErrorBoundary fallback={null}><Suspense fallback={null}><BroadcastTicker /></Suspense></ErrorBoundary>
             {children && React.Children.count(children) > 0 ? children : (

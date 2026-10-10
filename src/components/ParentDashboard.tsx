@@ -449,7 +449,7 @@ export function ParentDashboard() {
                       onClick={() => setViewerFile({ id: doc.id, file_name: doc.file_name, doc_type: doc.doc_type, file_path: doc.file_path })}
                       className="w-full text-left flex items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
                       {isImg && src ? (
-                        <img src={src} alt="" className="w-10 h-10 object-cover rounded-lg border border-white/10" />
+                        <img src={src} alt="" className="w-10 h-10 object-cover rounded-lg border border-white/10"  loading="lazy" decoding="async" />
                       ) : (
                         <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-500/20 dark:text-primary-400">
                           <FileText size={16} />

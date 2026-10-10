@@ -22,14 +22,14 @@ export function EventCompetitionView({
   const canManageCompetition = selectedEvent?.canManage || hasPermission(AppPermission.MANAGE_COMPETITIONS);
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} key="competition" className="space-y-10">
-      <div className="flex justify-between items-center bg-white dark:bg-white/5 p-8 rounded-card border border-slate-100 dark:border-white/10">
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 bg-white dark:bg-white/5 p-5 sm:p-8 rounded-card border border-slate-100 dark:border-white/10">
         <div>
           <h3 className="text-3xl font-black text-slate-900 dark:text-white">لوحة تنافس الفرق</h3>
           <p className="text-xs text-amber-400 font-bold mt-1 uppercase tracking-widest flex items-center gap-2">
             <Trophy size={14} /> التحدي الجاري: {selectedEvent.title}
           </p>
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           {canManageCompetition && (
             <button
               onClick={handleCallCompetition}
@@ -108,7 +108,7 @@ export function EventCompetitionView({
           <h4 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-3">
             <Rocket className="text-neon-secondary" size={20} /> العمليات السريعة والتقييم
           </h4>
-          <div className="bg-white dark:bg-white/5 rounded-card border border-slate-100 dark:border-white/5 p-8 space-y-8">
+          <div className="bg-white dark:bg-white/5 rounded-card border border-slate-100 dark:border-white/5 p-5 sm:p-8 space-y-8">
             <div className="space-y-4">
               <p className="text-xs text-slate-500 font-black uppercase tracking-widest">توزيع درجات فورية</p>
               {canManageCompetition ? (

@@ -300,13 +300,13 @@ export function AudioBroadcastTab({
                     <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-slate-100 dark:bg-slate-800/50 ring-1 ring-slate-200 dark:ring-white/10">
                       <img src={item.cover_url || DEFAULT_COVER} alt=""
                         className="w-full h-full object-cover"
-                        onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }} />
+                        onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }}  loading="lazy" decoding="async" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-black text-slate-900 dark:text-white truncate">{item.title}</p>
                       <p className="text-xs font-bold text-slate-500 truncate">{item.artist || 'راديو 5:14'}</p>
                     </div>
-                    <span className="text-[10px] text-slate-400 font-bold hidden sm:block">{timeAgo(item.played_at)}</span>
+                    <span className="text-[10px] text-slate-400 font-bold">{timeAgo(item.played_at)}</span>
                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/10 rounded-lg">
                       <Heart size={12} className={item.liked_by_me ? 'fill-amber-500 text-amber-500' : 'text-slate-400'} />
                       <span className="text-[10px] font-bold text-slate-500">{item.likes}</span>
@@ -369,7 +369,7 @@ export function AudioBroadcastTab({
                   fetchAll();
                 };
                 return (
-                  <div className="grid grid-cols-7 gap-1.5 max-h-[500px] overflow-y-auto custom-scrollbar">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-1.5 max-h-[500px] overflow-y-auto custom-scrollbar">
                     {weekDates.map((date, i) => {
                       const dateStr = date.toLocaleDateString('en-CA');
                       const dayBroadcasts = broadcasts.filter(b => b.is_active && b.scheduled_at).filter(b => {
@@ -436,7 +436,7 @@ export function AudioBroadcastTab({
                       <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-100 dark:bg-slate-800/50 ring-1 ring-slate-200 dark:ring-white/10">
                         <img src={b.cover_image || DEFAULT_COVER} alt=""
                           className="w-full h-full object-cover"
-                          onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }} />
+                          onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }}  loading="lazy" decoding="async" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">

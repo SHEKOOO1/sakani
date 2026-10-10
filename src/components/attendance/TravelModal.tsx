@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Loader2
 } from 'lucide-react';
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 
 interface TravelModalProps {
   open: boolean;
@@ -29,6 +30,7 @@ export function TravelModal({
   loading,
   onSubmit,
 }: TravelModalProps) {
+  useCloseOnEscape(onClose, open);
   return (
     <AnimatePresence>
       {open && (

@@ -51,7 +51,7 @@ export const BroadcastFormModal: React.FC<BroadcastFormModalProps> = ({
                   <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-slate-100 dark:bg-slate-800/50 ring-1 ring-slate-200 dark:ring-white/10">
                     {formData.cover_image ? (
                       <img src={formData.cover_image} alt="" className="w-full h-full object-cover"
-                        onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }} />
+                        onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }}  loading="lazy" decoding="async" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-slate-300"><Image size={20} /></div>
                     )}

@@ -318,7 +318,7 @@ export function EventDetailModal({
                           {receiptPreview && (
                             <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 cursor-pointer"
                               onClick={() => window.open(receiptPreview, '_blank')}>
-                              <img src={receiptPreview} alt="Receipt" className="w-full h-full object-cover" />
+                              <img src={receiptPreview} alt="Receipt" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                             </div>
                           )}
                         </div>
@@ -508,7 +508,7 @@ export function EventDetailModal({
                               {receiptPreview && (
                                 <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 cursor-pointer"
                                   onClick={() => window.open(receiptPreview, '_blank')}>
-                                  <img src={receiptPreview} alt="Receipt" className="w-full h-full object-cover" />
+                                  <img src={receiptPreview} alt="Receipt" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                                 </div>
                               )}
                             </div>

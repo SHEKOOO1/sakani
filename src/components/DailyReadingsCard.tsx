@@ -108,7 +108,7 @@ export function DailyReadingsCard() {
       className="bg-white dark:bg-card-dark rounded-[2.5rem] border border-slate-100 dark:border-white/[0.05] shadow-sm overflow-hidden"
     >
       <button onClick={() => setCardExpanded(!cardExpanded)} className="relative w-full bg-gradient-to-l from-amber-600/10 via-amber-500/5 to-transparent dark:from-amber-500/10 dark:via-amber-400/5 p-8 pb-6 border-b border-slate-100 dark:border-white/[0.05] text-right">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-center shadow-sm">
               <BookOpen size={28} />
@@ -127,11 +127,11 @@ export function DailyReadingsCard() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="p-2 bg-amber-200/50 dark:bg-amber-500/20 rounded-xl text-amber-600 dark:text-amber-400">
               {cardExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </div>
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 dark:bg-amber-500/10 rounded-full border border-amber-100 dark:border-amber-500/20">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 dark:bg-amber-500/10 rounded-full border border-amber-100 dark:border-amber-500/20">
               <CrossIcon size={12} className="text-amber-500 dark:text-amber-400" />
               <span className="text-[10px] font-black text-amber-700 dark:text-amber-300">الكنيسة القبطية الأرثوذكسية</span>
             </div>

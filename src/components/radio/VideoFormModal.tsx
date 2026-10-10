@@ -92,7 +92,7 @@ export const VideoFormModal: React.FC<VideoFormModalProps> = ({
                 <label className="text-[10px] font-black text-slate-500 px-2">صورة الحلقة (اختياري)</label>
                 {formData.thumbnail && (
                   <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 mb-2">
-                    <img src={formData.thumbnail} alt="thumbnail" className="w-full h-full object-cover" />
+                    <img src={formData.thumbnail} alt="thumbnail" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                     <button onClick={() => onChange({ ...formData, thumbnail: '' })}
                       className="absolute top-2 left-2 p-1 bg-black/50 backdrop-blur-sm text-white rounded-lg hover:bg-black/70 transition-all">
                       <X size={14} />

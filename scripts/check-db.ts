@@ -1,8 +1,8 @@
 import knex from 'knex';
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { assertProductionDbConfig, describeDbConfigRejection } from '../src/backend/config/db-config';
+import { readCaCertificate } from '../src/backend/config/db-ca';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -24,14 +24,13 @@ async function main() {
   }
 
   // Honor DB_SSL_CA_PATH; never disable certificate validation in production.
-  let ca: { ca: string } | undefined;
-  if (process.env.DB_SSL_CA_PATH) {
-    try {
-      ca = { ca: fs.readFileSync(process.env.DB_SSL_CA_PATH, 'utf8') };
-    } catch {
-      console.error('DB_SSL_CA_PATH is set but the CA certificate could not be read. Refusing to run.');
-      process.exit(1);
-    }
+  // The helper fails closed on missing/unreadable/non-PEM bundles.
+  let ca: ReturnType<typeof readCaCertificate>;
+  try {
+    ca = readCaCertificate(process.env.DB_SSL_CA_PATH);
+  } catch (error: any) {
+    console.error(`❌ ${error.message}`);
+    process.exit(1);
   }
 
   const config = {
@@ -47,7 +46,7 @@ async function main() {
         trustServerCertificate: !isProduction,
         enableArithAbort: true,
         connectTimeout: 10000,
-        ...(ca ? { cryptoCredentialsDetails: ca } : {}),
+        ...(ca ? { cryptoCredentialsDetails: { ca: ca.ca }, ...(ca.serverName ? { serverName: ca.serverName } : {}) } : {}),
       }
     },
     pool: { min: 1, max: 1, acquireTimeoutMillis: 15000 }

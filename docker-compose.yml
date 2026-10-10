@@ -28,6 +28,13 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      # P0-4: for a SQL Server using a private/self-signed certificate, put the
+      # PEM (server cert or its CA) at ./ssl/db/ca.pem and set
+      # DB_SSL_CA_PATH=./ssl/db/ca.pem in .env (relative to /app, where this dir
+      # is mounted). Production STILL validates the certificate
+      # (trustServerCertificate=false); the bundle is the explicit trust anchor,
+      # never a validation bypass.
+      - ./ssl/db:/app/ssl/db:ro
     restart: unless-stopped
 
   nginx:

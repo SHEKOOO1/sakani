@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 
 interface ApartmentFormData {
   name: string;
@@ -22,6 +23,7 @@ interface ApartmentFormModalProps {
 }
 
 export function ApartmentFormModal({ isOpen, isEditing, formData, onFormDataChange, onSubmit, onClose }: ApartmentFormModalProps) {
+  useCloseOnEscape(onClose, isOpen);
   if (!isOpen) return null;
 
   const update = (field: keyof ApartmentFormData, value: any) => {

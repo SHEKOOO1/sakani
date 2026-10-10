@@ -304,17 +304,17 @@ export function FinancePage() {
               <p className="text-white/70 mt-1 font-bold">تتبع كافة الإيرادات والمصروفات الخاصة بالمجمع السكني.</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button 
               onClick={() => { setShowReport(false); fetchReport(); }}
-              className="flex items-center gap-2 px-5 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all font-medium border border-white/10"
+              className="flex items-center gap-2 px-4 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all font-medium border border-white/10"
             >
               <BarChart3 size={18} />
               <span>تقارير</span>
             </button>
             <button 
               onClick={() => { setShowReport(false); setShowStudentAccounts(!showStudentAccounts); }}
-              className={`flex items-center gap-2 px-5 py-2.5 backdrop-blur-sm text-white rounded-xl transition-all font-medium border ${showStudentAccounts ? 'bg-white/40 border-white/30' : 'bg-white/20 hover:bg-white/30 border-white/10'}`}
+              className={`flex items-center gap-2 px-4 py-2.5 backdrop-blur-sm text-white rounded-xl transition-all font-medium border ${showStudentAccounts ? 'bg-white/40 border-white/30' : 'bg-white/20 hover:bg-white/30 border-white/10'}`}
             >
               <Users size={18} />
               <span>حسابات الطلاب</span>
@@ -322,7 +322,7 @@ export function FinancePage() {
             <div ref={exportRef} className="relative">
               <button 
                 onClick={() => setShowExportMenu(!showExportMenu)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all font-medium border border-white/10"
+                className="flex items-center gap-2 px-4 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all font-medium border border-white/10"
               >
                 <Download size={18} />
                 <span>تصدير</span>
@@ -343,7 +343,7 @@ export function FinancePage() {
             </div>
             <button 
               onClick={openCreateModal}
-              className="flex items-center gap-2 px-6 py-2.5 bg-white text-primary-600 rounded-xl hover:bg-primary-50 transition-all shadow-lg font-medium"
+              className="flex min-w-[10rem] flex-1 items-center justify-center gap-2 px-5 py-2.5 bg-white text-primary-600 rounded-xl hover:bg-primary-50 transition-all shadow-lg font-medium sm:flex-none"
             >
               <Plus size={18} />
               <span>إضافة معاملة</span>

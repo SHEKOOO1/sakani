@@ -28,7 +28,7 @@ export function LinkedPlaylistSection({ linkedBroadcast, linkedBroadcastItems, p
             <div className="w-14 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-200 dark:bg-slate-700">
               {item.item_thumbnail && (
                 <img src={item.item_thumbnail} alt={item.item_title} className="w-full h-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}  loading="lazy" decoding="async" />
               )}
             </div>
             <div className="flex-1 min-w-0">

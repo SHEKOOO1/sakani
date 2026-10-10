@@ -1,5 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, X } from 'lucide-react';
+import { useCloseOnEscape } from '../hooks/useCloseOnEscape';
+import { FocusTrap } from './FocusTrap';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -22,10 +24,12 @@ export function ConfirmationModal({
   cancelText = 'إلغاء',
   type = 'danger'
 }: ConfirmationModalProps) {
+  useCloseOnEscape(onClose, isOpen);
   return (
     <AnimatePresence>
       {isOpen && (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" dir="rtl">
+      <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" dir="rtl">
+        <FocusTrap active={isOpen}>
         <motion.div
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -67,6 +71,7 @@ export function ConfirmationModal({
             </button>
           </div>
         </motion.div>
+        </FocusTrap>
       </div>
       )}
     </AnimatePresence>

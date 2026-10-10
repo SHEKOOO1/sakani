@@ -104,10 +104,22 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
     }
   };
 
+  // إغلاق القائمة بزر Escape (إمكانية وصول)
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen]);
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
+        aria-label="الإشعارات"
+        aria-expanded={isOpen}
         className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
       >
         <Bell size={20} />
@@ -124,7 +136,7 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute left-0 mt-4 w-80 bg-white rounded-[2rem] shadow-2xl border border-slate-100 z-50 overflow-hidden"
+            className="absolute left-0 mt-4 w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-[2rem] shadow-2xl border border-slate-100 z-50 overflow-hidden"
           >
             <div className="p-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
               <h3 className="font-black text-slate-800">التنبيهات</h3>
@@ -181,7 +193,7 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
                             <p className="text-xs text-slate-500 leading-relaxed font-bold">{n.message}</p>
                             {meta?.receipt_image && (
                               <div className="mt-2">
-                                <img src={normalizeFilePath(meta.receipt_image)} alt="Receipt" className="w-full max-h-32 object-contain rounded-xl border border-slate-200 bg-slate-50" />
+                                <img src={normalizeFilePath(meta.receipt_image)} alt="Receipt" className="w-full max-h-32 object-contain rounded-xl border border-slate-200 bg-slate-50"  loading="lazy" decoding="async" />
                               </div>
                             )}
                             {meta?.kind === 'excuse_review' && meta?.excuse_id && !settledExcuses[meta.excuse_id] && (

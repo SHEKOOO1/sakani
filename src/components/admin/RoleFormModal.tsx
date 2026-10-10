@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShieldPlus, X, Save, Eye, EyeOff } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 
 export interface CustomRole {
   id: string;
@@ -348,6 +349,7 @@ export { PERMISSION_GROUPS, ROLE_TEMPLATES };
 export function RoleFormModal({ open, onClose, editingRole, isAdmin, onSaved }: RoleFormModalProps) {
   const { request } = useApi();
   const { showSnackbar } = useSnackbar();
+  useCloseOnEscape(onClose, open);
 
   const [roleName, setRoleName] = useState('');
   const [selectedPerms, setSelectedPerms] = useState<string[]>([]);

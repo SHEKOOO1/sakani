@@ -52,7 +52,7 @@ export function BroadcastSchedule({ broadcasts, playlists, broadcastReminders, u
             return d;
           });
           return (
-            <div className="grid grid-cols-7 gap-1.5 max-h-[500px] overflow-y-auto custom-scrollbar">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5 max-h-[500px] overflow-y-auto custom-scrollbar">
               {weekDates.map((date, i) => {
                 const dateStr = date.toLocaleDateString('en-CA');
                 const dayBroadcasts = broadcasts.filter((b: any) => b.is_active && b.scheduled_at).filter((b: any) => {
@@ -118,7 +118,7 @@ export function BroadcastSchedule({ broadcasts, playlists, broadcastReminders, u
                 <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-100 dark:bg-slate-800/50 ring-1 ring-slate-200 dark:ring-white/10">
                   <img src={b.cover_image || DEFAULT_COVER} alt=""
                     className="w-full h-full object-cover"
-                    onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }} />
+                    onError={(e) => { const el = e.target as HTMLImageElement; el.src = FALLBACK_COVER; }}  loading="lazy" decoding="async" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">

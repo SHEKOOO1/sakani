@@ -216,7 +216,7 @@ export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ stud
             <div className="flex flex-col items-center gap-4 border-l border-slate-50 dark:border-white/5 pl-8">
               <div className="w-32 h-32 bg-slate-100 dark:bg-white/10 rounded-[2.5rem] overflow-hidden border-4 border-slate-50 dark:border-white/5 shadow-inner">
                 {student.student_photo || student.photo_url ? (
-                  <img src={normalizeFilePath(student.student_photo || student.photo_url)} className="w-full h-full object-cover" />
+                  <img src={normalizeFilePath(student.student_photo || student.photo_url)} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-400">
                     <UserCircle size={64} />
@@ -346,7 +346,7 @@ export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ stud
                       onClick={() => filePath && setViewerFile({ id: file.id, file_name: file.file_name, doc_type: file.doc_type, file_path: filePath })}
                       className="w-full text-left flex items-center gap-3 p-4 bg-slate-50 dark:bg-white/5 rounded-2xl hover:bg-slate-100 dark:hover:bg-white/10 transition-colors group">
                       {isImg && filePath ? (
-                        <img src={normalizeFilePath(filePath)} alt="" className="w-11 h-11 object-cover rounded-xl border border-white/10" />
+                        <img src={normalizeFilePath(filePath)} alt="" className="w-11 h-11 object-cover rounded-xl border border-white/10"  loading="lazy" decoding="async" />
                       ) : (
                         <FileText size={20} className="text-slate-400 dark:text-slate-300 group-hover:text-blue-500" />
                       )}

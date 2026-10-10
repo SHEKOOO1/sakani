@@ -57,7 +57,7 @@ export const PlaylistFormModal: React.FC<PlaylistFormModalProps> = ({
                 <label className="text-[10px] font-black text-slate-500 px-2">صورة البرنامج</label>
                 {formData.cover_image && (
                   <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 mb-2">
-                    <img src={formData.cover_image} alt="cover" className="w-full h-full object-cover" />
+                    <img src={formData.cover_image} alt="cover" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                     <button onClick={() => onChange({ ...formData, cover_image: '' })}
                       className="absolute top-2 left-2 p-1 bg-black/50 backdrop-blur-sm text-white rounded-lg hover:bg-black/70 transition-all">
                       <X size={14} />

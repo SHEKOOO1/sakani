@@ -109,7 +109,7 @@ export function RadioVideoModal({
                             className="group w-32 md:w-36 shrink-0 rounded-xl overflow-hidden border border-white/10 bg-white/5 backdrop-blur-md hover:bg-white/10 transition-all text-right">
                             <div className="aspect-video bg-slate-700/50 relative">
                               {v.thumbnail ? (
-                                <img src={v.thumbnail} alt={v.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                <img src={v.thumbnail} alt={v.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"  loading="lazy" decoding="async" />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center">
                                   <Play size={20} className="text-white/30" />

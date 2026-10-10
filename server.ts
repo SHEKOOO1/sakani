@@ -56,6 +56,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import fs from "fs";
+import crypto from "crypto";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { initializeDb, kdb } from "./src/backend/infrastructure/db.ts";
@@ -203,6 +204,43 @@ try {
 
 async function startServer() {
   const app = express();
+  // لا نكشف محرك الخادم (X-Powered-By) للمهاجم
+  app.disable('x-powered-by');
+  // معرف لكل طلب — يُرسل في الترويسة ويُستخدم في المعالجات والسجلّات لترابط
+  // الأخطاء بطلبات الدعم دون كشف أي تفاصيل داخلية
+  app.use((req, res, next) => {
+    (req as any).requestId = (req as any).requestId || crypto.randomBytes(8).toString('hex');
+    res.setHeader('X-Request-Id', String((req as any).requestId));
+    // ربط أي استجابة 500 بأي مكان في التطبيق بمعرف الطلب وسجلّ الخادم حتى لو
+    // لم تمر بمعالج الأخطاء المركزي (تزيين موضعي لطرق res بلا تغيير في السلوك)
+    const resAny = res as any;
+    if (!resAny.__sakaniPatched) {
+      resAny.__sakaniPatched = true;
+      const origStatus = res.status.bind(res);
+      const origJson = res.json.bind(res);
+      resAny.status = (code: number, ...rest: any[]) => {
+        if (code >= 500) resAny.__sakani500 = code;
+        return origStatus(code, ...rest);
+      };
+      resAny.json = (body: any) => {
+        const s = resAny.__sakani500;
+        if (s && s >= 500) {
+          resAny.__sakani500 = undefined;
+          const rid = String((req as any).requestId || '-');
+          try {
+            console.error(`ServerError (HTTP ${s}) [${rid}]:`, (body && (body as any).message) || '(no message)');
+            const Sentry = global.__SENTRY__;
+            if (Sentry?.captureException && body && (body as any).message) {
+              Sentry.captureException(new Error(`HTTP ${s} [${rid}] ${(body as any).message}`));
+            }
+          } catch {}
+          return origJson({ ...(body || {}), requestId: rid });
+        }
+        return origJson(body);
+      };
+    }
+    next();
+  });
   // Behind exactly one reverse proxy (Nginx Proxy Manager). Without this,
   // express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every
   // request that carries X-Forwarded-For (which NPM always sets in production),
@@ -485,14 +523,16 @@ app.use("/api/items", itemManagersRoutes);
 
   // Global error handler - يمنع تسريب تفاصيل قاعدة البيانات
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Unhandled Error:', err?.message || err);
+    const rid = (req as any).requestId || "-";
+    console.error('Unhandled Error:', err?.message || err, '| requestId:', rid);
     try {
       const Sentry = global.__SENTRY__;
       if (Sentry?.captureException) Sentry.captureException(err);
     } catch {}
     res.status(err?.status || 500).json({
       success: false,
-      message: "حصل خطأ فني. لو سمحت كرر المحاولة أو تواصل مع الدعم الفني."
+      message: "حصل خطأ فني. لو سمحت كرر المحاولة أو تواصل مع الدعم الفني.",
+      requestId: rid,
     });
   });
 
