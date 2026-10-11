@@ -7,7 +7,8 @@ import { kdb, logAuditEvent } from "../infrastructure/db";
 import { invalidateUserPermissionCache } from "../infrastructure/cache.ts";
 import { authenticate, authorizePermission, getAllowedAssignableRoles, computeUserTenantIds } from "./middleware";
 import { validate } from "../validation/middleware";
-import { createUserSchema, updateUserSchema, addToTenantSchema } from "../validation/schemas";
+import { createUserSchema, updateUserSchema, addToTenantSchema, changeUsernameSchema } from "../validation/schemas";
+import { getAllowedUsernameTargets } from "./username-policy";
 import { AppPermission, UserRole } from "../../types/permissions";
 import { validatePermissionsInput, parseStoredPermissionsArray } from "../infrastructure/permission-parser";
 import { canGrantSubset, getEffectivePermissionCodes } from "../infrastructure/permission-grants";
@@ -99,7 +100,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), a
   try {
     const query = kdb("users as u")
       .leftJoin("user_tenant_assignments as uta", "u.id", "uta.user_id")
-      .select("u.id", "u.tenant_id as tenantId", "u.email", "u.name", "u.role", "u.custom_role_id as customRoleId", "u.created_at")
+      .select("u.id", "u.tenant_id as tenantId", "u.email", "u.username", "u.name", "u.role", "u.custom_role_id as customRoleId", "u.created_at")
       .where(function () {
         this.where("u.tenant_id", tenantId).orWhere("uta.tenant_id", tenantId);
       })
@@ -125,9 +126,9 @@ router.get("/search", authenticate, authorizePermission(AppPermission.MANAGE_USE
       .leftJoin("user_tenant_assignments as uta", (join: any) => {
         join.on("u.id", "=", "uta.user_id").andOn("uta.tenant_id", "=", kdb.raw("?", [tenantId]));
       })
-      .select("u.id", "u.name", "u.email", "u.role", "u.tenant_id as homeTenantId")
+      .select("u.id", "u.name", "u.email", "u.username", "u.role", "u.tenant_id as homeTenantId")
       .where(function () {
-        this.where("u.name", "like", searchTerm).orWhere("u.email", "like", searchTerm);
+        this.where("u.name", "like", searchTerm).orWhere("u.email", "like", searchTerm).orWhere("u.username", "like", searchTerm);
       })
       .whereNull("uta.tenant_id") // exclude users already in this tenant
       .whereIn("u.role", allowedRoles);
@@ -179,7 +180,7 @@ router.post("/add-to-tenant", authenticate, authorizePermission(AppPermission.MA
 
 // Create user (Admin/Supervisor Only)
 router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), validate(createUserSchema), async (req, res) => {
-  const { email, password, name, role } = req.body;
+  const { email, username, password, name, role } = req.body;
   const tenantId = req.user.tenantId;
   const creatorRole = req.user.role;
 
@@ -200,14 +201,20 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
     }
     const hashedPassword = await bcrypt.hash(resolvedPassword.password as string, 10);
 
+    // حساب له اسم مستخدم = جاهز للدخول فوراً (activated_at). الحساب بالإيميل فقط
+    // يظل بانتظار التفعيل عبر رابط البريد (السلوك السابق).
+    const activatedAt = username ? new Date() : null;
+
     await kdb.transaction(async trx => {
       await trx("users").insert({
         id,
         tenant_id: tenantId,
-        email,
+        email: email || null,
+        username: username || null,
         password: hashedPassword,
         role,
-        name
+        name,
+        ...(activatedAt ? { activated_at: activatedAt } : {})
       });
 
       if (tenantId) {
@@ -221,7 +228,14 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
       }
     });
 
-    // الحساب الجديد يبقى بانتظار التفعيل حتى يُفتح رابط البريد — والدخول مرفوض قبلها.
+    if (username) {
+      return res.status(201).json({
+        success: true,
+        data: { id, email: email || null, username, name, role, activationEmailSent: false, mailerConfigured: isMailerReady() }
+      });
+    }
+
+    // الحساب الجديد بلا اسم مستخدم يبقى بانتظار التفعيل حتى يُفتح رابط البريد — والدخول مرفوض قبلها.
     // الفشل في الإرسال لا يُسقط إنشاء الحساب (سلوك fail-soft)، والمشرف يُبلَّغ بذلك
     // حتى لا يظن أن المستخدم استلم رسالة بينما لم تصل.
     const invite = await issueActivationInvite(id);
@@ -230,7 +244,8 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
       success: true,
       data: {
         id,
-        email,
+        email: email || null,
+        username: null,
         name,
         role,
         activationEmailSent: invite.emailed,
@@ -238,6 +253,12 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
       }
     });
   } catch (error: any) {
+    if (typeof error?.message === 'string' && error.message.includes('UX_users_username')) {
+      return res.status(409).json({ success: false, message: "اسم المستخدم مستخدم بالفعل" });
+    }
+    if (typeof error?.message === 'string' && error.message.includes("UNIQUE")) {
+      return res.status(409).json({ success: false, message: "البريد الإلكتروني أو اسم المستخدم مستخدم بالفعل" });
+    }
     res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
   }
 });
@@ -274,6 +295,39 @@ router.post("/:id/resend-activation", authenticate, authorizePermission(AppPermi
     res.json({ success: true, message: `تم إرسال رابط التفعيل إلى ${target.email}` });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "فشل إرسال رابط التفعيل. يرجى المحاولة مرة أخرى." });
+  }
+});
+
+// Update current user profile (phone, photo)
+// NOTE: must be declared BEFORE `PUT /:id` below, otherwise the `:id` route
+// swallows `/profile` (id="profile") and profile saves fail with "User not found".
+router.put("/profile", authenticate, async (req, res) => {
+  try {
+    const { phone, photo_url } = req.body;
+    const updateData: any = {};
+    if (phone !== undefined) {
+      const p = String(phone).trim();
+      if (p.length > 50) return res.status(400).json({ success: false, message: "رقم الهاتف غير صالح" });
+      updateData.phone = p;
+    }
+    if (photo_url !== undefined) {
+      const u = String(photo_url).trim();
+      if (u.length > 1000) return res.status(400).json({ success: false, message: "رابط الصورة غير صالح" });
+      // السماح فقط بروابط نسبية داخل التطبيق أو روابط بيانات آمنة (لا روابط خارجية تنفيذية)
+      if (u && !u.startsWith('/uploads/') && !/^https:\/\/[a-z0-9.-]+/i.test(u)) {
+        return res.status(400).json({ success: false, message: "رابط الصورة غير صالح" });
+      }
+      updateData.photo_url = u;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await kdb('users').where({ id: req.user.id }).update(updateData);
+    }
+
+    const user = await kdb('users').where({ id: req.user.id }).first();
+    res.json({ success: true, data: { user: safeUser(user) } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }
 });
 
@@ -408,6 +462,52 @@ router.put("/:id/password", authenticate, authorizePermission(AppPermission.MANA
     res.json({ success: true, message: "تم إعادة تعيين كلمة المرور بنجاح" });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "فشل إعادة تعيين كلمة المرور" });
+  }
+});
+
+// تغيير اسم المستخدم (username) — مقيّد بالتسلسل الهرمي ونطاق السكن معاً.
+// مدير التطبيق يغيّر لمن تحته، الأسقف/الكاهن للمشرفين والكهنة، ومشرف السكن
+// للطلاب والموظفين وأولياء الأمور. القيمة الفارغة تمسح الاسم.
+router.put("/:id/username", authenticate, authorizePermission(AppPermission.MANAGE_USERS), validate(changeUsernameSchema), async (req, res) => {
+  const { id } = req.params;
+  const nextUsername: string | null = req.body.username || null;
+
+  try {
+    const target = await kdb("users").where({ id }).first();
+    if (!target) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    // النطاق المكاني: لا تغيّر اسم مستخدم من خارج سكناتك.
+    if (!(await canManageTargetUser(req, target))) {
+      return res.status(403).json({ success: false, message: "لا تملك صلاحية تعديل هذا المستخدم" });
+    }
+
+    // نطاق الدور: هل دورك يخوّلك تغيير اسم هذا الدور؟
+    const allowedTargets = await getAllowedUsernameTargets(req.user.id, req.user.role);
+    if (!allowedTargets.includes(target.role)) {
+      return res.status(403).json({ success: false, message: "غير مسموح لك بتغيير اسم مستخدم لهذا الدور" });
+    }
+
+    if (nextUsername) {
+      const taken = await kdb("users").where({ username: nextUsername }).whereNot({ id }).first();
+      if (taken) {
+        return res.status(409).json({ success: false, message: "اسم المستخدم مستخدم بالفعل" });
+      }
+    }
+
+    await kdb("users").where({ id }).update({ username: nextUsername });
+
+    res.json({
+      success: true,
+      message: nextUsername ? "تم تحديث اسم المستخدم" : "تم مسح اسم المستخدم",
+      data: { id, username: nextUsername }
+    });
+  } catch (error: any) {
+    if (typeof error?.message === 'string' && (error.message.includes('UX_users_username') || error.message.includes('UNIQUE'))) {
+      return res.status(409).json({ success: false, message: "اسم المستخدم مستخدم بالفعل" });
+    }
+    res.status(500).json({ success: false, message: "فشل تحديث اسم المستخدم" });
   }
 });
 
@@ -920,35 +1020,7 @@ router.get("/profile", authenticate, async (req, res) => {
 });
 
 // Update current user profile (phone, photo)
-router.put("/profile", authenticate, async (req, res) => {
-  try {
-    const { phone, photo_url } = req.body;
-    const updateData: any = {};
-    if (phone !== undefined) {
-      const p = String(phone).trim();
-      if (p.length > 50) return res.status(400).json({ success: false, message: "رقم الهاتف غير صالح" });
-      updateData.phone = p;
-    }
-    if (photo_url !== undefined) {
-      const u = String(photo_url).trim();
-      if (u.length > 1000) return res.status(400).json({ success: false, message: "رابط الصورة غير صالح" });
-      // السماح فقط بروابط نسبية داخل التطبيق أو روابط بيانات آمنة (لا روابط خارجية تنفيذية)
-      if (u && !u.startsWith('/uploads/') && !/^https:\/\/[a-z0-9.-]+/i.test(u)) {
-        return res.status(400).json({ success: false, message: "رابط الصورة غير صالح" });
-      }
-      updateData.photo_url = u;
-    }
-
-    if (Object.keys(updateData).length > 0) {
-      await kdb('users').where({ id: req.user.id }).update(updateData);
-    }
-
-    const user = await kdb('users').where({ id: req.user.id }).first();
-    res.json({ success: true, data: { user: safeUser(user) } });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
-  }
-});
+// (declared above, before `PUT /:id`, so it is not shadowed — see note there)
 
 router.get("/rewards-store", authenticate, async (req, res) => {
   const tenantId = req.user.tenantId;

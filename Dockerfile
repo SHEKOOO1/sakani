@@ -45,7 +45,7 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # (~100k files) and takes tens of minutes on Docker Desktop/Windows. COPY already
 # produces world-readable files (644) and traversable dirs (755), so only the
 # runtime-writable uploads dir needs special handling.
-RUN mkdir -p /app/uploads/documents /app/uploads/radio /app/uploads/broadcasts && \
+RUN mkdir -p /app/uploads/documents /app/uploads/radio /app/uploads/broadcasts /app/uploads/images && \
     chmod +x /usr/local/bin/docker-entrypoint.sh && \
     chown -R appuser:appgroup /app/uploads && \
     chmod -R 775 /app/uploads

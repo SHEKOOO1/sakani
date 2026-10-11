@@ -6,6 +6,7 @@ import { AddStudentModal } from '../components/student/modals/AddStudentModal';
 const defaultFormData = {
   name: '',
   email: '',
+  username: '',
   password: '',
   studentIdNumber: '',
   birthDate: '',

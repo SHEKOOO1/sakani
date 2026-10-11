@@ -56,7 +56,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEES
     const isAdmin = req.user.role === 'admin';
     let query = kdb("users as u")
       .leftJoin("tenants as t", "u.tenant_id", "t.id")
-      .select("u.id", "u.name", "u.email", "u.role", "u.gender", "u.tenant_id", "t.name as tenant_name", "u.custom_role_id", "u.custom_permissions", kdb.raw(`CASE WHEN OBJECT_ID('tenant_custom_roles') IS NOT NULL THEN (SELECT name FROM tenant_custom_roles WHERE id = u.custom_role_id) ELSE NULL END as custom_role_name`), "u.daily_readings_enabled", "u.radio_514_enabled", "u.created_at")
+      .select("u.id", "u.name", "u.email", "u.username", "u.role", "u.gender", "u.tenant_id", "t.name as tenant_name", "u.custom_role_id", "u.custom_permissions", kdb.raw(`CASE WHEN OBJECT_ID('tenant_custom_roles') IS NOT NULL THEN (SELECT name FROM tenant_custom_roles WHERE id = u.custom_role_id) ELSE NULL END as custom_role_name`), "u.daily_readings_enabled", "u.radio_514_enabled", "u.created_at")
       .orderBy("u.created_at", "desc");
 
     if (isAdmin) {
@@ -90,7 +90,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEES
 
 // إضافة موظف جديد وربطه بدور (أساسي أو مخصص)
 router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEES), async (req, res) => {
-  const { name, email, password, role, gender, custom_role_id, tenant_id, daily_readings_enabled, radio_514_enabled } = req.body;
+  const { name, email, username, password, role, gender, custom_role_id, tenant_id, daily_readings_enabled, radio_514_enabled } = req.body;
   const creatorRole = req.user.role;
 
   // تحديد السكن: المدير أو الأسقف ينشئان حساباً شخصياً (بدون سكن) عند عدم التحديد،
@@ -132,6 +132,19 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEE
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // اسم المستخدم اختياري؛ لو أُدخل فهو معرّف دخول فريد عالمياً ويجعل الحساب فعّالاً
+    // فوراً (بدلاً من انتظار رابط تفعيل البريد). بدون اسم مستخدم يبقى السلوك السابق.
+    const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+    if (normalizedUsername) {
+      if (!/^[\p{L}\p{N}._-]{3,50}$/u.test(normalizedUsername)) {
+        return res.status(400).json({ success: false, message: 'اسم المستخدم غير صالح (3-50 حرفاً/رقماً بلا مسافات)' });
+      }
+      const taken = await kdb('users').where({ username: normalizedUsername }).first();
+      if (taken) {
+        return res.status(409).json({ success: false, message: 'اسم المستخدم مستخدم بالفعل' });
+      }
+    }
+
     // التحقق من أن الدور المخصص يخص نفس السكن المستهدف (منع التصعيد عبر سكن آخر)
     if (custom_role_id) {
       if (!targetTenantId) {
@@ -150,13 +163,15 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEE
         id,
         tenant_id: targetTenantId,
         name,
-        email,
+        email: email || null,
+        username: normalizedUsername || null,
         password: hashedPassword,
         role,
         gender: gender || 'male',
         custom_role_id: custom_role_id || null,
         daily_readings_enabled: req.user.role === 'admin' && daily_readings_enabled !== undefined ? (daily_readings_enabled ? 1 : 0) : 1,
         radio_514_enabled: req.user.role === 'admin' && radio_514_enabled !== undefined ? (radio_514_enabled ? 1 : 0) : 1,
+        activated_at: normalizedUsername ? new Date() : null,
         created_at: new Date()
       });
 
@@ -170,9 +185,12 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEE
       }
     });
 
-    res.status(201).json({ success: true, data: { id, name, email, tenant_id: targetTenantId } });
+    res.status(201).json({ success: true, data: { id, name, email: email || null, username: normalizedUsername || null, tenant_id: targetTenantId } });
   } catch (error: any) {
-    if (error.message && error.message.includes("UNIQUE")) {
+    if (typeof error?.message === 'string' && error.message.includes('UX_users_username')) {
+      return res.status(409).json({ success: false, message: "اسم المستخدم مستخدم بالفعل" });
+    }
+    if (typeof error?.message === 'string' && error.message.includes("UNIQUE")) {
       return res.status(400).json({ success: false, message: "البريد الإلكتروني مسجل مسبقاً" });
     }
     res.status(500).json({ success: false, message: "حدث خطأ. لم يتم إنشاء الموظف." });

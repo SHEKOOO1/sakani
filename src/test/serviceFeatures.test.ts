@@ -612,6 +612,122 @@ describe('operator assignment', () => {
   });
 });
 
+// ─── Discounts + images ───
+describe('restaurant discounts', () => {
+  it('stores a discount and image on a new item', async () => {
+    const res = await request('/api/restaurant/items', {
+      method: 'POST',
+      token: signToken(USERS.supervisor),
+      body: { name: 'بيتزا', price: 100, image_url: 'https://img/1.png', discount_type: 'percent', discount_value: 20 },
+    });
+    expect(res.status).toBe(201);
+    const item = dbMock.getRows('restaurant_items').find((i) => i.name === 'بيتزا');
+    expect(item!.discount_type).toBe('percent');
+    expect(item!.discount_value).toBe(20);
+    expect(item!.image_url).toBe('https://img/1.png');
+  });
+
+  it('applies a percentage discount to the order total and line breakdown', async () => {
+    dbMock.setRows('restaurant_items', [
+      { id: 'i3', tenant_id: 'A', name: 'مشويات', price: 20, is_available: 1, is_included_meal: 0, discount_type: 'percent', discount_value: 25 },
+    ]);
+    const res = await request('/api/restaurant/orders', {
+      method: 'POST',
+      token: signToken(USERS.student),
+      body: { items: [{ item_id: 'i3', quantity: 2 }] },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.total).toBe(30);
+    const line = dbMock.getRows('restaurant_order_items')[0];
+    expect(line.unit_price).toBe(15);
+    expect(line.original_unit_price).toBe(20);
+    expect(line.discount_amount).toBe(5);
+    expect(line.line_total).toBe(30);
+  });
+
+  it('applies a fixed-amount discount to the order total', async () => {
+    dbMock.setRows('restaurant_items', [
+      { id: 'i4', tenant_id: 'A', name: 'عصير', price: 20, is_available: 1, is_included_meal: 0, discount_type: 'amount', discount_value: 5 },
+    ]);
+    const res = await request('/api/restaurant/orders', {
+      method: 'POST',
+      token: signToken(USERS.student),
+      body: { items: [{ item_id: 'i4', quantity: 3 }] },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.total).toBe(45);
+  });
+
+  it('ignores discounts on included meals', async () => {
+    dbMock.setRows('restaurant_items', [
+      { id: 'i5', tenant_id: 'A', name: 'فطار', price: 50, is_available: 1, is_included_meal: 1, discount_type: 'percent', discount_value: 50 },
+    ]);
+    const res = await request('/api/restaurant/orders', {
+      method: 'POST',
+      token: signToken(USERS.student),
+      body: { items: [{ item_id: 'i5', quantity: 2 }] },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.total).toBe(0);
+  });
+
+  it('rejects an unknown discount type', async () => {
+    const res = await request('/api/restaurant/items', {
+      method: 'POST',
+      token: signToken(USERS.supervisor),
+      body: { name: 'وجبة', price: 10, discount_type: 'bogus', discount_value: 5 },
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('canteen discounts', () => {
+  it('stores a discount and image on a new product', async () => {
+    const res = await request('/api/canteen/products', {
+      method: 'POST',
+      token: signToken(USERS.supervisor),
+      body: { name: 'شوكولاتة', sell_price: 10, quantity_on_hand: 5, image_url: 'https://img/c.png', discount_type: 'amount', discount_value: 2 },
+    });
+    expect(res.status).toBe(201);
+    const p = dbMock.getRows('canteen_products').find((x) => x.name === 'شوكولاتة');
+    expect(p!.discount_type).toBe('amount');
+    expect(p!.discount_value).toBe(2);
+    expect(p!.image_url).toBe('https://img/c.png');
+  });
+
+  it('applies a percentage discount to the sale total and line breakdown', async () => {
+    dbMock.setRows('canteen_products', [
+      { id: 'p2', tenant_id: 'A', name: 'عصير', sell_price: 10, cost_price: 4, quantity_on_hand: 10, is_active: 1, min_quantity: 1, discount_type: 'percent', discount_value: 10 },
+    ]);
+    const res = await request('/api/canteen/sales', {
+      method: 'POST',
+      token: signToken(USERS.supervisor),
+      body: { sale_ref: 'DISC1', items: [{ product_id: 'p2', quantity: 3 }] },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.total).toBe(27);
+    const line = dbMock.getRows('canteen_sale_items')[0];
+    expect(line.unit_price).toBe(9);
+    expect(line.original_unit_price).toBe(10);
+    expect(line.discount_amount).toBe(1);
+    expect(line.line_total).toBe(27);
+    expect(dbMock.postEntry.mock.calls[0][1].amount).toBe(27);
+  });
+
+  it('never lets a fixed discount drive the unit price below zero', async () => {
+    dbMock.setRows('canteen_products', [
+      { id: 'p3', tenant_id: 'A', name: 'هدية', sell_price: 5, cost_price: 1, quantity_on_hand: 10, is_active: 1, min_quantity: 1, discount_type: 'amount', discount_value: 999 },
+    ]);
+    const res = await request('/api/canteen/sales', {
+      method: 'POST',
+      token: signToken(USERS.supervisor),
+      body: { sale_ref: 'DISC2', items: [{ product_id: 'p3', quantity: 2 }] },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.total).toBe(0);
+  });
+});
+
 // ─── Validation ───
 describe('payload validation', () => {
   it('rejects a restaurant item without a name', async () => {

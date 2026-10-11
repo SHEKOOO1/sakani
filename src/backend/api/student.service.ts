@@ -80,21 +80,42 @@ export class StudentService {
         if (!pool) throw new Error("Database connection pool not found");
 
         const {
-            name, email, password, studentIdNumber, birthDate, college, major, university,
+            name, email, password, username, studentIdNumber, birthDate, college, major, university,
             enrollmentYear, studentPhoto, address, roomId, idCardNumber, billingCycle, agreedPrice,
             governorate, village, churchName, confessionFatherName,
             phoneNumbers, is_servant, is_deacon, servant_services, deacon_rank,
-            parentName, parentEmail, parentPassword, parentPhone, parentRelationType,
+            parentName, parentEmail, parentUsername, parentPassword, parentPhone, parentRelationType,
             doc_types, daily_readings_enabled
         } = data;
 
+        // اسم المستخدم اختياري لكلٍّ من الطالب وولي الأمر: لو أُدخل فهو معرّف دخول
+        // فريد عالمياً ويجعل الحساب فعّالاً فوراً (بدلاً من انتظار رابط التفعيل).
+        const studentUsername = typeof username === 'string' ? username.trim() : '';
+        const parentUsernameClean = typeof parentUsername === 'string' ? parentUsername.trim() : '';
+        const usernamePattern = /^[\p{L}\p{N}._-]{3,50}$/u;
+        if (studentUsername && !usernamePattern.test(studentUsername)) {
+            throw new StudentValidationError('اسم مستخدم الطالب غير صالح (3-50 حرفاً/رقماً بلا مسافات)');
+        }
+        if (parentUsernameClean && !usernamePattern.test(parentUsernameClean)) {
+            throw new StudentValidationError('اسم مستخدم ولي الأمر غير صالح (3-50 حرفاً/رقماً بلا مسافات)');
+        }
+        for (const candidate of [studentUsername, parentUsernameClean]) {
+            if (candidate && await kdb('users').where({ username: candidate }).first()) {
+                throw new StudentValidationError(`اسم المستخدم "${candidate}" مستخدم بالفعل`);
+            }
+        }
+
         let existingParentUserId: string | null = null;
         let existingParentId: string | null = null;
-        if (parentEmail) {
-            const existingResult = await pool.request()
-                .input('email', mssql.NVarChar(255), parentEmail)
-                .input('tenant_id', mssql.NVarChar(128), tenantId)
-                .query(`SELECT u.id as user_id, p.id as parent_id FROM users u LEFT JOIN parents p ON u.id = p.user_id WHERE u.email = @email AND u.role = 'parent' AND u.tenant_id = @tenant_id`);
+        if (parentEmail || parentUsernameClean) {
+            const lookup = pool.request();
+            const whereParts = [`u.role = 'parent'`, 'u.tenant_id = @tenant_id'];
+            const identParts: string[] = [];
+            if (parentEmail) { lookup.input('email', mssql.NVarChar(255), parentEmail); identParts.push('u.email = @email'); }
+            if (parentUsernameClean) { lookup.input('username', mssql.NVarChar(100), parentUsernameClean); identParts.push('u.username = @username'); }
+            whereParts.push('(' + identParts.join(' OR ') + ')');
+            const existingResult = await lookup.input('tenant_id', mssql.NVarChar(128), tenantId)
+                .query(`SELECT u.id as user_id, p.id as parent_id FROM users u LEFT JOIN parents p ON u.id = p.user_id WHERE ${whereParts.join(' AND ')}`);
             if (existingResult.recordset.length > 0) {
                 existingParentUserId = existingResult.recordset[0].user_id;
                 existingParentId = existingResult.recordset[0].parent_id;
@@ -128,14 +149,17 @@ export class StudentService {
             await transaction.request()
                 .input('id', mssql.NVarChar(128), studentUserId)
                 .input('tenant_id', mssql.NVarChar(128), tenantId)
-                .input('email', mssql.NVarChar(255), email)
+                .input('email', mssql.NVarChar(255), email || null)
+                .input('username', mssql.NVarChar(100), studentUsername || null)
                 .input('password', mssql.NVarChar(255), hashedPassword)
                 .input('role', mssql.NVarChar(50), 'student')
                 .input('name', mssql.NVarChar(255), name)
             .input('daily_readings_enabled', mssql.Bit, 1)
-            .query(`INSERT INTO users (id, tenant_id, email, password, role, name, daily_readings_enabled) 
-                        VALUES (@id, @tenant_id, @email, @password, @role, @name, @daily_readings_enabled)`);
-            pendingActivationUserIds.push(studentUserId);
+            .input('activated_at', mssql.DateTime2, studentUsername ? new Date() : null)
+            .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, daily_readings_enabled, activated_at) 
+                        VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @daily_readings_enabled, @activated_at)`);
+            // الحساب المفعّل فوراً (له اسم مستخدم) لا يحتاج رابط بريد تفعيل.
+            if (!studentUsername) pendingActivationUserIds.push(studentUserId);
 
             // 1. إدراج بيانات الطالب الأساسية
             await transaction.request()
@@ -193,9 +217,9 @@ export class StudentService {
                 }
             }
 
-            // 4. إنشاء / ربط ولي الأمر إذا تم تقديم بريد إلكتروني
+            // 4. إنشاء / ربط ولي الأمر إذا تم تقديم بريد إلكتروني أو اسم مستخدم
             let parentUserId: string | null = null;
-            if (parentEmail) {
+            if (parentEmail || parentUsernameClean) {
                 if (existingParentUserId && existingParentId) {
                     // ——— ولي الأمر موجود بالفعل — فقط ربط —
                     parentUserId = existingParentUserId;
@@ -220,13 +244,15 @@ export class StudentService {
                     await transaction.request()
                         .input('id', mssql.NVarChar(128), parentUserId)
                         .input('tenant_id', mssql.NVarChar(128), tenantId)
-                        .input('email', mssql.NVarChar(255), parentEmail)
+                        .input('email', mssql.NVarChar(255), parentEmail || null)
+                        .input('username', mssql.NVarChar(100), parentUsernameClean || null)
                         .input('password', mssql.NVarChar(255), parentHashedPassword)
                         .input('role', mssql.NVarChar(50), 'parent')
                         .input('name', mssql.NVarChar(255), parentFullName)
-                        .query(`INSERT INTO users (id, tenant_id, email, password, role, name) 
-                                VALUES (@id, @tenant_id, @email, @password, @role, @name)`);
-                    pendingActivationUserIds.push(parentUserId);
+                        .input('activated_at', mssql.DateTime2, parentUsernameClean ? new Date() : null)
+                        .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, activated_at) 
+                                VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @activated_at)`);
+                    if (!parentUsernameClean) pendingActivationUserIds.push(parentUserId);
 
                     const guardianId = uuidv4();
                     await transaction.request()

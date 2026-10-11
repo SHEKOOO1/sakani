@@ -13,7 +13,10 @@ import { useStudentSearch } from '../hooks/useStudentSearch';
 import { useStudentProfile } from '../hooks/useStudentProfile';
 
 const defaultFormData = {
-  name: '', email: '', password: '', studentIdNumber: '',
+    name: '',
+  email: '',
+  username: '',
+  password: '', studentIdNumber: '',
   birthDate: '', college: '', major: '', university: '',
   enrollmentYear: new Date().getFullYear(), studentPhoto: '', address: '',
   roomId: '', idCardNumber: '', billingCycle: 'monthly' as 'daily' | 'monthly' | 'semester',
@@ -91,6 +94,7 @@ export function StudentsPage() {
       const fData = new FormData();
       fData.append('name', formData.name);
       fData.append('email', formData.email);
+      fData.append('username', formData.username);
       fData.append('password', formData.password);
       fData.append('studentIdNumber', formData.studentIdNumber);
       fData.append('university', formData.university);

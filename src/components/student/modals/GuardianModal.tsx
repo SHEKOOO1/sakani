@@ -1,9 +1,11 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
+import { ImageUploadField } from '../../common/ImageUploadField';
 
 interface GuardianData {
   name: string;
   email: string;
+  username: string;
   password: string;
   phone: string;
   whatsapp: string;
@@ -56,8 +58,12 @@ export function GuardianModal({ isOpen, onClose, data, onChange, onSave }: Guard
                   <input type="password" value={data.password} onChange={e => onChange({ ...data, password: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" placeholder="كلمة المرور الافتراضية" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">البريد الإلكتروني</label>
-                  <input type="email" value={data.email} onChange={e => onChange({ ...data, email: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" placeholder="parent@mail.com" />
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">البريد الإلكتروني (اختياري)</label>
+                  <input type="email" value={data.email || ''} onChange={e => onChange({ ...data, email: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" placeholder="parent@mail.com" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">كلمة المرور</label>
+                  <input type="password" value={data.password} onChange={e => onChange({ ...data, password: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" placeholder="يستخدم مع البريد الإلكتروني" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">صلة القرابة</label>
@@ -78,6 +84,9 @@ export function GuardianModal({ isOpen, onClose, data, onChange, onSave }: Guard
                 <div className="space-y-2 col-span-2">
                   <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">الوظيفة</label>
                   <input type="text" value={data.occupation} onChange={e => onChange({ ...data, occupation: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                </div>
+                <div className="col-span-2">
+                  <ImageUploadField label="صورة ولي الأمر" value={data.photo || ''} onChange={(url) => onChange({ ...data, photo: url })} />
                 </div>
               </div>
               <button onClick={onSave} className="neon-btn neon-btn-primary w-full py-5 text-sm shadow-glow mt-6">

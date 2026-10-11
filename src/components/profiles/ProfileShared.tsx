@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
-import { Camera, Save, Phone, Mail, Shield, ChevronDown, ChevronUp, CheckCircle, XCircle } from 'lucide-react';
+import { Camera, Save, Phone, Mail, Shield, ChevronDown, ChevronUp, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { getRolePermissionGroups, getRoleDescription } from './rolesConfig';
+import { uploadImage } from '../../utils/uploadImage';
 
 export function RoleBadge({ role }: { role: string }) {
   const labels: Record<string, string> = {
@@ -29,12 +30,25 @@ export function RoleBadge({ role }: { role: string }) {
 }
 
 export function AvatarUpload({ currentUrl, name, onSave }: { currentUrl?: string; name: string; onSave: (url: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (inputRef.current) inputRef.current.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onSave(reader.result as string);
-    reader.readAsDataURL(file);
+    setUploading(true);
+    setError('');
+    try {
+      // رفع فعلي إلى الخادم ثم حفظ الرابط الدائم (بدل base64 الذي يرفضه الخادم)
+      const url = await uploadImage(file);
+      onSave(url);
+    } catch (err: any) {
+      setError(err?.message || 'فشل رفع الصورة');
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -47,9 +61,10 @@ export function AvatarUpload({ currentUrl, name, onSave }: { currentUrl?: string
         )}
       </div>
       <label className="absolute -bottom-1 -left-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary-600 to-vibrant-600 text-white flex items-center justify-center cursor-pointer hover:brightness-110 transition-all shadow-lg">
-        <Camera size={14} />
-        <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
+        {uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+        <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" onChange={handleFile} className="hidden" disabled={uploading} />
       </label>
+      {error && <p className="absolute -bottom-6 right-0 text-[10px] font-bold text-rose-500 whitespace-nowrap">{error}</p>}
     </div>
   );
 }

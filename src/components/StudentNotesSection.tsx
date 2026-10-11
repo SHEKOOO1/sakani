@@ -108,7 +108,7 @@ export const StudentNotesSection: React.FC<StudentNotesSectionProps> = ({ studen
       </h3>
 
       {/* Add New Note */}
-      {['priest', 'supervisor', 'assistant_supervisor', 'bishop', 'admin'].includes(user?.role?.toLowerCase() || '') && (
+      {['priest', 'supervisor'].includes(user?.role?.toLowerCase() || '') && (
         <form onSubmit={handleAddNote} className="relative">
           <textarea
             value={newNote}

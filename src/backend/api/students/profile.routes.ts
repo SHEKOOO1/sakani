@@ -17,9 +17,15 @@ const router = express.Router();
 const canAccessStudentTenant = async (req: any, tenantId: string | null): Promise<boolean> => {
   if (req.user.role === 'admin') return true;
   if (!tenantId) return false;
-  const allowedIds = await computeUserTenantIds(req.user);
-  return allowedIds.includes(tenantId);
+  // مقارنة غير حساسة لحالة الأحرف: معرّفات السكن قد تُخزَّن بأحرف كبيرة/صغيرة مختلفين
+  // بين الجداول، و SQL Server يقارنها بعدم حساسية الحالة لكن JS يقارنها بحساسية.
+  const cached = req.user.tenantIds as string[] | undefined;
+  const allowedIds = cached && cached.length ? cached : await computeUserTenantIds(req.user);
+  return includesId(allowedIds, tenantId);
 };
+
+// ملاحظات الطالب: مخصّصة لمشرف السكن والأب الكاهن فقط (لا يراها أحد غيرهم)
+const STUDENT_NOTES_ROLES = ['priest', 'supervisor'];
 
 // جلب بيانات البروفايل للطالب الحالي (للدخول السريع والباش بورد)
 router.get("/my-profile", authenticate, async (req, res) => {
@@ -498,33 +504,21 @@ router.get("/:id/shared-profile", authenticate, async (req, res) => {
   }
 });
 
-// Student Notes - for priest, supervisor, bishop, and admin (read-only)
+// Student Notes - for priest and supervisor only (private)
 router.get("/:id/notes", authenticate, async (req, res) => {
   const { id } = req.params;
-  const tenantId = req.user.tenantId;
-  const userId = req.user.id;
   const role = req.user.role;
 
-  // Only priest, supervisor, bishop, or admin can view notes
-  if (!['priest', 'supervisor', 'bishop', 'admin'].includes(role)) {
+  // مخصّصة لمشرف السكن والأب الكاهن فقط
+  if (!STUDENT_NOTES_ROLES.includes(role)) {
     return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
   }
 
   try {
-    // التحقق من صلاحية الوصول للطالب بناءً على دور المستخدم
-    let studentQuery = kdb('students as s')
-      .leftJoin('tenants as t', 's.tenant_id', 't.id')
-      .where('s.id', id)
-      .select('s.tenant_id', 't.bishop_id');
+    const student = await kdb('students').where({ id }).select('tenant_id').first();
+    if (!student) return res.status(404).json({ success: false, message: 'الطالب غير موجود' });
 
-    if (role === 'supervisor' || role === 'priest') {
-      studentQuery = studentQuery.where('s.tenant_id', tenantId);
-    } else if (role === 'bishop') {
-      studentQuery = studentQuery.where('t.bishop_id', userId);
-    }
-
-    const hasAccess = await studentQuery.first();
-    if (!hasAccess && role !== 'admin') {
+    if (!(await canAccessStudentTenant(req, student.tenant_id))) {
       return res.status(403).json({ success: false, message: 'غير مصرح بالوصول لبيانات هذا الطالب' });
     }
 
@@ -550,7 +544,8 @@ router.post("/:id/notes", authenticate, async (req, res) => {
   const authorUser = await kdb('users').where({ id: authorId }).select('name').first();
   const authorName = authorUser?.name || 'مشرف السكن';
 
-  if (role !== 'priest' && role !== 'supervisor' && role !== 'bishop' && role !== 'admin') {
+  // مخصّصة لمشرف السكن والأب الكاهن فقط
+  if (!STUDENT_NOTES_ROLES.includes(role)) {
     return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
   }
   if (!content || !content.trim()) {
@@ -592,7 +587,8 @@ router.delete("/:id/notes/:noteId", authenticate, async (req, res) => {
   const userId = req.user.id;
   const role = req.user.role;
 
-  if (role !== 'priest' && role !== 'supervisor' && role !== 'bishop' && role !== 'admin') {
+  // مخصّصة لمشرف السكن والأب الكاهن فقط
+  if (!STUDENT_NOTES_ROLES.includes(role)) {
     return res.status(403).json({ success: false, message: 'غير مصرح بالوصول' });
   }
 

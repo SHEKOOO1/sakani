@@ -68,8 +68,20 @@ export async function initializeDb() {
     `);
 
     await kdb.raw(`
-      IF NOT EXISTS (SELECT * FROM sys.objects WHERE name = 'UQ_Users_Email' AND type = 'UQ')
-      ALTER TABLE [dbo].[users] ADD CONSTRAINT UQ_Users_Email UNIQUE (email);
+      -- اسم المستخدم + البريد اختياري (mirrors migrations/052): قيد UNIQUE العادي
+      -- يعامل كل NULL كمتساوية (يسمح بـ NULL واحد)، لذا نستبدله بفهرس مفلتر يسمح
+      -- بحسابات متعددة تدخل باسم المستخدم فقط بلا بريد.
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'username')
+      ALTER TABLE [dbo].[users] ADD [username] NVARCHAR(100) NULL;
+
+      IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'email' AND is_nullable = 0)
+      ALTER TABLE [dbo].[users] ALTER COLUMN [email] NVARCHAR(255) NULL;
+
+      IF EXISTS (SELECT * FROM sys.objects WHERE name = 'UQ_Users_Email' AND type = 'UQ' AND parent_object_id = OBJECT_ID('users'))
+      ALTER TABLE [dbo].[users] DROP CONSTRAINT UQ_Users_Email;
+
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_users_email' AND object_id = OBJECT_ID('users'))
+      CREATE UNIQUE INDEX [UX_users_email] ON [dbo].[users] ([email]) WHERE [email] IS NOT NULL;
 
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'PK_user_tenant_assignments' AND object_id = OBJECT_ID('user_tenant_assignments'))
       BEGIN
@@ -95,6 +107,13 @@ export async function initializeDb() {
       -- Event attendance parent unique
       IF NOT EXISTS (SELECT * FROM sys.objects WHERE name = 'UQ_Event_Attendance_Parent' AND type = 'UQ')
       ALTER TABLE [dbo].[event_attendance] ADD CONSTRAINT UQ_Event_Attendance_Parent UNIQUE (event_id, parent_user_id);
+    `);
+
+    // فهرس اسم المستخدم الفريد — دفعة مستقلة لأن SQL Server يترجم الدفعة كاملة قبل
+    // التنفيذ، فالمرجع لعمود `username` المُضاف للتو يفشل لو كان في نفس الدفعة.
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_users_username' AND object_id = OBJECT_ID('users'))
+      CREATE UNIQUE INDEX [UX_users_username] ON [dbo].[users] ([username]) WHERE [username] IS NOT NULL;
     `);
 
     // أعمدة مفقودة لجدول المستخدمين
@@ -426,6 +445,8 @@ export async function initializeDb() {
           [is_included_meal] BIT NOT NULL DEFAULT 0,
           [sort_order] INT NOT NULL DEFAULT 0,
           [image_url] NVARCHAR(500) NULL,
+          [discount_type] NVARCHAR(10) NULL,
+          [discount_value] DECIMAL(10,2) NOT NULL DEFAULT 0,
           [created_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
           [updated_at] DATETIME2 NOT NULL DEFAULT GETDATE()
         );
@@ -477,6 +498,8 @@ export async function initializeDb() {
           [unit_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
           [quantity] INT NOT NULL DEFAULT 1,
           [line_total] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [original_unit_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [discount_amount] DECIMAL(10,2) NOT NULL DEFAULT 0,
           [is_included_meal] BIT NOT NULL DEFAULT 0
         );
       END;
@@ -509,6 +532,9 @@ export async function initializeDb() {
           [sell_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
           [quantity_on_hand] DECIMAL(12,3) NOT NULL DEFAULT 0,
           [min_quantity] DECIMAL(12,3) NOT NULL DEFAULT 0,
+          [image_url] NVARCHAR(500) NULL,
+          [discount_type] NVARCHAR(10) NULL,
+          [discount_value] DECIMAL(10,2) NOT NULL DEFAULT 0,
           [is_active] BIT NOT NULL DEFAULT 1,
           [created_at] DATETIME2 NOT NULL DEFAULT GETDATE(),
           [updated_at] DATETIME2 NOT NULL DEFAULT GETDATE()
@@ -575,7 +601,9 @@ export async function initializeDb() {
           [product_name] NVARCHAR(200) NOT NULL,
           [quantity] DECIMAL(12,3) NOT NULL,
           [unit_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
-          [line_total] DECIMAL(10,2) NOT NULL DEFAULT 0
+          [line_total] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [original_unit_price] DECIMAL(10,2) NOT NULL DEFAULT 0,
+          [discount_amount] DECIMAL(10,2) NOT NULL DEFAULT 0
         );
       END;
     `);
@@ -589,6 +617,42 @@ export async function initializeDb() {
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_canteen_operators_tenant_user' AND object_id = OBJECT_ID('canteen_operators')) CREATE UNIQUE INDEX UX_canteen_operators_tenant_user ON canteen_operators (tenant_id, user_id);
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_canteen_sales_tenant_ref' AND object_id = OBJECT_ID('canteen_sales')) CREATE UNIQUE INDEX UX_canteen_sales_tenant_ref ON canteen_sales (tenant_id, sale_ref);
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_canteen_sale_items_sale' AND object_id = OBJECT_ID('canteen_sale_items')) CREATE INDEX IX_canteen_sale_items_sale ON canteen_sale_items (sale_id);
+    `);
+
+    // ─── Discounts + product images (mirrors migrations/049) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_items') AND name = 'discount_type') ALTER TABLE [dbo].[restaurant_items] ADD [discount_type] NVARCHAR(10) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_items') AND name = 'discount_value') ALTER TABLE [dbo].[restaurant_items] ADD [discount_value] DECIMAL(10,2) NOT NULL CONSTRAINT DF_restaurant_items_discount_value DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_order_items') AND name = 'original_unit_price') ALTER TABLE [dbo].[restaurant_order_items] ADD [original_unit_price] DECIMAL(10,2) NOT NULL CONSTRAINT DF_restaurant_order_items_orig DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_order_items') AND name = 'discount_amount') ALTER TABLE [dbo].[restaurant_order_items] ADD [discount_amount] DECIMAL(10,2) NOT NULL CONSTRAINT DF_restaurant_order_items_disc DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_products') AND name = 'image_url') ALTER TABLE [dbo].[canteen_products] ADD [image_url] NVARCHAR(500) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_products') AND name = 'discount_type') ALTER TABLE [dbo].[canteen_products] ADD [discount_type] NVARCHAR(10) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_products') AND name = 'discount_value') ALTER TABLE [dbo].[canteen_products] ADD [discount_value] DECIMAL(10,2) NOT NULL CONSTRAINT DF_canteen_products_discount_value DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sale_items') AND name = 'original_unit_price') ALTER TABLE [dbo].[canteen_sale_items] ADD [original_unit_price] DECIMAL(10,2) NOT NULL CONSTRAINT DF_canteen_sale_items_orig DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sale_items') AND name = 'discount_amount') ALTER TABLE [dbo].[canteen_sale_items] ADD [discount_amount] DECIMAL(10,2) NOT NULL CONSTRAINT DF_canteen_sale_items_disc DEFAULT 0;
+    `);
+
+    // ─── Order/sale customer identity: name / phone / apartment / room (mirrors migrations/051) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'customer_name') ALTER TABLE [dbo].[restaurant_orders] ADD [customer_name] NVARCHAR(255) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'customer_phone') ALTER TABLE [dbo].[restaurant_orders] ADD [customer_phone] NVARCHAR(50) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'apartment_name') ALTER TABLE [dbo].[restaurant_orders] ADD [apartment_name] NVARCHAR(255) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'room_name') ALTER TABLE [dbo].[restaurant_orders] ADD [room_name] NVARCHAR(50) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sales') AND name = 'customer_name') ALTER TABLE [dbo].[canteen_sales] ADD [customer_name] NVARCHAR(255) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sales') AND name = 'customer_phone') ALTER TABLE [dbo].[canteen_sales] ADD [customer_phone] NVARCHAR(50) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sales') AND name = 'apartment_name') ALTER TABLE [dbo].[canteen_sales] ADD [apartment_name] NVARCHAR(255) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sales') AND name = 'room_name') ALTER TABLE [dbo].[canteen_sales] ADD [room_name] NVARCHAR(50) NULL;
+    `);
+
+    // ─── Journal line accounts: allow restaurant/canteen revenue (mirrors migrations/050) ───
+    await kdb.raw(`
+      IF OBJECT_ID('journal_lines') IS NOT NULL
+      BEGIN
+        IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_journal_lines_account' AND parent_object_id = OBJECT_ID('journal_lines'))
+          ALTER TABLE [dbo].[journal_lines] DROP CONSTRAINT [CK_journal_lines_account];
+        ALTER TABLE [dbo].[journal_lines] ADD CONSTRAINT [CK_journal_lines_account]
+          CHECK ([account] IN ('CASH','STUDENT_PAYMENT','ROOM_REVENUE','RESTAURANT_REVENUE','CANTEEN_REVENUE','PENALTY','DISCOUNT','EXPENSE'));
+      END
     `);
 
     // منح الصلاحيات الجديدة للأدوار (مرة واحدة عند غيابها) — يطابق 048

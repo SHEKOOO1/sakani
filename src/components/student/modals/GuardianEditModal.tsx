@@ -5,6 +5,7 @@ interface GuardianEditData {
   id: string;
   name: string;
   email: string;
+  username: string;
   phone: string;
   whatsapp: string;
   occupation: string;
@@ -73,11 +74,15 @@ export function GuardianEditModal({ isOpen, onClose, data, onChange, onSave, sav
                   <input type="text" value={data.occupation || ''} onChange={e => onChange({ ...data, occupation: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
                 </div>
                 <div className="space-y-2 col-span-2">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">البريد الإلكتروني</label>
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">البريد الإلكتروني (اختياري)</label>
                   <input type="email" value={data.email || ''} onChange={e => onChange({ ...data, email: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
                 </div>
+                <div className="space-y-2 col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">اسم المستخدم (للدخول)</label>
+                  <input type="text" value={data.username || ''} onChange={e => onChange({ ...data, username: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" />
+                </div>
                 <div className="space-y-2 col-span-2 border-t border-slate-100 dark:border-white/10 pt-4">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">كلمة المرور الجديدة (اتركه فارغًا إذا لا تريد التغيير)</label>
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 px-2">كلمة المرور الجديدة (اتركه فارغًا إذا لا تريد التغيير — يستخدم مع البريد الإلكتروني)</label>
                   <input type="password" value={data.password || ''} onChange={e => onChange({ ...data, password: e.target.value })} className="w-full p-4 bg-slate-50 dark:bg-white/5 rounded-2xl outline-none font-bold dark:text-white" placeholder="********" />
                 </div>
               </div>

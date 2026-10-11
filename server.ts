@@ -99,6 +99,7 @@ import paymentRoutes from "./src/backend/api/payment.routes.ts";
 import radioRoutes from "./src/backend/api/radio.routes.ts";
 import itemManagersRoutes from "./src/backend/api/itemManagers.routes.ts";
 import uploadsRoutes from "./src/backend/api/uploads.routes.ts";
+import mediaRoutes from "./src/backend/api/media.routes.ts";
 import { startRadiojarService } from "./src/backend/services/radiojar.service.ts";
 import { auditLogger, sanitizeInput, authenticate, authorizePermission, resolveSocketUser } from "./src/backend/api/middleware.ts";
 import { AppPermission } from "./src/types/permissions.ts";
@@ -112,6 +113,8 @@ setInterval(() => {
   const now = Date.now();
   const maxAge = 30 * 24 * 60 * 60 * 1000;
   for (const sub of fs.readdirSync(uploadDir)) {
+    // صور الملفات الشخصية/الوجبات/المنتجات دائمة ومرتبطة بسجلات — لا تُحذف بالتنظيف الدوري
+    if (sub === 'images') continue;
     const subPath = path.join(uploadDir, sub);
     try {
       if (fs.statSync(subPath).isDirectory()) {
@@ -496,6 +499,7 @@ async function startServer() {
   app.use("/api/laundry", laundryRoutes);
   app.use("/api/restaurant", restaurantRoutes);
   app.use("/api/canteen", canteenRoutes);
+  app.use("/api/media", mediaRoutes);
   app.use("/api/inventory", inventoryRoutes);
   app.use("/api/users", userRoutes);
   app.use("/api/stats", statsRoutes);

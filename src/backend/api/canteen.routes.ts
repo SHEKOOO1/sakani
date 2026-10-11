@@ -20,6 +20,8 @@ import { createNotification } from "./notifications.routes";
 import { sameId } from "../infrastructure/id-match";
 import { requireServiceEnabled } from "../infrastructure/service-features";
 import { postEntry, reverseEntry, canteenRevenueLines } from "../services/ledger.service";
+import { priceLine } from "../services/pricing.service";
+import { resolveCustomerIdentity } from "../services/customer-identity.service";
 import { InputError, ConflictError, InsufficientStockError, StockChangedError, affected } from "../infrastructure/domain-errors";
 import { logger } from "../infrastructure/logger.ts";
 
@@ -174,7 +176,7 @@ router.get("/low-stock", authenticate, async (req, res) => {
 router.post("/products", authenticate, requireServiceEnabled("canteen"), authorizePermission(AppPermission.MANAGE_CANTEEN), validate(canteenProductSchema), async (req, res) => {
   const tenantId = req.user.tenantId;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
-  const { name, category_id, unit, barcode, cost_price, sell_price, quantity_on_hand, min_quantity, is_active } = req.body;
+  const { name, category_id, unit, barcode, cost_price, sell_price, quantity_on_hand, min_quantity, is_active, image_url, discount_type, discount_value } = req.body;
   try {
     if (category_id) {
       const cat = await kdb("canteen_categories").where({ id: category_id, tenant_id: tenantId }).first();
@@ -193,6 +195,9 @@ router.post("/products", authenticate, requireServiceEnabled("canteen"), authori
         quantity_on_hand: initialQty,
         min_quantity: min_quantity ?? 0,
         is_active: is_active ? 1 : 0,
+        image_url: image_url || null,
+        discount_type: discount_type || null,
+        discount_value: discount_value ?? 0,
       });
       if (initialQty > 0) {
         await trx("canteen_stock_movements").insert({
@@ -210,7 +215,7 @@ router.post("/products", authenticate, requireServiceEnabled("canteen"), authori
 
 router.put("/products/:id", authenticate, requireServiceEnabled("canteen"), authorizePermission(AppPermission.MANAGE_CANTEEN), validate(updateCanteenProductSchema), async (req, res) => {
   const tenantId = req.user.tenantId;
-  const { name, category_id, unit, barcode, cost_price, sell_price, min_quantity, is_active } = req.body;
+  const { name, category_id, unit, barcode, cost_price, sell_price, min_quantity, is_active, image_url, discount_type, discount_value } = req.body;
   try {
     if (category_id) {
       const cat = await kdb("canteen_categories").where({ id: category_id, tenant_id: tenantId }).first();
@@ -225,6 +230,9 @@ router.put("/products/:id", authenticate, requireServiceEnabled("canteen"), auth
     if (sell_price !== undefined) update.sell_price = sell_price;
     if (min_quantity !== undefined) update.min_quantity = min_quantity;
     if (is_active !== undefined) update.is_active = is_active ? 1 : 0;
+    if (image_url !== undefined) update.image_url = image_url || null;
+    if (discount_type !== undefined) update.discount_type = discount_type || null;
+    if (discount_value !== undefined) update.discount_value = discount_value;
     const changed = await kdb("canteen_products").where({ id: req.params.id, tenant_id: tenantId }).update(update);
     if (!affected(changed)) return res.status(404).json({ success: false, message: "المنتج غير موجود" });
     res.json({ success: true });
@@ -380,6 +388,31 @@ router.get("/assignable-users", authenticate, authorizePermission(AppPermission.
   }
 });
 
+// طلاب السكن (لاختيار المشتري في نقطة البيع) — متاح لمن يستطيع تشغيل الكانتين
+router.get("/students", authenticate, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  if (!tenantId) return res.json({ success: true, data: [] });
+  if (!(await canOperateCanteen(req))) return res.status(403).json({ success: false, message: "غير مسموح بعرض الطلاب" });
+  try {
+    const rows = await kdb("students as s")
+      .leftJoin("users as u", "s.user_id", "u.id")
+      .leftJoin("rooms as r", "s.room_id", "r.id")
+      .leftJoin("apartments as a", "r.apartment_id", "a.id")
+      .select(
+        "s.id",
+        kdb.raw("COALESCE(s.name, u.name) as name"),
+        kdb.raw("COALESCE(s.phone, u.phone) as phone"),
+        "r.room_number as room_name",
+        "a.name as apartment_name",
+      )
+      .where("s.tenant_id", tenantId)
+      .orderBy("name", "asc");
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    respondDomainError(res, e, "canteen.students.list");
+  }
+});
+
 router.post("/operators", authenticate, requireServiceEnabled("canteen"), authorizePermission(AppPermission.MANAGE_CANTEEN_OPERATORS), validate(canteenOperatorSchema), async (req, res) => {
   const { userId } = req.body;
   const tenantId = req.user.tenantId;
@@ -442,6 +475,9 @@ router.post("/sales", authenticate, requireServiceEnabled("canteen"), validate(c
       return res.status(409).json({ success: false, message: "تم تسجيل هذه الفاتورة مسبقًا" });
     }
 
+    // سجّل بيانات صاحب الفاتورة (الاسم/التليفون/الشقة/الغرفة) وقت البيع
+    const identity = await resolveCustomerIdentity({ studentId: student_id || null, userId });
+
     let saleId = "";
     let total = 0;
     await kdb.transaction(async (trx) => {
@@ -464,13 +500,13 @@ router.post("/sales", authenticate, requireServiceEnabled("canteen"), validate(c
           .update({ quantity_on_hand: newQty });
         if (!affected(changed)) throw new StockChangedError(`تغيّرت كمية "${p.name}"، أعد المحاولة`);
 
-        const unitPrice = Number(p.sell_price || 0);
-        const lineTotal = unitPrice * qty;
-        total += lineTotal;
+        const priced = priceLine(p.sell_price, p.discount_type, p.discount_value, qty);
+        total += priced.lineTotal;
         const saleItemId = uuidv4();
         saleRows.push({
           id: saleItemId, sale_id: saleId, product_id: p.id, product_name: p.name,
-          quantity: qty, unit_price: unitPrice, line_total: lineTotal,
+          quantity: qty, unit_price: priced.unitPrice, line_total: priced.lineTotal,
+          original_unit_price: priced.originalUnitPrice, discount_amount: priced.discountAmount,
         });
         movementRows.push({
           id: uuidv4(), tenant_id: tenantId, product_id: p.id,
@@ -486,6 +522,10 @@ router.post("/sales", authenticate, requireServiceEnabled("canteen"), validate(c
         operator_id: userId, student_id: student_id || null,
         total, payment_method: payment_method || "cash",
         status: "completed", note: note || null,
+        customer_name: identity.customer_name,
+        customer_phone: identity.customer_phone,
+        apartment_name: identity.apartment_name,
+        room_name: identity.room_name,
       });
       await trx("canteen_sale_items").insert(saleRows);
       await trx("canteen_stock_movements").insert(movementRows);

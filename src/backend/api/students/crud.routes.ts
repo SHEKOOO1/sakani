@@ -311,6 +311,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.ADD_STUDENT), v
 router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.ADD_STUDENT), async (req, res) => {
   const { id } = req.params;
   const { name, email, password, phone, whatsapp, occupation, relationType, photo } = req.body;
+  const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
   const tenantId = req.user.tenantId;
 
   try {
@@ -318,40 +319,44 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
     const student = await getTenantStudent(id, tenantId);
     if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
 
-    // 0. Search for existing parent by email
+    // 0. البحث عن ولي أمر موجود بالبريد الإلكتروني أو باسم المستخدم
+    let existingUser: any = null;
     if (email) {
-      const existingUser = await kdb("users").where({ email, role: "parent" }).first();
-      if (existingUser) {
-        // حساب ولي الأمر موجود في سكن آخر — لا يجوز ربطه بطلاب هذا السكن
-        if (existingUser.tenant_id && !sameId(existingUser.tenant_id, tenantId)) {
-          return res.status(403).json({ success: false, message: "هذا الحساب مسجل في سكن آخر ولا يمكن ربطه" });
-        }
-        // Parent user exists — check if already linked to this student
-        const existingParent = await kdb("parents").where({ user_id: existingUser.id }).first();
-        if (existingParent) {
-          const alreadyLinked = await kdb("student_guardians")
-            .where({ student_id: id, guardian_id: existingParent.id })
-            .first();
-          if (alreadyLinked) {
-            return res.json({ success: true, message: "ولي الأمر مرتبط بالفعل بهذا الطالب" });
-          }
-          // Just link existing parent to new student
-          await kdb("student_guardians").insert({
-            id: uuidv4(), student_id: id, guardian_id: existingParent.id, relation_type: relationType || 'father'
-          });
-          return res.json({ success: true, message: "تم ربط ولي الأمر الموجود بالطالب" });
-        }
-        // User exists but no parents record in this context — create parent record for current tenant
-        const guardianId = uuidv4();
-        await kdb("parents").insert({
-          id: guardianId, tenant_id: tenantId, user_id: existingUser.id,
-          phone: phone || null, whatsapp: whatsapp || null, occupation: occupation || null, photo: photo || null
-        });
-        await kdb("student_guardians").insert({
-          id: uuidv4(), student_id: id, guardian_id: guardianId, relation_type: relationType || 'father'
-        });
-        return res.json({ success: true, message: "تم ربط ولي الأمر الموجود بالطالب في هذا السكن" });
+      existingUser = await kdb("users").where({ email, role: "parent" }).first();
+    }
+    if (!existingUser && username) {
+      existingUser = await kdb("users").where({ username, role: "parent" }).first();
+    }
+    if (existingUser) {
+      // حساب ولي الأمر موجود في سكن آخر — لا يجوز ربطه بطلاب هذا السكن
+      if (existingUser.tenant_id && !sameId(existingUser.tenant_id, tenantId)) {
+        return res.status(403).json({ success: false, message: "هذا الحساب مسجل في سكن آخر ولا يمكن ربطه" });
       }
+      // Parent user exists — check if already linked to this student
+      const existingParent = await kdb("parents").where({ user_id: existingUser.id }).first();
+      if (existingParent) {
+        const alreadyLinked = await kdb("student_guardians")
+          .where({ student_id: id, guardian_id: existingParent.id })
+          .first();
+        if (alreadyLinked) {
+          return res.json({ success: true, message: "ولي الأمر مرتبط بالفعل بهذا الطالب" });
+        }
+        // Just link existing parent to new student
+        await kdb("student_guardians").insert({
+          id: uuidv4(), student_id: id, guardian_id: existingParent.id, relation_type: relationType || 'father'
+        });
+        return res.json({ success: true, message: "تم ربط ولي الأمر الموجود بالطالب" });
+      }
+      // User exists but no parents record in this context — create parent record for current tenant
+      const guardianId = uuidv4();
+      await kdb("parents").insert({
+        id: guardianId, tenant_id: tenantId, user_id: existingUser.id,
+        phone: phone || null, whatsapp: whatsapp || null, occupation: occupation || null, photo: photo || null
+      });
+      await kdb("student_guardians").insert({
+        id: uuidv4(), student_id: id, guardian_id: guardianId, relation_type: relationType || 'father'
+      });
+      return res.json({ success: true, message: "تم ربط ولي الأمر الموجود بالطالب في هذا السكن" });
     }
 
     // No existing parent found — create new
@@ -363,8 +368,12 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
         throw new Error(describeDefaultUserPasswordRejection(resolvedDefaultPassword.reason));
       }
       const hashedPassword = bcrypt.hashSync(resolvedDefaultPassword.password as string, 10);
-      if (!email) throw new Error('البريد الإلكتروني مطلوب');
-      await trx('users').insert({ id: userId, tenant_id: tenantId, email, password: hashedPassword, role: 'parent', name });
+      if (!email && !username) throw new Error('البريد الإلكتروني أو اسم المستخدم مطلوب');
+      await trx('users').insert({
+        id: userId, tenant_id: tenantId, email: email || null, username: username || null,
+        password: hashedPassword, role: 'parent', name,
+        activated_at: username ? new Date().toISOString() : null,
+      });
       createdUserId = userId;
 
       const guardianId = uuidv4();
@@ -373,9 +382,9 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
       await trx('student_guardians').insert({ id: uuidv4(), student_id: id, guardian_id: guardianId, relation_type: relationType || 'father' });
     });
 
-    // حساب ولي الأمر الجديد يبدأ بانتظار التفعيل ويُرسل له رابط بالبريد.
+    // الحساب المُنشأ باسم مستخدم يكون مفعّلاً مباشرة؛ وإلا يبدأ بانتظار التفعيل ويُرسل له رابط بالبريد.
     // بعد الـ commit حتى لا يُكتب حساب مُلغى لو فشلت المعاملة.
-    if (createdUserId) {
+    if (createdUserId && !username) {
       const invite = await issueActivationInvite(createdUserId);
       if (!invite.emailed) {
         console.warn('[Guardian Create] activation email not sent for user', createdUserId, invite.reason || '');
@@ -384,8 +393,11 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
 
     res.json({ success: true, message: "تم إنشاء حساب ولي الأمر وربطه بالطالب" });
   } catch (error: any) {
-    console.error('[Guardian Create Error]', error);
-    res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
+    console.error('[Guardian Update Error]', error);
+    const msg = /UX_users_username|UQ_/i.test(error?.message || '')
+      ? "اسم المستخدم مستخدم بالفعل."
+      : "فشل تحديث بيانات ولي الأمر";
+    res.status(400).json({ success: false, message: msg });
   }
 });
 
@@ -393,6 +405,7 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
 router.put("/:studentId/guardians/:guardianId", authenticate, authorizePermission(AppPermission.EDIT_STUDENT), async (req, res) => {
   const { studentId, guardianId } = req.params;
   const { name, email, phone, whatsapp, occupation, relationType, password } = req.body;
+  const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
   const tenantId = req.user.tenantId;
 
   try {
@@ -413,7 +426,8 @@ router.put("/:studentId/guardians/:guardianId", authenticate, authorizePermissio
 
     const userUpdate: any = {};
     if (name !== undefined) userUpdate.name = name;
-    if (email !== undefined) userUpdate.email = email;
+    if (email !== undefined) userUpdate.email = email || null;
+    if (username) userUpdate.username = username;
     if (password) {
       // إعادة تعيين كلمة مرور ولي الأمر محدودة للمشرفين فقط
       if (!['admin', 'bishop', 'priest', 'supervisor', 'assistant_supervisor'].includes(req.user.role)) {

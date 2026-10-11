@@ -5,15 +5,17 @@ import { useApiQuery } from '../hooks/useApiQuery';
 import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { AppPermission } from '../types/permissions';
+import { effectivePrice } from '../utils/pricing';
+import { ImageUploadField } from './common/ImageUploadField';
 import {
   UtensilsCrossed, Plus, Trash2, Pencil, ShoppingCart, ClipboardList,
-  Settings2, UserCog, Loader2, Check, X, Minus,
+  Settings2, UserCog, Loader2, Check, X, Minus, Search,
 } from 'lucide-react';
 
 interface Category { id: string; name: string; sort_order: number; is_active: number | boolean; }
-interface Item { id: string; name: string; category_id: string | null; description: string | null; price: number; is_available: number | boolean; is_included_meal: number | boolean; sort_order: number; }
+interface Item { id: string; name: string; category_id: string | null; description: string | null; price: number; is_available: number | boolean; is_included_meal: number | boolean; sort_order: number; image_url: string | null; discount_type: 'percent' | 'amount' | null; discount_value: number; }
 interface OrderItem { id: string; item_name: string; unit_price: number; quantity: number; line_total: number; is_included_meal: number | boolean; }
-interface Order { id: string; status: string; total: number; item_count: number; meal_slot: string | null; notes: string | null; created_at: string; ordered_by: string; student_id: string | null; items: OrderItem[]; }
+interface Order { id: string; status: string; total: number; item_count: number; meal_slot: string | null; notes: string | null; created_at: string; ordered_by: string; student_id: string | null; items: OrderItem[]; customer_name?: string | null; customer_phone?: string | null; apartment_name?: string | null; room_name?: string | null; }
 interface Operator { id: string; user_id: string; name?: string; email?: string; role?: string; }
 interface AssignableUser { id: string; name: string; email: string; role: string; }
 
@@ -72,7 +74,7 @@ export function RestaurantPage() {
     () => Object.entries(cart).map(([id, qty]) => ({ item: items.find(i => i.id === id), qty })).filter(l => l.item && l.qty > 0),
     [cart, items],
   );
-  const cartTotal = cartLines.reduce((s, l) => s + (flag(l.item!.is_included_meal, false) ? 0 : Number(l.item!.price) * l.qty), 0);
+  const cartTotal = cartLines.reduce((s, l) => s + (flag(l.item!.is_included_meal, false) ? 0 : effectivePrice(l.item!.price, l.item!.discount_type, l.item!.discount_value) * l.qty), 0);
 
   const addToCart = (id: string) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const decFromCart = (id: string) => setCart(c => {
@@ -196,13 +198,30 @@ function MenuTab(props: {
   onMealSlot: (v: string) => void; onNotes: (v: string) => void; onPlace: () => void;
 }) {
   const [filter, setFilter] = useState<string>('all');
-  const shown = filter === 'all' ? props.items : props.items.filter(i => i.category_id === filter);
+  const [q, setQ] = useState('');
+  const isDiscounted = (i: Item) => !flag(i.is_included_meal, false) && effectivePrice(i.price, i.discount_type, i.discount_value) < Number(i.price);
+  const hasOffers = props.items.some(isDiscounted);
+  const term = q.trim().toLowerCase();
+  const shown = props.items.filter(i => {
+    if (filter === 'offers') { if (!isDiscounted(i)) return false; }
+    else if (filter !== 'all' && i.category_id !== filter) return false;
+    if (term && !i.name.toLowerCase().includes(term)) return false;
+    return true;
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-2 space-y-4">
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن وجبة..."
+            className="w-full pr-10 pl-3 py-2.5 rounded-xl bg-white dark:bg-card-dark border border-slate-100 dark:border-white/5 text-sm font-bold" />
+        </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setFilter('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === 'all' ? 'bg-slate-900 text-white' : 'bg-white dark:bg-card-dark text-slate-500 border border-slate-100 dark:border-white/5'}`}>الكل</button>
+          {hasOffers && (
+            <button onClick={() => setFilter('offers')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === 'offers' ? 'bg-rose-500 text-white' : 'bg-white dark:bg-card-dark text-rose-500 border border-rose-100 dark:border-rose-500/20'}`}>العروض</button>
+          )}
           {props.categories.map(c => (
             <button key={c.id} onClick={() => setFilter(c.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === c.id ? 'bg-slate-900 text-white' : 'bg-white dark:bg-card-dark text-slate-500 border border-slate-100 dark:border-white/5'}`}>{c.name}</button>
           ))}
@@ -211,13 +230,28 @@ function MenuTab(props: {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {shown.map(item => (
             <div key={item.id} className="bg-white dark:bg-card-dark rounded-2xl border border-slate-100 dark:border-white/5 p-4 flex flex-col gap-2">
+              {item.image_url && (
+                <img src={item.image_url} alt={item.name} className="w-1/2 mx-auto aspect-square object-contain rounded-xl bg-slate-50 dark:bg-white/5" />
+              )}
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-black text-slate-900 dark:text-white">{item.name}</h3>
                 {flag(item.is_included_meal, false) && <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700">ضمن الإقامة</span>}
               </div>
               {item.description && <p className="text-xs text-slate-400 font-medium">{item.description}</p>}
               <div className="mt-auto flex items-center justify-between">
-                <span className="font-black text-primary-600">{flag(item.is_included_meal, false) ? 'مجانًا' : `${Number(item.price).toLocaleString()} ج.م`}</span>
+                {flag(item.is_included_meal, false)
+                  ? <span className="font-black text-primary-600">مجانًا</span>
+                  : (() => {
+                    const eff = effectivePrice(item.price, item.discount_type, item.discount_value);
+                    const discounted = eff < Number(item.price);
+                    return (
+                      <span className="flex items-center gap-2">
+                        {discounted && <span className="text-xs font-bold text-slate-400 line-through">{Number(item.price).toLocaleString()}</span>}
+                        <span className="font-black text-primary-600">{eff.toLocaleString()} ج.م</span>
+                        {discounted && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-600">خصم</span>}
+                      </span>
+                    );
+                  })()}
                 {props.canOrder && (
                   <button onClick={() => props.onAdd(item.id)} className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-primary-500 text-white text-xs font-bold hover:bg-primary-600">
                     <Plus size={14} /> إضافة
@@ -304,6 +338,14 @@ function OrdersTab(props: {
             ))}
           </div>
           {o.notes && <p className="mt-2 text-xs text-slate-400">ملاحظات: {o.notes}</p>}
+          {o.customer_name && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-slate-400">
+              <span>صاحب الطلب: {o.customer_name}</span>
+              {o.customer_phone && <span>تليفون: {o.customer_phone}</span>}
+              {o.apartment_name && <span>الشقة: {o.apartment_name}</span>}
+              {o.room_name && <span>غرفة: {o.room_name}</span>}
+            </div>
+          )}
           {props.isStaff && (
             <div className="mt-3 flex flex-wrap gap-2">
               {nextActions(o.status).map(a => (
@@ -324,9 +366,11 @@ function ManageTab(props: { categories: Category[]; items: Item[]; invalidate: (
   const { request } = useApi();
   const { showSuccess, showError, confirm } = useSnackbar();
   const [catName, setCatName] = useState('');
-  const [itemForm, setItemForm] = useState({ name: '', price: '', category_id: '', is_included_meal: false, description: '' });
+  const [itemForm, setItemForm] = useState({ name: '', price: '', category_id: '', is_included_meal: false, description: '', image_url: '', discount_type: '', discount_value: '' });
   const [editItem, setEditItem] = useState<Item | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const emptyItemForm = { name: '', price: '', category_id: '', is_included_meal: false, description: '', image_url: '', discount_type: '', discount_value: '' };
 
   const addCategory = async () => {
     if (!catName.trim()) return;
@@ -348,10 +392,13 @@ function ManageTab(props: { categories: Category[]; items: Item[]; invalidate: (
         is_included_meal: itemForm.is_included_meal,
         description: itemForm.description || undefined,
         is_available: true,
+        image_url: itemForm.image_url || undefined,
+        discount_type: itemForm.discount_type || null,
+        discount_value: Number(itemForm.discount_value) || 0,
       };
       if (editItem) await request(`/api/restaurant/items/${editItem.id}`, { method: 'PUT', body: JSON.stringify(body) });
       else await request('/api/restaurant/items', { method: 'POST', body: JSON.stringify(body) });
-      setItemForm({ name: '', price: '', category_id: '', is_included_meal: false, description: '' });
+      setItemForm(emptyItemForm);
       setEditItem(null);
       props.invalidate('restaurant-items');
       showSuccess(editItem ? 'تم التحديث' : 'أُضيفت الوجبة');
@@ -391,7 +438,14 @@ function ManageTab(props: { categories: Category[]; items: Item[]; invalidate: (
             <option value="">بدون تصنيف</option>
             {props.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <select value={itemForm.discount_type} onChange={e => setItemForm({ ...itemForm, discount_type: e.target.value })} className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold">
+            <option value="">بدون خصم</option>
+            <option value="percent">خصم نسبة %</option>
+            <option value="amount">خصم مبلغ</option>
+          </select>
+          <input value={itemForm.discount_value} onChange={e => setItemForm({ ...itemForm, discount_value: e.target.value })} placeholder="قيمة الخصم" type="number" disabled={!itemForm.discount_type} className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold disabled:opacity-50" />
         </div>
+        <ImageUploadField value={itemForm.image_url} onChange={(url) => setItemForm({ ...itemForm, image_url: url })} />
         <textarea value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} placeholder="الوصف (اختياري)" rows={2} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold resize-none" />
         <label className="flex items-center gap-2 text-sm font-bold text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={itemForm.is_included_meal} onChange={e => setItemForm({ ...itemForm, is_included_meal: e.target.checked })} className="rounded" />
@@ -399,14 +453,14 @@ function ManageTab(props: { categories: Category[]; items: Item[]; invalidate: (
         </label>
         <div className="flex gap-2">
           <button onClick={saveItem} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-primary-500 text-white text-sm font-black disabled:opacity-50">{editItem ? 'حفظ التعديل' : 'إضافة'}</button>
-          {editItem && <button onClick={() => { setEditItem(null); setItemForm({ name: '', price: '', category_id: '', is_included_meal: false, description: '' }); }} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-sm font-bold">إلغاء</button>}
+          {editItem && <button onClick={() => { setEditItem(null); setItemForm(emptyItemForm); }} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-sm font-bold">إلغاء</button>}
         </div>
         <div className="space-y-1.5 max-h-64 overflow-y-auto">
           {props.items.map(i => (
             <div key={i.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 gap-2">
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{i.name} — {Number(i.price).toLocaleString()} ج.م</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{i.name} — {Number(i.price).toLocaleString()} ج.م{i.discount_type ? ` (خصم ${i.discount_type === 'percent' ? `${i.discount_value}%` : i.discount_value})` : ''}</span>
               <div className="flex gap-1 shrink-0">
-                <button onClick={() => { setEditItem(i); setItemForm({ name: i.name, price: String(i.price), category_id: i.category_id || '', is_included_meal: flag(i.is_included_meal, false), description: i.description || '' }); }} className="text-primary-600 hover:bg-primary-50 rounded-lg p-1"><Pencil size={14} /></button>
+                <button onClick={() => { setEditItem(i); setItemForm({ name: i.name, price: String(i.price), category_id: i.category_id || '', is_included_meal: flag(i.is_included_meal, false), description: i.description || '', image_url: i.image_url || '', discount_type: i.discount_type || '', discount_value: i.discount_value ? String(i.discount_value) : '' }); }} className="text-primary-600 hover:bg-primary-50 rounded-lg p-1"><Pencil size={14} /></button>
                 <button onClick={() => delItem(i.id)} className="text-rose-500 hover:bg-rose-50 rounded-lg p-1"><Trash2 size={14} /></button>
               </div>
             </div>

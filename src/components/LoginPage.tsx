@@ -49,8 +49,12 @@ export function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValidEmail(email)) {
+    if (needsSetup && !isValidEmail(email)) {
       setError('صيغة البريد الإلكتروني غير صحيحة.');
+      return;
+    }
+    if (!needsSetup && !email.trim()) {
+      setError('ادخل البريد الإلكتروني أو اسم المستخدم.');
       return;
     }
     if (needsSetup && !isValidPassword(password)) {
@@ -70,9 +74,14 @@ export function LoginPage() {
           body: JSON.stringify({ email, password, name, gender }),
         });
       } else {
+        // الدخول يقبل البريد الإلكتروني أو اسم المستخدم: نفرّق بينهما بوجود '@'.
+        const identifier = email.trim();
+        const credentials = identifier.includes('@')
+          ? { email: identifier, password }
+          : { username: identifier, password };
         response = await request('/api/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify(credentials),
         });
       }
 
@@ -243,15 +252,15 @@ export function LoginPage() {
               )}
 
               <div>
-                <label className="block text-sm font-bold text-white/70 mb-1.5 mr-1">البريد الإلكتروني</label>
+                <label className="block text-sm font-bold text-white/70 mb-1.5 mr-1">{needsSetup ? 'البريد الإلكتروني' : 'البريد الإلكتروني أو اسم المستخدم'}</label>
                 <div className="relative">
                   <Mail className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
                   <input
-                    type="email"
+                    type="text"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full pr-10 pl-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/30 outline-none transition-all duration-200 focus:border-white/40 focus:ring-2 focus:ring-white/20 text-sm"
-                    placeholder="user@dorm.com"
+                    placeholder={needsSetup ? 'user@dorm.com' : 'user@dorm.com أو اسم المستخدم'}
                     required
                   />
                 </div>

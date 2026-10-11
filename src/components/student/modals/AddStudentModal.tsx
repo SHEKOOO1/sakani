@@ -5,6 +5,7 @@ import {
   Camera, CheckCircle2, Trash2, Map, Cross, UserCheck, Heart,
   Phone, School
 } from 'lucide-react';
+import { ImageUploadField } from '../../common/ImageUploadField';
 
 interface PhoneEntry {
   id: string;
@@ -16,6 +17,7 @@ interface PhoneEntry {
 interface FormData {
   name: string;
   email: string;
+  username: string;
   password: string;
   studentIdNumber: string;
   birthDate: string;
@@ -88,7 +90,7 @@ export function AddStudentModal({
                 <div className="space-y-2 col-span-full bg-gradient-to-l from-primary-50 to-vibrant-50 dark:from-primary-900/20 dark:to-vibrant-900/20 p-6 rounded-2xl border border-primary-100 dark:border-primary-500/20 flex items-center justify-between">
                   <div>
                     <h4 className="font-black text-primary-800 dark:text-primary-300">بيانات الحساب الأساسية</h4>
-                    <p className="text-[10px] text-primary-500 dark:text-primary-400 font-bold">يتم استخدام الإيميل للدخول للتطبيق</p>
+                    <p className="text-[10px] text-primary-500 dark:text-primary-400 font-bold">الدخول بالبريد الإلكتروني أو اسم المستخدم</p>
                   </div>
                   <div className="flex gap-4">
                     <Mail className="text-primary-200 dark:text-primary-500/30" size={32} />
@@ -108,13 +110,26 @@ export function AddStudentModal({
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest pr-2 flex items-center gap-2">
-                    <Mail size={10} /> البريد الإلكتروني
+                    <Mail size={10} /> البريد الإلكتروني (اختياري)
                   </label>
                   <input
-                    required type="email"
+                    type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-white/5 border-none rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 font-bold dark:text-white"
+                    placeholder="اتركه فارغاً لو هتدخل باسم المستخدم"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest pr-2 flex items-center gap-2">
+                    <UserCheck size={10} /> اسم المستخدم (للدخول)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-white/5 border-none rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 font-bold dark:text-white"
+                    placeholder="مثال: michael.habib"
                   />
                 </div>
                 <div className="space-y-2">
@@ -362,15 +377,11 @@ export function AddStudentModal({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest pr-2 flex items-center gap-2">
-                    رابط صورة الطالب
-                  </label>
-                  <input
-                    type="text"
+                  <ImageUploadField
+                    label="صورة الطالب"
                     value={formData.studentPhoto}
-                    onChange={(e) => setFormData({ ...formData, studentPhoto: e.target.value })}
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-white/5 border-none rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 font-bold dark:text-white"
-                    placeholder="https://..."
+                    onChange={(url) => setFormData({ ...formData, studentPhoto: url })}
+                    placeholder="رابط صورة الطالب (اختياري)"
                   />
                 </div>
                 <div className="space-y-2 col-span-full">

@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // Runtime upload directories are not tracked in Git (see .gitignore) and may be
 // absent in a fresh checkout or container — always ensure they exist before
 // multer tries to write into them.
-for (const sub of ['documents', 'radio', 'broadcasts']) {
+for (const sub of ['documents', 'radio', 'broadcasts', 'images']) {
   try {
     fs.mkdirSync(path.resolve(process.cwd(), 'uploads', sub), { recursive: true });
   } catch {
@@ -71,6 +71,31 @@ export const upload = multer({
   storage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+
+const imageStorage = multer.diskStorage({
+  destination: path.resolve(process.cwd(), 'uploads', 'images'),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
+
+// صور فقط (بدون PDF/مستندات) — تُستخدم للصور الشخصية وصور وجبات المطعم ومنتجات الكانتين.
+const imageFileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!IMAGE_EXTENSIONS.includes(ext)) {
+    return cb(new Error(`الملفات من نوع ${ext} غير مسموحة. الأنواع المسموحة: ${IMAGE_EXTENSIONS.join(', ')}`));
+  }
+  cb(null, true);
+};
+
+export const imageUpload = multer({
+  storage: imageStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }
 });
 
 // Middleware to validate magic bytes after multer saves the file (single or multiple)

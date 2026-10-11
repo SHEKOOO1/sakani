@@ -17,6 +17,8 @@ import { createNotification } from "./notifications.routes";
 import { sameId } from "../infrastructure/id-match";
 import { requireServiceEnabled } from "../infrastructure/service-features";
 import { postEntry, restaurantRevenueLines } from "../services/ledger.service";
+import { priceLine } from "../services/pricing.service";
+import { resolveCustomerIdentity } from "../services/customer-identity.service";
 import { InputError, affected } from "../infrastructure/domain-errors";
 import { logger } from "../infrastructure/logger.ts";
 
@@ -129,7 +131,7 @@ router.get("/items", authenticate, async (req, res) => {
 router.post("/items", authenticate, requireServiceEnabled("restaurant"), authorizePermission(AppPermission.MANAGE_RESTAURANT), validate(restaurantItemSchema), async (req, res) => {
   const tenantId = req.user.tenantId;
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
-  const { name, category_id, description, price, is_available, is_included_meal, sort_order, image_url } = req.body;
+  const { name, category_id, description, price, is_available, is_included_meal, sort_order, image_url, discount_type, discount_value } = req.body;
   try {
     if (category_id) {
       const cat = await kdb("restaurant_categories").where({ id: category_id, tenant_id: tenantId }).first();
@@ -145,6 +147,8 @@ router.post("/items", authenticate, requireServiceEnabled("restaurant"), authori
       is_included_meal: is_included_meal ? 1 : 0,
       sort_order: sort_order ?? 0,
       image_url: image_url || null,
+      discount_type: discount_type || null,
+      discount_value: discount_value ?? 0,
     });
     res.status(201).json({ success: true, data: { id } });
   } catch (e) {
@@ -154,7 +158,7 @@ router.post("/items", authenticate, requireServiceEnabled("restaurant"), authori
 
 router.put("/items/:id", authenticate, requireServiceEnabled("restaurant"), authorizePermission(AppPermission.MANAGE_RESTAURANT), validate(updateRestaurantItemSchema), async (req, res) => {
   const tenantId = req.user.tenantId;
-  const { name, category_id, description, price, is_available, is_included_meal, sort_order, image_url } = req.body;
+  const { name, category_id, description, price, is_available, is_included_meal, sort_order, image_url, discount_type, discount_value } = req.body;
   try {
     if (category_id) {
       const cat = await kdb("restaurant_categories").where({ id: category_id, tenant_id: tenantId }).first();
@@ -169,6 +173,8 @@ router.put("/items/:id", authenticate, requireServiceEnabled("restaurant"), auth
     if (is_included_meal !== undefined) update.is_included_meal = is_included_meal ? 1 : 0;
     if (sort_order !== undefined) update.sort_order = sort_order;
     if (image_url !== undefined) update.image_url = image_url || null;
+    if (discount_type !== undefined) update.discount_type = discount_type || null;
+    if (discount_value !== undefined) update.discount_value = discount_value;
     const changed = await kdb("restaurant_items").where({ id: req.params.id, tenant_id: tenantId }).update(update);
     if (!affected(changed)) return res.status(404).json({ success: false, message: "الوجبة غير موجودة" });
     res.json({ success: true });
@@ -344,6 +350,9 @@ router.post("/orders", authenticate, requireServiceEnabled("restaurant"), author
       targetStudentId = await selfStudentId(userId);
     }
 
+    // سجّل بيانات صاحب الطلب (الاسم/التليفون/الشقة/الغرفة) وقت الطلب
+    const identity = await resolveCustomerIdentity({ studentId: targetStudentId, userId });
+
     const result = await kdb.transaction(async (trx) => {
       const ids: string[] = [...new Set((items as any[]).map((i) => String(i.item_id)))];
       const dbItems = await trx("restaurant_items").whereIn("id", ids).where({ tenant_id: tenantId });
@@ -357,18 +366,21 @@ router.post("/orders", authenticate, requireServiceEnabled("restaurant"), author
         if (!p) throw new InputError("إحدى الوجبات غير متاحة في هذا السكن");
         if (!normalizeFlag(p.is_available, true)) throw new InputError(`الوجبة "${p.name}" غير متاحة حاليًا`);
         const included = normalizeFlag(p.is_included_meal, false);
-        const unit = included ? 0 : Number(p.price || 0);
-        const lineTotal = unit * it.quantity;
-        total += lineTotal;
+        const priced = included
+          ? { originalUnitPrice: 0, unitPrice: 0, discountAmount: 0, lineTotal: 0 }
+          : priceLine(p.price, p.discount_type, p.discount_value, it.quantity);
+        total += priced.lineTotal;
         itemCount += it.quantity;
         rows.push({
           id: uuidv4(),
           order_id: orderId,
           item_id: p.id,
           item_name: p.name,
-          unit_price: unit,
+          unit_price: priced.unitPrice,
           quantity: it.quantity,
-          line_total: lineTotal,
+          line_total: priced.lineTotal,
+          original_unit_price: priced.originalUnitPrice,
+          discount_amount: priced.discountAmount,
           is_included_meal: included ? 1 : 0,
         });
       }
@@ -382,6 +394,10 @@ router.post("/orders", authenticate, requireServiceEnabled("restaurant"), author
         notes: notes || null,
         total,
         item_count: itemCount,
+        customer_name: identity.customer_name,
+        customer_phone: identity.customer_phone,
+        apartment_name: identity.apartment_name,
+        room_name: identity.room_name,
       });
       await trx("restaurant_order_items").insert(rows);
       return { id: orderId, total, item_count: itemCount };

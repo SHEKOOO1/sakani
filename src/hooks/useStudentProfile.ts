@@ -36,7 +36,9 @@ export function useStudentProfile(user: any, fetchStudents: () => void) {
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [tabs, setTabs] = useState<'overview' | 'supervisor'>('overview');
   const [loadingBehavior, setLoadingBehavior] = useState(false);
-  const [guardianData, setGuardianData] = useState({ name: '', email: '', password: '', phone: '', whatsapp: '', occupation: '', relationType: 'father' as 'father' | 'mother' | 'other', photo: '' });
+  const [guardianData, setGuardianData] = useState({  
+    name: '', email: '', username: '', password: '', phone: '',         
+    whatsapp: '', occupation: '', relationType: 'father' as 'father' | 'mother' | 'other', photo: '' });
   const [supervisorActions, setSupervisorActions] = useState({ newRoomId: '', warningReason: '', notifyParent: false, notifyPriest: false, pointsAmount: 0, pointsReason: '', itemToManage: '', itemType: 'event' as 'event' | 'competition' | 'activity' });
   const [expandedTenants, setExpandedTenants] = useState<Record<string, boolean>>({});
   const [toggleState, setToggleState] = useState<Record<string, {daily?: boolean; radio?: boolean}>>({});
@@ -232,6 +234,7 @@ export function useStudentProfile(user: any, fetchStudents: () => void) {
       const body: any = {};
       if (editGuardianData.name) body.name = editGuardianData.name;
       if (editGuardianData.email) body.email = editGuardianData.email;
+      if (editGuardianData.username) body.username = editGuardianData.username;
       if (editGuardianData.phone) body.phone = editGuardianData.phone;
       if (editGuardianData.whatsapp) body.whatsapp = editGuardianData.whatsapp;
       if (editGuardianData.occupation) body.occupation = editGuardianData.occupation;

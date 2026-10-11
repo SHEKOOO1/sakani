@@ -832,7 +832,7 @@ export function StudentProfileView({
         saving={editGuardianSaving}
       />
 
-      {(isAdmin || user?.role === 'priest' || user?.role === 'supervisor' || user?.role === 'bishop') && (
+      {(user?.role === 'priest' || user?.role === 'supervisor') && (
         <StudentNotesSection studentId={selectedStudent.id} />
       )}
 

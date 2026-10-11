@@ -19,6 +19,7 @@ interface Employee {
   id: string;
   name: string;
   email: string;
+  username?: string;
   role: string;
   gender?: string;
   tenant_id?: string;
@@ -103,6 +104,7 @@ export function EmployeesPage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    username: '',
     password: '',
     role: defaultRole,
     gender: 'male',
@@ -164,7 +166,7 @@ export function EmployeesPage() {
 
   const handleOpenAddModal = () => {
     setEditingEmployee(null);
-    setFormData({ name: '', email: '', password: '', role: 'employee', gender: 'male', tenant_id: '', custom_role_id: '', daily_readings_enabled: true, radio_514_enabled: true });
+    setFormData({ name: '', email: '', username: '', password: '', role: 'employee', gender: 'male', tenant_id: '', custom_role_id: '', daily_readings_enabled: true, radio_514_enabled: true });
     setSearchQuery('');
     setSearchResults([]);
     setModalOpen(true);
@@ -175,6 +177,7 @@ export function EmployeesPage() {
     setFormData({ 
       name: emp.name, 
       email: emp.email, 
+      username: emp.username || '',
       password: '', 
       role: emp.role, 
       gender: emp.gender || 'male',
@@ -205,6 +208,11 @@ export function EmployeesPage() {
       const method = editingEmployee ? 'PUT' : 'POST';
       
       const submitData = { ...formData } as any;
+      const usernameChanged = editingEmployee
+        ? (formData.username || '') !== (editingEmployee.username || '')
+        : false;
+      // لا يدعم تحديث الموظف تغيير اسم المستخدم — يُرسل لنقطة نهاية مخصصة بعد النجاح
+      delete submitData.username;
       // التحديث لا يدعم نقل الموظف بين السكنات — نرسل السكن عند الإنشاء فقط
       if (editingEmployee) delete submitData.tenant_id;
       if (!isAdmin) {
@@ -217,6 +225,12 @@ export function EmployeesPage() {
       });
 
       if (resp.success) {
+        if (editingEmployee && usernameChanged) {
+          await request(`/api/users/${editingEmployee.id}/username`, {
+            method: 'PUT',
+            body: JSON.stringify({ username: formData.username || null }),
+          });
+        }
         setModalOpen(false);
         fetchEmployees();
       }

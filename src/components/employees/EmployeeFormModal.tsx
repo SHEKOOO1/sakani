@@ -47,6 +47,7 @@ interface EmployeeFormModalProps {
   formData: {
     name: string;
     email: string;
+    username: string;
     password: string;
     role: string;
     gender: string;
@@ -182,11 +183,10 @@ export function EmployeeFormModal({
 
               {/* Email */}
               <div className="space-y-2 text-right">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pr-1">البريد الإلكتروني</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pr-1">البريد الإلكتروني (اختياري)</label>
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input
-                    required
                     type="email"
                     value={formData.email}
                     onChange={e => onChange({...formData, email: e.target.value})}
@@ -194,6 +194,22 @@ export function EmployeeFormModal({
                     className="w-full p-4 pl-12 bg-slate-50 dark:bg-white/[0.03] dark:text-white border-none rounded-2xl outline-none focus:ring-2 ring-neon-primary/20 font-bold"
                   />
                 </div>
+              </div>
+
+              {/* Username */}
+              <div className="space-y-2 text-right">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pr-1">اسم المستخدم (للدخول)</label>
+                <div className="relative">
+                  <UserCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type="text"
+                    value={formData.username}
+                    onChange={e => onChange({...formData, username: e.target.value})}
+                    placeholder="مثال: michael.habib"
+                    className="w-full p-4 pl-12 bg-slate-50 dark:bg-white/[0.03] dark:text-white border-none rounded-2xl outline-none focus:ring-2 ring-neon-primary/20 font-bold"
+                  />
+                </div>
+                <p className="text-[10px] font-bold text-slate-400 pr-1">معرّف فريد للدخول بدون بريد إلكتروني.</p>
               </div>
 
               {/* Gender */}

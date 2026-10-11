@@ -218,13 +218,16 @@ router.post("/register", rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: 
  *         description: تم تسجيل الدخول بنجاح مع JWT token
  */
 router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
-  const { email, password } = req.body;
+  const { email, username, password } = req.body;
 
   try {
-    const user = await kdb('users').where({ email }).first();
+    // الدخول بمعرّف واحد: اسم المستخدم (فريد عالمياً) أو البريد الإلكتروني.
+    const user = username
+      ? await kdb('users').where({ username: String(username).trim() }).first()
+      : await kdb('users').where({ email: String(email).trim() }).first();
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ success: false, message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+      return res.status(401).json({ success: false, message: "بيانات الدخول غير صحيحة" });
     }
 
     // الحساب المعلّق (أُنشئ بصلاحية ولم يُفعَّل بعد) لا يستطيع الدخول إطلاقاً.
@@ -292,6 +295,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
           role: user.role,
           name: user.name,
           email: user.email,
+          username: user.username || null,
           gender: user.gender || 'male',
           custom_permissions: effectiveCustomPermissions.length > 0 ? JSON.stringify(effectiveCustomPermissions) : null,
           custom_role_id: user.custom_role_id || null,
@@ -447,6 +451,7 @@ router.get("/me", authenticate, async (req, res) => {
           role: user.role,
           name: user.name,
           email: user.email,
+          username: user.username || null,
           gender: user.gender || 'male',
           custom_permissions: effectiveCustomPermissions.length > 0 ? JSON.stringify(effectiveCustomPermissions) : null,
           custom_role_id: user.custom_role_id || null,

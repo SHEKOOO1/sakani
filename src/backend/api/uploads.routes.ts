@@ -120,8 +120,9 @@ router.get("/:path(*)", async (req, res) => {
     } else {
       // الملف غير مربوط بمستند طالب:
       const lowerPath = absPath.replace(/\\/g, "/").toLowerCase();
-      // راديو 514 ومرفقات الإعلانات: محتوى عام للنظام كاملاً (بحكم التصميم) — أي مستخدم مصادق
-      const publicArea = lowerPath.includes("/uploads/radio/") || lowerPath.includes("/uploads/broadcasts/");
+      // راديو 514 ومرفقات الإعلانات وصور الملفات الشخصية/الوجبات/المنتجات:
+      // محتوى عام للأعضاء المصادق عليهم (بحكم التصميم المطلوب).
+      const publicArea = lowerPath.includes("/uploads/radio/") || lowerPath.includes("/uploads/broadcasts/") || lowerPath.includes("/uploads/images/");
       if (!publicArea) {
         if (req.user.role === "admin") {
           // المشرف العام يرى أي ملف

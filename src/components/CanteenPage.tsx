@@ -5,22 +5,26 @@ import { useApiQuery } from '../hooks/useApiQuery';
 import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { AppPermission } from '../types/permissions';
+import { effectivePrice } from '../utils/pricing';
+import { ImageUploadField } from './common/ImageUploadField';
 import {
   Store, Plus, Trash2, Pencil, ShoppingCart, Package, ArrowLeftRight,
-  Receipt, AlertTriangle, UserCog, Loader2, Check, X, Minus, RotateCcw,
+  Receipt, AlertTriangle, UserCog, Loader2, Check, X, Minus, RotateCcw, Search,
 } from 'lucide-react';
 
 interface Category { id: string; name: string; sort_order: number; is_active: number | boolean; }
 interface Product {
   id: string; name: string; category_id: string | null; unit: string | null; barcode: string | null;
   cost_price: number; sell_price: number; quantity_on_hand: number; min_quantity: number; is_active: number | boolean;
+  image_url: string | null; discount_type: 'percent' | 'amount' | null; discount_value: number;
 }
 interface Movement {
   id: string; product_id: string; movement_type: string; quantity: number; unit_cost: number;
   note: string | null; created_at: string;
 }
 interface SaleItem { id: string; product_id: string; product_name: string; quantity: number; unit_price: number; line_total: number; }
-interface Sale { id: string; sale_ref: string; total: number; status: string; sold_at: string; payment_method: string; items: SaleItem[]; }
+interface Sale { id: string; sale_ref: string; total: number; status: string; sold_at: string; payment_method: string; items: SaleItem[]; customer_name?: string | null; customer_phone?: string | null; apartment_name?: string | null; room_name?: string | null; }
+interface StudentOption { id: string; name: string; phone: string | null; room_name: string | null; apartment_name: string | null; }
 interface Operator { id: string; user_id: string; name?: string; email?: string; }
 interface AssignableUser { id: string; name: string; email: string; role: string; }
 
@@ -61,7 +65,7 @@ export function CanteenPage() {
   const invalidate = (key: string) => queryClient.invalidateQueries({ queryKey: [key] });
 
   if (!canOperate) {
-    return <CatalogView products={products.filter(p => flag(p.is_active, true))} />;
+    return <CatalogView products={products.filter(p => flag(p.is_active, true))} categories={categories} />;
   }
 
   const tabs: { id: Tab; label: string; icon: any; show: boolean }[] = [
@@ -106,24 +110,68 @@ export function CanteenPage() {
   );
 }
 
-function CatalogView({ products }: { products: Product[] }) {
+function CatalogView({ products, categories }: { products: Product[]; categories: Category[] }) {
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<string>('all');
+
+  const isDiscounted = (p: Product) =>
+    !!p.discount_type && effectivePrice(p.sell_price, p.discount_type, p.discount_value) < Number(p.sell_price);
+  const activeCategories = categories.filter(c => flag(c.is_active, true));
+  const hasOffers = products.some(isDiscounted);
+  const term = q.trim().toLowerCase();
+
+  const shown = products.filter(p => {
+    if (filter === 'offers') { if (!isDiscounted(p)) return false; }
+    else if (filter !== 'all' && p.category_id !== filter) return false;
+    if (term && !p.name.toLowerCase().includes(term)) return false;
+    return true;
+  });
+
   return (
     <div className="space-y-4" dir="rtl">
       <div className="flex items-center gap-3">
         <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary-500 to-vibrant-500 flex items-center justify-center text-white shadow-lg"><Store size={22} /></div>
         <h1 className="text-2xl font-black text-slate-900 dark:text-white">الكانتين</h1>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {products.map(p => (
-          <div key={p.id} className="bg-white dark:bg-card-dark rounded-2xl border border-slate-100 dark:border-white/5 p-4">
-            <h3 className="font-black text-slate-900 dark:text-white">{p.name}</h3>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="font-black text-primary-600">{Number(p.sell_price).toLocaleString()} ج.م</span>
-              <span className="text-xs font-bold text-slate-400">{p.quantity_on_hand > 0 ? 'متوفر' : 'غير متوفر'}</span>
-            </div>
-          </div>
+
+      <div className="relative">
+        <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن منتج..."
+          className="w-full pr-10 pl-3 py-2.5 rounded-xl bg-white dark:bg-card-dark border border-slate-100 dark:border-white/5 text-sm font-bold" />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => setFilter('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === 'all' ? 'bg-slate-900 text-white' : 'bg-white dark:bg-card-dark text-slate-500 border border-slate-100 dark:border-white/5'}`}>الكل</button>
+        {hasOffers && (
+          <button onClick={() => setFilter('offers')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === 'offers' ? 'bg-rose-500 text-white' : 'bg-white dark:bg-card-dark text-rose-500 border border-rose-100 dark:border-rose-500/20'}`}>العروض</button>
+        )}
+        {activeCategories.map(c => (
+          <button key={c.id} onClick={() => setFilter(c.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === c.id ? 'bg-slate-900 text-white' : 'bg-white dark:bg-card-dark text-slate-500 border border-slate-100 dark:border-white/5'}`}>{c.name}</button>
         ))}
-        {products.length === 0 && <div className="col-span-full p-10 text-center text-sm font-bold text-slate-400">لا توجد منتجات</div>}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {shown.map(p => {
+          const eff = effectivePrice(p.sell_price, p.discount_type, p.discount_value);
+          const discounted = eff < Number(p.sell_price);
+          return (
+            <div key={p.id} className="bg-white dark:bg-card-dark rounded-2xl border border-slate-100 dark:border-white/5 p-4">
+              {p.image_url && <img src={p.image_url} alt={p.name} className="w-1/2 mx-auto aspect-square object-contain rounded-xl mb-2 bg-slate-50 dark:bg-white/5" />}
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-black text-slate-900 dark:text-white">{p.name}</h3>
+                {discounted && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-600 shrink-0">خصم</span>}
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  {discounted && <span className="text-xs font-bold text-slate-400 line-through">{Number(p.sell_price).toLocaleString()}</span>}
+                  <span className="font-black text-primary-600">{eff.toLocaleString()} ج.م</span>
+                </span>
+                <span className="text-xs font-bold text-slate-400">{p.quantity_on_hand > 0 ? 'متوفر' : 'غير متوفر'}</span>
+              </div>
+            </div>
+          );
+        })}
+        {shown.length === 0 && <div className="col-span-full p-10 text-center text-sm font-bold text-slate-400">لا توجد منتجات</div>}
       </div>
     </div>
   );
@@ -136,13 +184,21 @@ function PosTab(props: { products: Product[]; invalidate: (k: string) => void })
   const [cart, setCart] = useState<Record<string, number>>({});
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [studentId, setStudentId] = useState('');
+  const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const studentsQuery = useApiQuery<{ data: StudentOption[] }>(['canteen-students'], '/api/canteen/students');
+  const students = studentsQuery.data?.data ?? [];
+  const selectedStudent = students.find(s => s.id === studentId);
+
+  const term = q.trim().toLowerCase();
+  const shownProducts = term ? available.filter(p => p.name.toLowerCase().includes(term)) : available;
 
   const lines = useMemo(
     () => Object.entries(cart).map(([id, qty]) => ({ product: available.find(p => p.id === id), qty })).filter(l => l.product && l.qty > 0),
     [cart, available],
   );
-  const total = lines.reduce((s, l) => s + Number(l.product!.sell_price) * l.qty, 0);
+  const total = lines.reduce((s, l) => s + effectivePrice(l.product!.sell_price, l.product!.discount_type, l.product!.discount_value) * l.qty, 0);
 
   const add = (id: string) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const dec = (id: string) => setCart(c => { const n = { ...c }; if ((n[id] || 0) <= 1) delete n[id]; else n[id]--; return n; });
@@ -169,19 +225,31 @@ function PosTab(props: { products: Product[]; invalidate: (k: string) => void })
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div className="lg:col-span-2">
+      <div className="lg:col-span-2 space-y-3">
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن منتج..."
+            className="w-full pr-10 pl-3 py-2.5 rounded-xl bg-white dark:bg-card-dark border border-slate-100 dark:border-white/5 text-sm font-bold" />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {available.map(p => (
+          {shownProducts.map(p => {
+            const eff = effectivePrice(p.sell_price, p.discount_type, p.discount_value);
+            return (
             <button key={p.id} onClick={() => add(p.id)} disabled={Number(p.quantity_on_hand) <= 0}
               className="text-right bg-white dark:bg-card-dark rounded-2xl border border-slate-100 dark:border-white/5 p-4 hover:border-primary-300 transition-all disabled:opacity-50">
+              {p.image_url && <img src={p.image_url} alt={p.name} className="w-1/2 mx-auto aspect-square object-contain rounded-xl mb-2 bg-slate-50 dark:bg-white/5" />}
               <h3 className="font-black text-slate-900 dark:text-white truncate">{p.name}</h3>
               <div className="mt-1 flex items-center justify-between">
-                <span className="font-black text-primary-600">{Number(p.sell_price).toLocaleString()} ج.م</span>
+                <span className="flex items-center gap-1.5">
+                  {eff < Number(p.sell_price) && <span className="text-[11px] font-bold text-slate-400 line-through">{Number(p.sell_price).toLocaleString()}</span>}
+                  <span className="font-black text-primary-600">{eff.toLocaleString()} ج.م</span>
+                </span>
                 <span className={`text-[11px] font-bold ${Number(p.quantity_on_hand) <= Number(p.min_quantity) ? 'text-rose-500' : 'text-slate-400'}`}>متبقٍ {p.quantity_on_hand}</span>
               </div>
             </button>
-          ))}
-          {available.length === 0 && <div className="col-span-full p-10 text-center text-sm font-bold text-slate-400">لا توجد منتجات مفعّلة</div>}
+            );
+          })}
+          {shownProducts.length === 0 && <div className="col-span-full p-10 text-center text-sm font-bold text-slate-400">لا توجد منتجات مفعّلة</div>}
         </div>
       </div>
       <div className="lg:col-span-1">
@@ -205,7 +273,16 @@ function PosTab(props: { products: Product[]; invalidate: (k: string) => void })
             <option value="card">بطاقة</option>
             <option value="wallet">محفظة</option>
           </select>
-          <input value={studentId} onChange={e => setStudentId(e.target.value)} placeholder="رقم الطالب (اختياري)" className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold" />
+          <select value={studentId} onChange={e => setStudentId(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold">
+            <option value="">اختر الطالب (اختياري)</option>
+            {students.map(s => <option key={s.id} value={s.id}>{s.name}{s.room_name ? ` — غرفة ${s.room_name}` : ''}{s.apartment_name ? ` / ${s.apartment_name}` : ''}</option>)}
+          </select>
+          {selectedStudent && (
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+              {selectedStudent.phone && <div>تليفون: {selectedStudent.phone}</div>}
+              {(selectedStudent.apartment_name || selectedStudent.room_name) && <div>الشقة: {selectedStudent.apartment_name || '—'}{selectedStudent.room_name ? ` — غرفة ${selectedStudent.room_name}` : ''}</div>}
+            </div>
+          )}
           <div className="flex items-center justify-between font-black text-slate-900 dark:text-white">
             <span>الإجمالي</span><span>{total.toLocaleString()} ج.م</span>
           </div>
@@ -222,11 +299,12 @@ function ProductsTab(props: { categories: Category[]; products: Product[]; inval
   const { request } = useApi();
   const { showSuccess, showError, confirm } = useSnackbar();
   const [catName, setCatName] = useState('');
-  const [form, setForm] = useState({ name: '', category_id: '', unit: 'قطعة', barcode: '', cost_price: '', sell_price: '', quantity_on_hand: '', min_quantity: '', is_active: true });
+  const emptyProductForm = { name: '', category_id: '', unit: 'قطعة', barcode: '', cost_price: '', sell_price: '', quantity_on_hand: '', min_quantity: '', is_active: true, image_url: '', discount_type: '', discount_value: '' };
+  const [form, setForm] = useState(emptyProductForm);
   const [edit, setEdit] = useState<Product | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const reset = () => { setForm({ name: '', category_id: '', unit: 'قطعة', barcode: '', cost_price: '', sell_price: '', quantity_on_hand: '', min_quantity: '', is_active: true }); setEdit(null); };
+  const reset = () => { setForm(emptyProductForm); setEdit(null); };
 
   const addCategory = async () => {
     if (!catName.trim()) return;
@@ -245,6 +323,9 @@ function ProductsTab(props: { categories: Category[]; products: Product[]; inval
         name: form.name, category_id: form.category_id || undefined, unit: form.unit || undefined,
         barcode: form.barcode || undefined, cost_price: Number(form.cost_price) || 0, sell_price: Number(form.sell_price) || 0,
         min_quantity: Number(form.min_quantity) || 0, is_active: form.is_active,
+        image_url: form.image_url || undefined,
+        discount_type: form.discount_type || null,
+        discount_value: Number(form.discount_value) || 0,
       };
       if (edit) await request(`/api/canteen/products/${edit.id}`, { method: 'PUT', body: JSON.stringify(body) });
       else await request('/api/canteen/products', { method: 'POST', body: JSON.stringify({ ...body, quantity_on_hand: Number(form.quantity_on_hand) || 0 }) });
@@ -291,7 +372,14 @@ function ProductsTab(props: { categories: Category[]; products: Product[]; inval
           <input value={form.sell_price} onChange={e => setForm({ ...form, sell_price: e.target.value })} type="number" placeholder="سعر البيع" className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold" />
           {!edit && <input value={form.quantity_on_hand} onChange={e => setForm({ ...form, quantity_on_hand: e.target.value })} type="number" placeholder="الكمية الافتتاحية" className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold" />}
           <input value={form.min_quantity} onChange={e => setForm({ ...form, min_quantity: e.target.value })} type="number" placeholder="حد التنبيه" className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold" />
+          <select value={form.discount_type} onChange={e => setForm({ ...form, discount_type: e.target.value })} className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold">
+            <option value="">بدون خصم</option>
+            <option value="percent">خصم نسبة %</option>
+            <option value="amount">خصم مبلغ</option>
+          </select>
+          <input value={form.discount_value} onChange={e => setForm({ ...form, discount_value: e.target.value })} type="number" disabled={!form.discount_type} placeholder="قيمة الخصم" className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-sm font-bold disabled:opacity-50" />
         </div>
+        <ImageUploadField value={form.image_url} onChange={(url) => setForm({ ...form, image_url: url })} />
         <label className="flex items-center gap-2 text-sm font-bold text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} /> مفعّل
         </label>
@@ -302,9 +390,9 @@ function ProductsTab(props: { categories: Category[]; products: Product[]; inval
         <div className="space-y-1.5 max-h-64 overflow-y-auto">
           {props.products.map(p => (
             <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 gap-2">
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{p.name} — {Number(p.sell_price).toLocaleString()} ج.م ({p.quantity_on_hand})</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{p.name} — {Number(p.sell_price).toLocaleString()} ج.م{p.discount_type ? ` (خصم ${p.discount_type === 'percent' ? `${p.discount_value}%` : p.discount_value})` : ''} ({p.quantity_on_hand})</span>
               <div className="flex gap-1 shrink-0">
-                <button onClick={() => { setEdit(p); setForm({ name: p.name, category_id: p.category_id || '', unit: p.unit || '', barcode: p.barcode || '', cost_price: String(p.cost_price), sell_price: String(p.sell_price), quantity_on_hand: '', min_quantity: String(p.min_quantity), is_active: flag(p.is_active, true) }); }} className="text-primary-600 hover:bg-primary-50 rounded-lg p-1"><Pencil size={14} /></button>
+                <button onClick={() => { setEdit(p); setForm({ name: p.name, category_id: p.category_id || '', unit: p.unit || '', barcode: p.barcode || '', cost_price: String(p.cost_price), sell_price: String(p.sell_price), quantity_on_hand: '', min_quantity: String(p.min_quantity), is_active: flag(p.is_active, true), image_url: p.image_url || '', discount_type: p.discount_type || '', discount_value: p.discount_value ? String(p.discount_value) : '' }); }} className="text-primary-600 hover:bg-primary-50 rounded-lg p-1"><Pencil size={14} /></button>
                 <button onClick={() => del(p.id)} className="text-rose-500 hover:bg-rose-50 rounded-lg p-1"><Trash2 size={14} /></button>
               </div>
             </div>
@@ -417,6 +505,14 @@ function SalesTab(props: { sales: Sale[]; invalidate: (k: string) => void }) {
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-500">
             {s.items?.map(it => <span key={it.id}>{it.product_name} × {it.quantity}</span>)}
           </div>
+          {s.customer_name && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-slate-400">
+              <span>المشتري: {s.customer_name}</span>
+              {s.customer_phone && <span>تليفون: {s.customer_phone}</span>}
+              {s.apartment_name && <span>الشقة: {s.apartment_name}</span>}
+              {s.room_name && <span>غرفة: {s.room_name}</span>}
+            </div>
+          )}
           {s.status !== 'returned' && (
             <button onClick={() => { setReturnSale(s); setRetQty({}); setReason(''); }} className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/5 text-xs font-bold text-slate-600 dark:text-slate-300">
               <RotateCcw size={13} /> مرتجع

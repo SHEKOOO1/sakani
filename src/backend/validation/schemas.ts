@@ -1,9 +1,24 @@
 import { z } from 'zod';
 
-export const loginSchema = z.object({
-  email: z.string().email('ايميل مش صحيح').min(1, 'الايميل مطلوب').max(255),
-  password: z.string().min(1, 'الباسورد مطلوب').max(128),
-});
+// معرّف الدخول: اسم المستخدم (بديل البريد). يقبل حروف (عربية/لاتينية) وأرقام
+// ونقطة/شرطة/شرطة سفلية، بلا مسافات، وطوله 3..50.
+export const usernameSchema = z
+  .string()
+  .trim()
+  .min(3, 'اسم المستخدم لازم 3 حروف على الأقل')
+  .max(50, 'اسم المستخدم طويل أوي')
+  .regex(/^[\p{L}\p{N}._-]+$/u, 'اسم المستخدم يقبل حروف وأرقام ونقطة أو شرطة أو شرطة سفلية فقط');
+
+export const loginSchema = z
+  .object({
+    email: z.string().trim().email('ايميل مش صحيح').max(255).optional(),
+    username: usernameSchema.optional(),
+    password: z.string().min(1, 'الباسورد مطلوب').max(128),
+  })
+  .refine((d) => !!(d.email || d.username), {
+    message: 'ادخل البريد الإلكتروني أو اسم المستخدم',
+    path: ['email'],
+  });
 
 export const registerSchema = z.object({
   email: z.string().email('ايميل مش صحيح').max(255),
@@ -473,17 +488,28 @@ export const createRoomSchema = z.object({
 
 export const updateRoomSchema = createRoomSchema.partial();
 
-export const createUserSchema = z.object({
-  email: z.string().email('البريد الإلكتروني غير صالح').max(255),
-  password: z.string().min(8, 'كلمة المرور يجب أن تكون 8 أحرف على الأقل').max(128).optional(),
-  name: z.string().min(1, 'الاسم مطلوب').max(100),
-  role: z.string().min(1, 'الدور مطلوب'),
-});
+export const createUserSchema = z
+  .object({
+    email: z.string().trim().email('البريد الإلكتروني غير صالح').max(255).optional(),
+    username: usernameSchema.optional(),
+    password: z.string().min(8, 'كلمة المرور يجب أن تكون 8 أحرف على الأقل').max(128).optional(),
+    name: z.string().min(1, 'الاسم مطلوب').max(100),
+    role: z.string().min(1, 'الدور مطلوب'),
+  })
+  .refine((d) => !!(d.email || d.username), {
+    message: 'ادخل البريد الإلكتروني أو اسم المستخدم',
+    path: ['email'],
+  });
 
 export const updateUserSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  email: z.string().email().max(255).optional(),
+  email: z.string().trim().email().max(255).optional(),
+  username: usernameSchema.optional(),
   role: z.string().min(1).optional(),
+});
+
+export const changeUsernameSchema = z.object({
+  username: usernameSchema.nullable(),
 });
 
 export const addToTenantSchema = z.object({
@@ -649,6 +675,8 @@ export const restaurantItemSchema = z.object({
   is_included_meal: toggle.optional().default(false),
   sort_order: z.number().int().min(0).max(10000).optional().default(0),
   image_url: z.string().max(500).nullable().optional().default(null),
+  discount_type: z.enum(['percent', 'amount'], { message: 'نوع الخصم غير صحيح' }).nullable().optional().default(null),
+  discount_value: z.number().min(0).max(10_000_000).optional().default(0),
 });
 
 export const updateRestaurantItemSchema = restaurantItemSchema.partial();
@@ -699,6 +727,9 @@ export const canteenProductSchema = z.object({
   quantity_on_hand: z.number().min(0).max(100_000_000).optional().default(0),
   min_quantity: z.number().min(0).max(100_000_000).optional().default(0),
   is_active: toggle.optional().default(true),
+  image_url: z.string().max(500).nullable().optional().default(null),
+  discount_type: z.enum(['percent', 'amount'], { message: 'نوع الخصم غير صحيح' }).nullable().optional().default(null),
+  discount_value: z.number().min(0).max(10_000_000).optional().default(0),
 });
 
 export const updateCanteenProductSchema = canteenProductSchema.partial();
@@ -719,7 +750,7 @@ export const canteenSaleSchema = z.object({
   sale_ref: z.string().min(1, 'معرف الفاتورة مطلوب').max(64),
   items: z.array(canteenSaleItemInputSchema).min(1, 'الفاتورة فاضية').max(100),
   student_id: z.string().max(128).nullable().optional().default(null),
-  payment_method: z.enum(['cash', 'card', 'account', 'other']).optional().default('cash'),
+  payment_method: z.enum(['cash', 'card', 'wallet', 'account', 'other']).optional().default('cash'),
   note: z.string().max(2000).nullable().optional(),
 });
 
