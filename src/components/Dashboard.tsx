@@ -19,7 +19,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: string) => void 
   const [joiningLaundry, setJoiningLaundry] = useState(false);
   const [isTraveling, setIsTraveling] = useState(false);
   const [showTravelModal, setShowTravelModal] = useState(false);
-  const [travelForm, setTravelForm] = useState({ destination: '', reason: '' });
+  const [travelForm, setTravelForm] = useState({ destination: '', reason: '', expectedReturn: '' });
   const [travelLoading, setTravelLoading] = useState(false);
   const [dailyReadings, setDailyReadings] = useState<any>(null);
   const [dailyReadingsLoading, setDailyReadingsLoading] = useState(false);
@@ -264,6 +264,12 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: string) => void 
                   <label className="block text-xs font-black text-slate-500 dark:text-slate-300 mb-1.5">سبب السفر</label>
                   <textarea value={travelForm.reason} onChange={e => setTravelForm(f => ({ ...f, reason: e.target.value }))} rows={3} placeholder="اذكر سبب السفر..."
                     className="w-full px-5 py-3 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-primary-300 transition-all resize-none dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-500 dark:text-slate-300 mb-1.5">موعد العودة المتوقع (اختياري)</label>
+                  <input type="datetime-local" value={travelForm.expectedReturn} onChange={e => setTravelForm(f => ({ ...f, expectedReturn: e.target.value }))}
+                    className="w-full px-5 py-3 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-primary-300 transition-all dark:text-white" />
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-slate-300 mt-1">السفر مفتوح: يمكنك تركه فارغاً وتسجيل عودتك لاحقاً.</p>
                 </div>
                 <button onClick={handleTravelStart} disabled={travelLoading}
                   className="w-full py-3.5 bg-primary-600 text-white rounded-xl font-black text-sm hover:bg-primary-700 transition-all disabled:opacity-50 shadow-lg"

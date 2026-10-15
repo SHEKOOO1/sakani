@@ -32,9 +32,19 @@ export const canManageEmployee = async (req: any, employeeId: string): Promise<b
 
 // Travel Start
 router.post("/travel/start", authenticate, async (req, res) => {
-  const { destination, reason } = req.body;
+  const { destination, reason, expectedReturn } = req.body;
   const userId = req.user.id;
   const tenantId = req.user.tenantId;
+
+  // السفر مفتوح افتراضياً: موعد العودة اختياري (للمتابعة فقط، وليس شرطاً).
+  let travelEndTime: Date | null = null;
+  if (expectedReturn !== undefined && expectedReturn !== null && expectedReturn !== '') {
+    const parsed = new Date(expectedReturn);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ success: false, message: 'موعد العودة المتوقع غير صالح' });
+    }
+    travelEndTime = parsed;
+  }
 
   try {
     await kdb.transaction(async trx => {
@@ -43,7 +53,7 @@ router.post("/travel/start", authenticate, async (req, res) => {
 
       // Update student travel status
       await trx('students').where({ id: student.id }).update({
-          is_traveling: 1, travel_destination: destination, travel_reason: reason, travel_start_time: kdb.fn.now()
+          is_traveling: 1, travel_destination: destination, travel_reason: reason, travel_start_time: kdb.fn.now(), travel_end_time: travelEndTime
       });
 
       // إلغاء أي دور حالي للطالب في طابور الغسيل تلقائياً
@@ -110,7 +120,7 @@ router.post("/travel/end", authenticate, async (req, res) => {
 
       // Update student travel status
       await trx('students').where({ id: student.id }).update({
-          is_traveling: 0, travel_destination: null, travel_reason: null, travel_start_time: null
+          is_traveling: 0, travel_destination: null, travel_reason: null, travel_start_time: null, travel_end_time: null
       });
 
       const user = await trx('users').select('name').where({ id: userId }).first();

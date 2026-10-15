@@ -13,7 +13,7 @@ export interface StudentAccount {
   billingCycle: string | null;
   roomPrice: number;
   invoice: number;
-  source: 'room' | 'agreed';
+  source: 'room' | 'agreed' | 'frozen';
   totalPaid: number;
   remaining: number;
   balance: number;
@@ -68,10 +68,10 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
       created_at: e.created_at,
     }));
 
-  // Room-price edits still live only in finance_edit_logs (the invoice is
-  // never posted), so they stay part of the statement. A transaction edit no
-  // longer needs its log row here: it is already visible as the reversal plus
-  // the replacement entry the write path posts.
+  // Room-price edits are recorded in finance_edit_logs (see profile.routes
+  // PATCH /:id/finance) and shown as `edit` rows below. Older statements may
+  // also carry `adjustment` journal entries from the previous policy; those are
+  // still rendered so historical statements stay readable.
   const editLogsQuery = kdb('finance_edit_logs as e')
     .leftJoin('users as u', 'e.created_by', 'u.id')
     .where('e.student_id', studentId)
@@ -85,6 +85,30 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
 
   const accountTransactions: StudentAccount['transactions'] = [
     ...entries.map(e => {
+      // A room-price change posts as an `adjustment` entry; it reads as an edit
+      // (not a cash movement) and carries its direction from the STUDENT_PAYMENT
+      // line: a debit raised what the student owes, a credit cut it.
+      if (e.entry_type === 'adjustment') {
+        const sp = e.lines.find(l => l.account === 'STUDENT_PAYMENT');
+        const sign: 'increase' | 'decrease' | null = sp
+          ? (Number(sp.debit || 0) > 0 ? 'increase' : Number(sp.credit || 0) > 0 ? 'decrease' : null)
+          : null;
+        return {
+          id: e.id,
+          kind: 'edit' as const,
+          type: 'edit' as const,
+          description: e.description || 'تعديل سعر الغرفة',
+          category: e.category || 'رسوم',
+          amount: e.amount,
+          sign,
+          summary: e.status === 'reversed' ? 'قيد معكوس' : null,
+          date: e.entry_date || null,
+          created_at: e.created_at || null,
+          payment_method_name: null,
+          payment_method_type: null,
+          editor_name: e.creator_name || null,
+        };
+      }
       const displayType = entryDisplayType(e.entry_type, e.reverses_entry_type);
       return {
         id: e.id,

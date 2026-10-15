@@ -10,10 +10,11 @@ import { upload, UPLOADS_BASE, validateMagicBytes } from "../../middleware/uploa
 import { validate } from "../../validation/middleware";
 import { createStudentSchema } from "../../validation/schemas";
 import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../../config/default-password";
-import { issueActivationInvite } from "../../services/activation.service";
 import { collapseDuplicateColumns } from "../../infrastructure/duplicate-columns";
 import { StudentService, StudentValidationError, isStudentValidationError } from "../student.service";
 import { sameId } from "../../infrastructure/id-match";
+import { resolveFrozenPrice } from "../../services/ledger.service";
+import { logFinanceEdit } from "../../services/student-account.service";
 
 const studentService = new StudentService();
 
@@ -279,13 +280,20 @@ router.post("/", authenticate, authorizePermission(AppPermission.ADD_STUDENT), v
       }
     }
 
+    // يُثبَّت سعر الإقامة وقت التسجيل: السعر المتفق عليه إن وُجد، وإلا سعر
+    // الغرفة لدورة التحصيل. بعد التثبيت لا يتأثر الطالب بأي تغيير لسعر الغرفة.
+    const room = roomId ? await kdb('rooms').where({ id: roomId, tenant_id: tenantId }).first() : null;
+    const frozenPrice = resolveFrozenPrice(room, billingCycle, agreedPrice);
+    const frozenAt = frozenPrice > 0 ? new Date() : null;
+
     await kdb.transaction(async trx => {
       await trx('students').insert({
         id, tenant_id: tenantId, user_id: userId, room_id: roomId || null, student_id_number: studentIdNumber, 
         university, phone, guardian_phone: parentPhone,
         whatsapp_number: whatsappNumber, id_card_number: idCardNumber, birth_date: birthDate, college, major,
         enrollment_year: enrollmentYear, student_photo: studentPhoto, address, billing_cycle: billingCycle || null, 
-        agreed_price: agreedPrice || 0
+        agreed_price: frozenPrice,
+        price_frozen_at: frozenAt
       });
 
       const userUpdate: any = {
@@ -360,7 +368,6 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
     }
 
     // No existing parent found — create new
-    let createdUserId: string | null = null;
     await kdb.transaction(async trx => {
       const userId = uuidv4();
       const resolvedDefaultPassword = resolveAccountPassword(password);
@@ -372,24 +379,14 @@ router.post("/:id/guardians", authenticate, authorizePermission(AppPermission.AD
       await trx('users').insert({
         id: userId, tenant_id: tenantId, email: email || null, username: username || null,
         password: hashedPassword, role: 'parent', name,
-        activated_at: username ? new Date().toISOString() : null,
+        activated_at: new Date(),
       });
-      createdUserId = userId;
 
       const guardianId = uuidv4();
       await trx('parents').insert({ id: guardianId, tenant_id: tenantId, user_id: userId, phone: phone || null, whatsapp: whatsapp || null, occupation: occupation || null, photo: photo || null });
 
       await trx('student_guardians').insert({ id: uuidv4(), student_id: id, guardian_id: guardianId, relation_type: relationType || 'father' });
     });
-
-    // الحساب المُنشأ باسم مستخدم يكون مفعّلاً مباشرة؛ وإلا يبدأ بانتظار التفعيل ويُرسل له رابط بالبريد.
-    // بعد الـ commit حتى لا يُكتب حساب مُلغى لو فشلت المعاملة.
-    if (createdUserId && !username) {
-      const invite = await issueActivationInvite(createdUserId);
-      if (!invite.emailed) {
-        console.warn('[Guardian Create] activation email not sent for user', createdUserId, invite.reason || '');
-      }
-    }
 
     res.json({ success: true, message: "تم إنشاء حساب ولي الأمر وربطه بالطالب" });
   } catch (error: any) {
@@ -662,10 +659,11 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.EDIT_STUDENT)
   }
 
   try {
+    const priceChange: { value: { oldPrice: number; newPrice: number } | null } = { value: null };
     await kdb.transaction(async trx => {
       const oldStudent = await trx('students as s')
         .join('users as u', 's.user_id', 'u.id')
-        .select('s.room_id', 'u.id as user_id', 'u.email as user_email')
+        .select('s.room_id', 's.agreed_price', 's.price_frozen_at', 's.billing_cycle', 'u.id as user_id', 'u.email as user_email')
         .where('s.id', id)
         .where('s.tenant_id', tenantId)
         .first();
@@ -719,6 +717,16 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.EDIT_STUDENT)
 
       const finalWhatsappNumber = whatsappNumber !== undefined ? whatsappNumber : req.body.whatsapp_number;
 
+      // تعديل سعر الإقامة إجراء إداري صريح: يُحدَّث فقط عند تغيّر القيمة فعلياً،
+      // ويُثبَّت السعر الجديد ويُسجَّل التغيير. لا يُلمس أي قيد أو دفعة مرحّلة.
+      if (agreedPrice !== undefined && agreedPrice !== null && agreedPrice !== '') {
+        const newAgreed = Number(agreedPrice);
+        const oldAgreed = Number(oldStudent.agreed_price || 0);
+        if (Number.isFinite(newAgreed) && newAgreed >= 0 && newAgreed !== oldAgreed) {
+          priceChange.value = { oldPrice: oldAgreed, newPrice: newAgreed };
+        }
+      }
+
       await trx('students').where({ id, tenant_id: tenantId }).update({
         room_id: newRoomId || null,
         student_id_number: studentIdNumber,
@@ -734,7 +742,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.EDIT_STUDENT)
         student_photo: studentPhoto,
         address,
         billing_cycle: billingCycle,
-        ...(agreedPrice !== undefined ? { agreed_price: agreedPrice } : {}),
+        ...(priceChange.value ? { agreed_price: priceChange.value.newPrice, price_frozen_at: trx.fn.now() } : {}),
         ...(status !== undefined ? { status } : {}),
         governorate,
         village,
@@ -765,6 +773,18 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.EDIT_STUDENT)
         }
       }
     });
+
+    if (priceChange.value) {
+      await logFinanceEdit({
+        tenantId,
+        studentId: id,
+        editType: 'room_price',
+        direction: priceChange.value.newPrice > priceChange.value.oldPrice ? 'increase' : 'decrease',
+        delta: Math.abs(priceChange.value.newPrice - priceChange.value.oldPrice),
+        summary: `تعديل سعر الإقامة من ${priceChange.value.oldPrice} إلى ${priceChange.value.newPrice} (تثبيت السعر)`,
+        createdBy: req.user?.id || null,
+      });
+    }
 
     res.json({ success: true, message: "تم تحديث بيانات الطالب بنجاح" });
   } catch (error: any) {

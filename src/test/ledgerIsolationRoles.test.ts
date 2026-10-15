@@ -239,10 +239,10 @@ const WORLD = {
   rooms: [{ id: 'r1', tenant_id: 'A' }, { id: 'r2', tenant_id: 'B' }],
   // ledger rows: one tenant payment for sA, one ADMIN-ONLY payment for sA
   journal_entries: [
-    { id: 'eTenantPay', tenant_id: 'A', student_id: 'sA', is_admin_only: 0, entry_type: 'payment', status: 'posted', amount: 500, category: 'سكن', description: 'دفعة عادية', entry_date: '2026-01-05', created_at: '2026-01-05T10:00:00Z' },
-    { id: 'eAdminPay', tenant_id: null, student_id: 'sA', is_admin_only: 1, entry_type: 'payment', status: 'posted', amount: 777, category: 'سكن', description: 'دفعة إدارية', entry_date: '2026-01-06', created_at: '2026-01-06T10:00:00Z' },
-    { id: 'eTenantExpense', tenant_id: 'A', student_id: null, is_admin_only: 0, entry_type: 'expense', status: 'posted', amount: 100, category: 'صيانة', description: 'إصلاح', entry_date: '2026-01-07', created_at: '2026-01-07T10:00:00Z' },
-    { id: 'eAdminExpense', tenant_id: null, student_id: null, is_admin_only: 1, entry_type: 'expense', status: 'posted', amount: 999, category: 'أخرى', description: 'مصروف إداري', entry_date: '2026-01-08', created_at: '2026-01-08T10:00:00Z' },
+    { id: 'eTenantPay', tenant_id: 'A', student_id: 'sA', is_admin_only: 0, entry_type: 'payment', status: 'posted', amount: 500, category: 'سكن', description: 'دفعة عادية', entry_date: '2026-01-05', created_at: '2026-01-05T10:00:00Z', ledger_kind: 'dorm' },
+    { id: 'eAdminPay', tenant_id: null, student_id: 'sA', is_admin_only: 1, entry_type: 'payment', status: 'posted', amount: 777, category: 'سكن', description: 'دفعة إدارية', entry_date: '2026-01-06', created_at: '2026-01-06T10:00:00Z', ledger_kind: 'dorm' },
+    { id: 'eTenantExpense', tenant_id: 'A', student_id: null, is_admin_only: 0, entry_type: 'expense', status: 'posted', amount: 100, category: 'صيانة', description: 'إصلاح', entry_date: '2026-01-07', created_at: '2026-01-07T10:00:00Z', ledger_kind: 'dorm' },
+    { id: 'eAdminExpense', tenant_id: null, student_id: null, is_admin_only: 1, entry_type: 'expense', status: 'posted', amount: 999, category: 'أخرى', description: 'مصروف إداري', entry_date: '2026-01-08', created_at: '2026-01-08T10:00:00Z', ledger_kind: 'dorm' },
   ],
   journal_lines: [
     { id: 'lTenantPay1', entry_id: 'eTenantPay', line_no: 1, account: 'CASH', debit: 500, credit: 0, student_id: 'sA' },
@@ -371,7 +371,7 @@ describe('ledger isolation — supervisor role', () => {
   it('supervisor of A never sees B rows through the list', async () => {
     dbMock.setRows('journal_entries', [
       ...WORLD.journal_entries,
-      { id: 'eBPay', tenant_id: 'B', student_id: 'sB', is_admin_only: 0, entry_type: 'payment', status: 'posted', amount: 1234, category: 'سكن', description: 'دفعة B', entry_date: '2026-01-09', created_at: '2026-01-09T10:00:00Z' },
+      { id: 'eBPay', tenant_id: 'B', student_id: 'sB', is_admin_only: 0, entry_type: 'payment', status: 'posted', amount: 1234, category: 'سكن', description: 'دفعة B', entry_date: '2026-01-09', created_at: '2026-01-09T10:00:00Z', ledger_kind: 'dorm' },
     ]);
     const res = await request('/api/finance', { token: signToken({ id: 'uSup', role: 'supervisor', tenantId: 'A', email: 'sup@test.com' }) });
     expect(res.status).toBe(200);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useMounted } from '../hooks/useMounted';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,13 +32,21 @@ export function RoomsPage() {
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const filteredRooms = rooms.filter((r: any) =>
-    !searchQuery || r.room_number?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Debounce the search term so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 400);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // A new search always starts from the first page.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
 
   const openAddModal = () => {
     setIsEditMode(false);
@@ -95,12 +103,17 @@ export function RoomsPage() {
   const canEditRoom = canManageHousing;
   const canDeleteRoom = canManageHousing;
   const mounted = useMounted();
+  const fetchSeq = useRef(0);
 
   const fetchRooms = useCallback(async () => {
+    const seq = ++fetchSeq.current;
     setLoading(true);
     try {
-      const response = await request(`/api/rooms?page=${page}&limit=20`);
-      if (mounted.current) {
+      const params = new URLSearchParams({ page: String(page), limit: '20' });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      const response = await request(`/api/rooms?${params.toString()}`);
+      // Ignore stale responses: only the latest request may update the view.
+      if (mounted.current && seq === fetchSeq.current) {
         setRooms(response.data);
         setTotalPages(response.totalPages || 1);
         setTotal(response.total || 0);
@@ -108,9 +121,9 @@ export function RoomsPage() {
     } catch (err) {
       console.error(err);
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && seq === fetchSeq.current) setLoading(false);
     }
-  }, [request, page]);
+  }, [request, page, debouncedSearch]);
 
   const fetchApartments = useCallback(async () => {
     try {
@@ -227,7 +240,7 @@ export function RoomsPage() {
             <tbody className="divide-y divide-slate-50 dark:divide-white/5 text-sm">
               {loading ? (
                 [1,2,3].map(i =>                 <tr key={i} className="animate-pulse"><td colSpan={6} className="h-16 bg-slate-50/50 dark:bg-white/5" /></tr>)
-              ) : filteredRooms.length > 0 ? filteredRooms.map((room: any) => (
+              ) : rooms.length > 0 ? rooms.map((room: any) => (
                 <tr key={room.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
                   <td className="px-8 py-4 font-bold text-slate-800 dark:text-white">غرفة {room.room_number}</td>
                   <td className="px-8 py-4 text-slate-500 dark:text-slate-300">

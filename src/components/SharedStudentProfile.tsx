@@ -7,6 +7,7 @@ import { StudentGuardians } from './profiles/StudentGuardians';
 import { StudentFinanceCard } from './student/StudentFinanceCard';
 import { FileViewerModal, type ViewableFile, normalizeFilePath, isImageFile } from './student/FileViewerModal';
 import { AttendanceHistoryCard } from './student/AttendanceHistoryCard';
+import { MovementHistoryCard } from './student/MovementHistoryCard';
 import { GeoSpiritualSection } from './profiles/GeoSpiritualSection';
 import QRCode from 'react-qr-code';
 import {
@@ -329,6 +330,8 @@ export const SharedStudentProfile: React.FC<SharedStudentProfileProps> = ({ stud
           )}
 
           <AttendanceHistoryCard studentId={student.id} />
+
+          <MovementHistoryCard studentId={student.id} />
 
           {/* Files */}
           <div className="bg-white dark:bg-card-dark p-8 rounded-[3rem] border border-slate-100 dark:border-white/[0.05] shadow-sm">

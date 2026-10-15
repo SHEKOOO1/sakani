@@ -29,6 +29,15 @@ export const ENTRY_TYPES = [
 
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
+/**
+ * Which activity a journal entry belongs to. The three activities share one
+ * database but keep independent books; housing reports default to 'dorm' so
+ * they can never absorb restaurant or canteen sales. One entry has exactly one
+ * kind (stamped at posting), and a reversal inherits the kind of its original.
+ */
+export const LEDGER_KINDS = ['dorm', 'restaurant', 'canteen'] as const;
+export type LedgerKind = (typeof LEDGER_KINDS)[number];
+
 export type LedgerSource = 'legacy' | 'api' | 'attendance' | 'system';
 
 export interface JournalLineInput {
@@ -61,6 +70,12 @@ export interface PostEntryInput {
   attendanceId?: string | null;
   eventId?: string | null;
   sessionId?: string | null;
+  /**
+   * The activity this entry belongs to. Defaults to 'dorm' so every existing
+   * housing/attendance call site keeps its meaning without changes; restaurant
+   * and canteen sales pass their own kind explicitly.
+   */
+  ledgerKind?: LedgerKind;
 }
 
 export interface PostedEntry {
@@ -129,19 +144,46 @@ export function roomPriceFor(room: any, cycle?: string | null): number {
 }
 
 /**
- * The single source of the invoice figure. The room price wins whenever the
- * room has one for this billing cycle; agreed_price is only the fallback for a
- * room with no price configured. Nothing posts this amount to the ledger —
+ * The price to freeze for a student at enrollment: an explicit agreed price
+ * wins (even 0 for a free place); otherwise the room's price for the chosen
+ * billing cycle. Returns 0 when neither is available.
+ */
+export function resolveFrozenPrice(room: any, cycle: string | null | undefined, agreedPrice: unknown): number {
+  if (agreedPrice !== undefined && agreedPrice !== null && agreedPrice !== '') {
+    const n = Number(agreedPrice);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return roomPriceFor(room, cycle);
+}
+
+/**
+ * The single source of the invoice figure.
+ *
+ * A price frozen at enrollment (`price_frozen_at` set) is the student's agreed
+ * residence price and is returned as-is — it never tracks the shared room price
+ * again, so editing `rooms.price_*` cannot rebase an existing student's invoice
+ * or balance. Legacy records without the marker keep the old behaviour: the
+ * room price wins whenever the room has one for this billing cycle, with
+ * `agreed_price` as the fallback. Nothing posts this amount to the ledger —
  * `remaining` = invoiceForStudent(...).invoice - SUM(payment) from
  * getStudentLedgerTotals.
  */
 export function invoiceForStudent(student: any): {
   roomPrice: number;
   invoice: number;
-  source: 'room' | 'agreed';
+  source: 'room' | 'agreed' | 'frozen';
   billingCycle: string;
 } {
   const billingCycle = student?.billing_cycle || 'semester';
+  if (student?.price_frozen_at != null && student?.agreed_price != null) {
+    const frozenAt = new Date(student.price_frozen_at).getTime();
+    // A frozen price applies once its effective date has arrived; a future-dated
+    // change stays pending (falls back to legacy pricing) until then.
+    if (!Number.isFinite(frozenAt) || frozenAt <= Date.now()) {
+      const frozen = Number(student.agreed_price || 0);
+      return { roomPrice: frozen, invoice: frozen, source: 'frozen', billingCycle };
+    }
+  }
   const roomPrice = roomPriceFor(student, billingCycle);
   const invoice = roomPrice > 0 ? roomPrice : Number(student?.agreed_price || 0);
   return { roomPrice, invoice, source: roomPrice > 0 ? 'room' : 'agreed', billingCycle };
@@ -311,30 +353,51 @@ export async function postEntry(trx: Executor, input: PostEntryInput): Promise<P
   const id = uuidv4();
   const entryDate = input.entryDate || new Date();
 
-  await trx('journal_entries').insert({
-    id,
-    tenant_id: input.tenantId ?? null,
-    entry_date: entryDate,
-    entry_type: input.entryType,
-    status: 'posted',
-    amount: fromCents(toCents(input.amount)),
-    category: input.category ?? null,
-    description: input.description ?? null,
-    student_id: input.studentId ?? null,
-    payment_method_id: input.paymentMethodId ?? null,
-    finance_id: input.financeId ?? null,
-    reverses_entry_id: input.reversesEntryId ?? null,
-    reversed_by_entry_id: null,
-    source: input.source || 'api',
-    is_admin_only: input.isAdminOnly ? 1 : 0,
-    version: 1,
-    created_by: input.createdBy ?? null,
-    created_at: input.createdAt || new Date(),
-    reference: input.reference ?? null,
-    attendance_id: input.attendanceId ?? null,
-    event_id: input.eventId ?? null,
-    session_id: input.sessionId ?? null,
-  });
+  // UQ_journal_entries_reference_status: with `reference` set, at most one
+  // LIVE entry may carry it. When a concurrent request wins the race (the
+  // read-before-write guards in restaurant serve / canteen sales / attendance
+  // all have a tiny TOCTOU window), the second insert collides here. We surface
+  // the already-posted entry instead of posting the money twice; the caller's
+  // transaction then simply links its record to that entry and commits.
+  try {
+    await trx('journal_entries').insert({
+      id,
+      tenant_id: input.tenantId ?? null,
+      entry_date: entryDate,
+      entry_type: input.entryType,
+      status: 'posted',
+      amount: fromCents(toCents(input.amount)),
+      category: input.category ?? null,
+      description: input.description ?? null,
+      student_id: input.studentId ?? null,
+      payment_method_id: input.paymentMethodId ?? null,
+      finance_id: input.financeId ?? null,
+      reverses_entry_id: input.reversesEntryId ?? null,
+      reversed_by_entry_id: null,
+      source: input.source || 'api',
+      is_admin_only: input.isAdminOnly ? 1 : 0,
+      version: 1,
+      created_by: input.createdBy ?? null,
+      created_at: input.createdAt || new Date(),
+      reference: input.reference ?? null,
+      attendance_id: input.attendanceId ?? null,
+      event_id: input.eventId ?? null,
+      session_id: input.sessionId ?? null,
+      ledger_kind: input.ledgerKind ?? 'dorm',
+    });
+  } catch (e: any) {
+    const dup = e?.number === 2601 || e?.number === 2627;
+    const ours = typeof e?.message === 'string' && e.message.includes('UQ_journal_entries_reference_status');
+    if (dup && ours && input.reference) {
+      const existing = await trx('journal_entries')
+        .where({ reference: input.reference, status: 'posted' })
+        .first();
+      if (existing) {
+        return { id: existing.id, entryType: existing.entry_type, amount: Number(existing.amount ?? 0), status: 'posted' };
+      }
+    }
+    throw e;
+  }
 
   const lineRows = input.lines.map((line, index) => ({
     id: uuidv4(),
@@ -414,6 +477,9 @@ export async function reverseEntry(
     source: opts.source || 'api',
     isAdminOnly: Number(original.is_admin_only || 0) === 1,
     createdBy: opts.createdBy ?? null,
+    // A reversal stays in the same book as the entry it mirrors, so a refunded
+    // canteen sale never lands in (or leaks out of) the housing ledger.
+    ledgerKind: (original.ledger_kind as LedgerKind) || 'dorm',
   });
 
   await trx('journal_entries')
@@ -626,6 +692,12 @@ export interface LedgerScopeFilter {
   startDate?: string | null;
   endDate?: string | null;
   category?: string | null;
+  /**
+   * Which activity's book to read: a single kind, or 'all' for a combined
+   * (read-only) rollup across the three. Defaults to 'dorm' so every existing
+   * housing report/dashboard excludes restaurant and canteen automatically.
+   */
+  ledgerKind?: LedgerKind | 'all' | null;
 }
 
 export interface LedgerClassTotals {
@@ -669,6 +741,12 @@ function applyLedgerScope(qb: any, f: LedgerScopeFilter): any {
     if (f.tenantIds.length) qb.whereIn('e.tenant_id', f.tenantIds);
     else qb.whereRaw('1 = 0');
   } else if (f.tenantId) qb.where('e.tenant_id', f.tenantId);
+  // Activity separation: default to the housing book; 'all' is the explicit,
+  // read-only combined rollup. This is what keeps restaurant/canteen sales out
+  // of dorm income/expense reports and dashboards.
+  if (f.ledgerKind !== 'all') {
+    qb.where('e.ledger_kind', f.ledgerKind || 'dorm');
+  }
   if (f.studentId) qb.where('e.student_id', f.studentId);
   if (f.category) qb.where('e.category', f.category);
   if (f.startDate) qb.where('e.entry_date', '>=', f.startDate);
@@ -845,7 +923,10 @@ export async function getLedgerMovements(
     .leftJoin('students as s', 'e.student_id', 's.id')
     .leftJoin('users as u', 's.user_id', 'u.id')
     .leftJoin('payment_methods as pm', 'e.payment_method_id', 'pm.id')
-    .where('e.status', 'posted');
+    .where('e.status', 'posted')
+    // Non-cash bookkeeping (invoice/adjustment rows) is visible on the student
+    // statement, never on the housing cash-flow list/reports.
+    .whereNotIn('e.entry_type', ['invoice', 'adjustment']);
   applyLedgerScope(qb, f);
   if (f.movementType) qb.whereRaw(`${DISPLAY_TYPE_SQL} = ?`, [f.movementType]);
   if (f.search) {
@@ -905,7 +986,8 @@ export async function countLedgerMovements(
     .leftJoin('journal_entries as rev', 'e.reverses_entry_id', 'rev.id')
     .leftJoin('students as s', 'e.student_id', 's.id')
     .leftJoin('users as u', 's.user_id', 'u.id')
-    .where('e.status', 'posted');
+    .where('e.status', 'posted')
+    .whereNotIn('e.entry_type', ['invoice', 'adjustment']);
   applyLedgerScope(qb, f);
   if (f.movementType) qb.whereRaw(`${DISPLAY_TYPE_SQL} = ?`, [f.movementType]);
   if (f.search) {

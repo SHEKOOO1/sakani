@@ -14,7 +14,6 @@ import { validatePermissionsInput, parseStoredPermissionsArray } from "../infras
 import { canGrantSubset, getEffectivePermissionCodes } from "../infrastructure/permission-grants";
 import { parsePagination, paginateQuery } from "../services/radio/pagination.ts";
 import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../config/default-password";
-import { issueActivationInvite, isMailerReady, ACTIVATION_MESSAGES } from "../services/activation.service";
 
 const router = express.Router();
 
@@ -201,9 +200,8 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
     }
     const hashedPassword = await bcrypt.hash(resolvedPassword.password as string, 10);
 
-    // حساب له اسم مستخدم = جاهز للدخول فوراً (activated_at). الحساب بالإيميل فقط
-    // يظل بانتظار التفعيل عبر رابط البريد (السلوك السابق).
-    const activatedAt = username ? new Date() : null;
+    // كل الحسابات تُفعَّل تلقائياً فور إنشائها (لا يوجد تفعيل بالبريد بعد الآن).
+    const activatedAt = new Date();
 
     await kdb.transaction(async trx => {
       await trx("users").insert({
@@ -214,7 +212,7 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
         password: hashedPassword,
         role,
         name,
-        ...(activatedAt ? { activated_at: activatedAt } : {})
+        activated_at: activatedAt
       });
 
       if (tenantId) {
@@ -228,29 +226,9 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
       }
     });
 
-    if (username) {
-      return res.status(201).json({
-        success: true,
-        data: { id, email: email || null, username, name, role, activationEmailSent: false, mailerConfigured: isMailerReady() }
-      });
-    }
-
-    // الحساب الجديد بلا اسم مستخدم يبقى بانتظار التفعيل حتى يُفتح رابط البريد — والدخول مرفوض قبلها.
-    // الفشل في الإرسال لا يُسقط إنشاء الحساب (سلوك fail-soft)، والمشرف يُبلَّغ بذلك
-    // حتى لا يظن أن المستخدم استلم رسالة بينما لم تصل.
-    const invite = await issueActivationInvite(id);
-
     res.status(201).json({
       success: true,
-      data: {
-        id,
-        email: email || null,
-        username: null,
-        name,
-        role,
-        activationEmailSent: invite.emailed,
-        mailerConfigured: isMailerReady()
-      }
+      data: { id, email: email || null, username, name, role }
     });
   } catch (error: any) {
     if (typeof error?.message === 'string' && error.message.includes('UX_users_username')) {
@@ -260,41 +238,6 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
       return res.status(409).json({ success: false, message: "البريد الإلكتروني أو اسم المستخدم مستخدم بالفعل" });
     }
     res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
-  }
-});
-
-// إعادة إرسال رابط التفعيل لمستخدم قائم.
-// الحساب المفعّل أصلاً لا يُعاد إليه التفعيل (الخادم يرفض)، والحساب المعلّق
-// يُرمَّز بتوكن جديد يُبطل السابق — فلا يمكن الوصول للحساب إلا عبر البريد.
-router.post("/:id/resend-activation", authenticate, authorizePermission(AppPermission.MANAGE_USERS), async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const target = await kdb("users").select("id", "email", "name", "activated_at").where({ id }).first();
-    if (!target) {
-      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
-    }
-
-    if (!(await canManageTargetUser(req, target))) {
-      return res.status(403).json({ success: false, message: "لا تملك صلاحية إدارة هذا المستخدم" });
-    }
-
-    if (target.activated_at) {
-      return res.status(400).json({ success: false, message: "هذا الحساب مُفعّل بالفعل" });
-    }
-
-    const result = await issueActivationInvite(id);
-
-    if (!result.ok) {
-      return res.status(400).json({ success: false, message: "تعذّر إرسال رابط التفعيل. حاول مرة أخرى." });
-    }
-    if (!result.emailed) {
-      return res.status(503).json({ success: false, code: "MAILER_NOT_CONFIGURED", message: ACTIVATION_MESSAGES.notConfigured });
-    }
-
-    res.json({ success: true, message: `تم إرسال رابط التفعيل إلى ${target.email}` });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: "فشل إرسال رابط التفعيل. يرجى المحاولة مرة أخرى." });
   }
 });
 

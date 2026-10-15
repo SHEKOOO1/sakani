@@ -23,7 +23,7 @@ interface FinanceSummaryProps {
     debtStatus?: 'debt' | 'paid' | 'credit';
     creditAmount?: number;
     roomPrice?: number;
-    source?: 'room' | 'agreed';
+    source?: 'room' | 'agreed' | 'frozen';
     billingCycle?: string;
     transactions?: any[];
   };

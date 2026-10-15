@@ -64,10 +64,15 @@
 
 ### 5. الحضور والغياب الذكي (Attendance — GPS / Geofencing)
 - **Geofencing**: لا يُسجَّل الحضور إلا داخل نطاق السكن (نطاق عام ~300 متر)، مع نقاط **دخول/خروج مخصصة** وقطر مخصص لكل نقطة (مثل 50 م).
+- **تحقق الخادم من الموقع**: تسجيل الدخول يُتحقق منه مقابل نقطة الدخول، وتسجيل الخروج مقابل نقطة الخروج (وعند عدم ضبطها يرجع الخادم إلى بوابة الدخول). الخادم هو مصدر الحقيقة ولا يعتمد على قرار الواجهة، ويتحقق من صحة الإحداثيات (النطاق)، ومن دقة الـ GPS (إن كانت الدقة غير كافية للحسم يُرفض الطلب برسالة واضحة)، مع الإبقاء على منع التكرار خلال 5 دقائق.
+- **العبور الذكي**: تسجيل تلقائي عند الدخول لنطاق الدخول، وعند الوصول لنطاق الخروج المنفصل (لا يُسجَّل خروج تلقائي عند غياب نقطة خروج مضبوطة).
 - **غلق السكن (Curfew)**: وقت غلق رسمي (مثل 10:00 مساءً)؛ أي دخول بعده يُسجَّل **Late** تلقائيًا، وسجل التأخيرات غير قابل للحذف.
 - **نظام السفر**: تسجيل "مسافر" (وجهة + سبب) → إعفاء تلقائي من التأخير وتعطيل الحضور، وزر "عدت من السفر".
 - **QR**: الطالب يمسح كود الفعالية/الجلسة، أو المشرف يمسح كود الطالب.
 - **الصلاحيات**: `VIEW_ATTENDANCE`, `CHECKIN_ATTENDANCE`, `MANAGE_ATTENDANCE`.
+- **الموقع المركزي**: عند عدم ضبط بوابات مخصصة، يعود الخادم إلى **الموقع المركزي** للسكن (`tenants.location_lat/lng/radius`) بدل رفض التسجيل. تغيير الموقع/القطر لا يمسّ السجلات التاريخية.
+- **منع التكرار الصارم**: قفل معاملة `sp_getapplock` لكل (طالب، نوع) يمنع أي ازدواج حتى مع طلبات متزامنة من أجهزة متعددة، إضافةً إلى نافذة الـ5 دقائق.
+- **الأجهزة الموثوقة**: اختياري — انظر قسم الترحيلات (`student_devices`)؛ الربط بالجهاز إشارة إضافية فقط ولا يلغي التحقق من الموقع.
 
 ### 6. الفعاليات والأنشطة (Events / Activities)
 - **هيكل شجري**: فعالية رئيسية (Master Event) → جلسات/أقسام (محاضرات/صلوات).
@@ -98,6 +103,8 @@
 - **التصنيفات**: رسوم سكن، رسوم فعاليات، صيانة، رواتب، مع **ربط المعاملات بالطلاب**.
 - **التكامل مع الفعاليات**: زر "تأكيد الدفع" في كشف الحضور المدفوع، وتمييز الدافعين، وإحصائيات دفع في التقرير.
 - **Journal Ledger**: قيود محاسبية مع backfill/verify، وعزل مالية الأدمن.
+- **التزامن والاتساق**: القيود المالية محميّة بفهرس فريد على `(reference, status)` فيمنع ازدواج الترحيل عند إعادة المحاولة (مطعم/كانتين/حضور). وإرجاع فاتورة الكانتين يبدأ بقفل تحديث على صف الفاتورة (`forUpdate` → `WITH (UPDLOCK)`) فيُسلسل الإرجاعات المتزامنة لنفس الفاتورة: لا يمكن تجاوز الكمية المباعة (over-return) ولا عكس القيد المالي مرتين.
+- **تثبيت سعر الإقامة**: يُثبَّت السعر المتفق عليه وقت التسجيل (أو إنشاء التعاقد) داخل سجل الطالب (`agreed_price` + `price_frozen_at`) ولا يتبع سعر الغرفة الحالي. تغيير سعر الغرفة (`rooms.price_*`) يسري على **التسجيلات الجديدة فقط**، ويُثبَّت طلاب الغرفة غير المثبَّتين على سعرهم الفعلي الحالي وقت التغيير (دون تغيير أرصدتهم). لا تُسجَّل قيود `adjustment` تلقائية، ولا تُعدَّل الفواتير أو الدفعات المرحّلة. تعديل سعر طالب قائم إجراء إداري صريح (مشرف السكن): يثبّت سعر الطالب فقط ويُسجَّل السعر السابق/الجديد والسبب والمستخدم وتاريخ السريان في `finance_edit_logs`. لمراجعة الحالات المتأثرة قبل أي انتقال: `npm run report:price-freeze`.
 - **تصدير** تقارير PDF (`pdfkit`, `pdf-lib`) وExcel (`exceljs`).
 - **الصلاحيات**: `VIEW_FINANCE`, `ADD_EXPENSE`, `ADD_REVENUE`, `VIEW_FINANCE_REPORTS`.
 
@@ -142,7 +149,7 @@
 ### 18. الإعدادات و PWA والقراءات اليومية
 - **الإعدادات** (`SettingsPage`): إدارة المستخدمين، **خريطة الصلاحيات**، وأترام الدراسة.
 - **PWA** (قابل للتثبيت) عبر `vite-plugin-pwa`, `manifest.webmanifest`, `sw.js`, ومطالبة التثبيت `PwaInstallPrompt`.
-- **تفعيل الحساب بالبريد** (`ActivationPage`) وتسجيل الدخول (`LoginPage`).
+- **تفعيل الحساب تلقائياً**: كل حساب يُفعَّل فور إنشائه (لا يوجد تأكيد/تفعيل بالبريد) وتسجيل الدخول (`LoginPage`).
 - **القراءات اليومية**: بطاقة HTML تُنقّى بـ **DOMPurify**، مع أعمدة تفعيل/تعطيل لكل مستخدم.
 
 ---
@@ -217,7 +224,7 @@
 ### قاعدة البيانات
 - **Microsoft SQL Server (MSSQL)** عبر **Knex.js** + `mssql`/`tedious`.
 - كل المعرّفات **UUID `NVarChar(128)`** (لا تعداد رقمي)، والاسم الافتراضي `DormMaster`.
-- المخطط: `schema_mssql.sql` + DDL داخل `initializeDb()`, مع **ترحيلات Knex** (`migrations/001` … `047`).
+- المخطط: `schema_mssql.sql` + DDL داخل `initializeDb()`, مع **ترحيلات Knex** (`migrations/001` … `058`).
 
 ### نموذج المصادقة
 - **JWT** يُسلَّم فقط عبر **httpOnly cookie** مع `SameSite=strict` و`secure` في الإنتاج (صلاحية 24 ساعة).
@@ -225,7 +232,7 @@
 - **Token blacklist** (`token_blacklist`) + `POST /api/auth/logout`.
 - `authenticate` يعيد التحقق من وجود المستخدم + الدور + السكن + token_version + blacklist في كل طلب.
 - **WebSocket**: `io.use(resolveSocketUser)` مع نفس التحققات + قيود `join-tenant`/`join-user`.
-- **تفعيل الحساب بالبريد** إلزامي للحسابات المنشأة إداريًا. تسجيل `POST /auth/register` متاح **لأول مستخدم فقط** + `SETUP_REGISTRATION_TOKEN` في الإنتاج.
+- **تفعيل الحساب تلقائياً**: لا يوجد تفعيل/تأكيد بالبريد — كل حساب (مشرف/كاهن/مشرف/طالب/ولي أمر/موظف) يُفعَّل فور إنشائه ويمكنه الدخول مباشرة. تسجيل `POST /auth/register` متاح **لأول مستخدم فقط** + `SETUP_REGISTRATION_TOKEN` في الإنتاج.
 - ملاحظة: لا يوجد refresh-token حاليًا (24h ثم إعادة تسجيل دخول).
 
 ---
@@ -269,8 +276,8 @@ npm run dev                 # تشغيل التطوير (Vite middleware داخ�
 | `SETUP_REGISTRATION_TOKEN` | رمز مطلوب لتسجيل أول مستخدم في الإنتاج. |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | بيانات أدمن البذرة (`SEED_ADMIN_PASSWORD` ≥ 12 حرفًا)، و`SEED_ADMIN_ALLOW_PRODUCTION` للسماح في الإنتاج. |
 | `DEFAULT_USER_PASSWORD` | كلمة المرور الافتراضية للمستخدمين المنشأين إداريًا (إلزامية وقوية). |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | إعداد البريد/التفعيل. |
-| `PUBLIC_APP_URL` | الرابط العام للتطبيق (روابط التفعيل/الإشعارات). |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | إعداد بريد SMTP (غير مستخدم حالياً — أُزيل تفعيل البريد). |
+| `PUBLIC_APP_URL` | الرابط العام للتطبيق (روابط الإشعارات). |
 | `CORS_ORIGIN` | قائمة أصول مسموحة (إلزامي في الإنتاج، لا `*`). |
 | `CSRF_ALLOW_LOCAL` | السماح بـ loopback في فحص CSRF. |
 | `ENFORCE_HTTPS` | إعادة التوجيه لـ HTTPS. |
@@ -292,9 +299,11 @@ npm run dev                 # تشغيل التطوير (Vite middleware داخ�
 - `docker-compose.yml` يركّب `./ssl/db:/app/ssl/db:ro`.
 
 ### الترحيلات (Migrations)
-- `migrations/` تحتوي **47** ملفًا (`001_initial_schema.ts` … `047_journal_attendance_reference.ts`).
+- `migrations/` تحتوي **58** ملفًا (`001_initial_schema.ts` … `058_student_devices.ts`).
 - إدارة عبر: `npm run migrate` / `migrate:up` / `migrate:down` / `migrate:status` / `migrate:make`.
-- دفتر اليومية: `npm run backfill:ledger` و`npm run verify:ledger` و`npm run verify:scope`.
+- ترحيلات مالية مؤثّرة: `043_create_journal_ledger` (دفتر اليومية)، `054_journal_reference_idempotency` (فهرس فريد `(reference, status)` لمنع الازدواج)، `055_student_price_freeze` (عمود `students.price_frozen_at` لتثبيت سعر الإقامة عند التسجيل)، `056_ledger_kind` (فصل دفاتر السكن/المطعم/الكافتيريا عبر `journal_entries.ledger_kind`)، `057_canteen_return_ref` (`canteen_stock_movements.return_ref` + فهرس فريد لمنع ازدواج المرتجعات).
+- التحقق: `npm run backfill:ledger` و`npm run verify:ledger` و`npm run verify:scope` و`npm run verify:idem`. ولمراجعة تثبيت سعر الإقامة: `npm run report:price-freeze`. وللتحقق من التزامن الحقيقي (قفل الحضور + تفرد المرتجعات): `npm run verify:concurrency`.
+- **الأجهزة الموثوقة (trusted devices):** لا يمكن لجميع المتصفحات/PWA على Android/iOS قراءة **عنوان MAC** الحقيقي (محجوب أو عشوائي/خاص)، لذا يُنشئ الخادم رمزًا عشوائيًا غير شفاف عند التسجيل ويخزّن **بصمة SHA-256** فقط؛ الجهاز الجديد حالته `pending` حتى يعتمده المشرف. الإلغاء/الاستبدال فوري، والربط إشارة إضافية فقط ولا يعوّض الـGeofence إطلاقًا. الجدول: `student_devices` (migration `058`).
 
 ---
 
@@ -335,12 +344,13 @@ docker compose -f docker-compose.prod.yml up -d --build
 | `npm run migrate` + `migrate:up/down/status/make` | إدارة الترحيلات. |
 | `npm run reset-db` | إعادة تهيئة قاعدة البيانات. |
 | `npm run cleanup-uploads` | تنظيف ملفات الرفع القديمة. |
-| `npm run backfill:ledger` / `verify:ledger` / `verify:scope` | ترحيل/التحقق من دفتر اليومية. |
+| `npm run backfill:ledger` / `verify:ledger` / `verify:scope` / `verify:idem` | ترحيل/التحقق من دفتر اليومية. |
+| `npm run report:price-freeze` | تقرير (قراءة فقط) للحالات المتأثرة بتثبيت سعر الإقامة. |
 | `npm test` / `test:watch` / `test:coverage` | الاختبارات. |
 | `npm run lint` | فحص الأنواع (`tsc --noEmit`). |
 
 ### سكربتات مساعدة في `scripts/`
-- **تشغيل/ترحيل**: `migrate.ts`, `reset-db.ts`, `cleanup-uploads.ts`, `backfill-ledger.ts`, `verify-ledger-scope-sql.ts`.
+- **تشغيل/ترحيل**: `migrate.ts`, `reset-db.ts`, `cleanup-uploads.ts`, `backfill-ledger.ts`, `verify-ledger-idempotency.ts`, `price-freeze-report.ts`, `verify-ledger-scope-sql.ts`.
 - **إدارة قاعدة البيانات**: `init_mssql.ts`, `check-db.ts`, `test-db-conn.ts`, `verify_mssql_setup.ts`, `20240514_UpdateDormMasterSchema.sql`.
 - **الحسابات الإدارية**: `seed-admin.ts`, `seed-admin-lib.ts`, `set-passwords.ts` (env-driven + fail-closed + prod guard). تُشغَّل يدويًا وليست مرتبطة في `package.json`.
 - **نسخ احتياطي**: `backup.sh`.
@@ -385,7 +395,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 19. **تنقية الأخطاء**: رسائل عربية ثابتة بلا SQL/stack/paths.
 20. **Audit logging** مع فلترة الحقول الحساسة (لا كلمات مرور/توكنات في السجلات).
 21. **إدارة الأسرار**: `.env` مستثنى + `.env.example` placeholders + guard يرفض `JWT_SECRET` الضعيف/الافتراضي + سكربتات env-driven fail-closed + منع تسريب الأسرار في الـ bundle.
-22. **تفعيل الحساب بالبريد** + تسجيل أول مستخدم فقط + `SETUP_REGISTRATION_TOKEN`.
+22. **تفعيل الحساب تلقائياً** (بلا تأكيد بريد) + تسجيل أول مستخدم فقط + `SETUP_REGISTRATION_TOKEN`.
 23. **Swagger محمي** بـ `authenticate` + `MANAGE_SETTINGS`.
 24. **`ENFORCE_HTTPS`** وترويسات Nginx الأمنية.
 25. **اختبارات انحدار أمني** مصاحبة لكل إصلاح (تحت `src/test/security*.test.ts`).
@@ -410,7 +420,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ## ملاحظات وبنود مفتوحة
 
 - **ملفات ضخمة (God Files) مرشّحة للتقسيم**: `EventsPage.tsx`، `StudentsPage.tsx`، `AdminRadio514.tsx`، `Radio.tsx`، `radio.routes.ts`، `event.routes.ts`، `db.ts`، `server.ts`.
-- **بنود أمنية/تشغيلية مفتوحة**: refresh token، forgot/reset password + email verification، per-account rate limit خلف `trust proxy`، idempotency للمدفوعات، مراقبة/تسجيل منضبط (Sentry)، طبقة Cache (Redis)، فهارس قاعدة بيانات إضافية، وتقسيم الحزمة (code splitting).
+- **بنود أمنية/تشغيلية مفتوحة**: refresh token، forgot/reset password، per-account rate limit خلف `trust proxy`، idempotency للمدفوعات، مراقبة/تسجيل منضبط (Sentry)، طبقة Cache (Redis)، فهارس قاعدة بيانات إضافية، وتقسيم الحزمة (code splitting).
 - **التوحيد**: التوثيق القديم كان يذكر SQLite في مواضع؛ الفعلي المعتمد هو **MSSQL** كما هو موثّق أعلاه.
 
 ---

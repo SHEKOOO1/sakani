@@ -9,7 +9,6 @@ import { AppPermission, UserRole } from "../../types/permissions";
 import { validate } from "../validation/middleware";
 import { createTenantSchema, updateTenantSchema, tenantServicesSchema } from "../validation/schemas";
 import { resolveAccountPassword, describeDefaultUserPasswordRejection } from "../config/default-password.ts";
-import { issueActivationInvites } from "../services/activation.service";
 import { collapseDuplicateColumnsIn } from "../infrastructure/duplicate-columns";
 
 const router = express.Router();
@@ -98,8 +97,6 @@ router.get("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), asyn
 router.post("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), validate(createTenantSchema), async (req, res) => {
   const { 
     name, location, location_lat, location_lng, location_radius,
-    entry_lat, entry_lng, entry_radius,
-    exit_lat, exit_lng, exit_radius,
     curfew_time, open_time,
     semester1_start, semester1_end, semester2_start, semester2_end,
     bishop_id,
@@ -146,8 +143,6 @@ router.post("/", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), val
 
   const dataToInsert: any = {
         id, name, location: location || null, location_lat: location_lat ?? null, location_lng: location_lng ?? null, location_radius: location_radius ?? 50,
-        entry_lat: entry_lat ?? null, entry_lng: entry_lng ?? null, entry_radius: entry_radius ?? 50,
-        exit_lat: exit_lat ?? null, exit_lng: exit_lng ?? null, exit_radius: exit_radius ?? 50,
         curfew_time: curfew_time || null,
         open_time: open_time || null,
         semester1_start: semester1_start || null, semester1_end: semester1_end || null, semester2_start: semester2_start || null, semester2_end: semester2_end || null,
@@ -204,18 +199,14 @@ router.get("/config", authenticate, authorizePermission(AppPermission.MANAGE_SET
       success: true,
       data: {
         name: tenant.name,
+        location: tenant.location || '',
         curfew_time: tenant.curfew_time || '',
         open_time: tenant.open_time || '',
         location_radius: tenant.location_radius || 50,
         is_active: !!tenant.is_active,
         location_lat: tenant.location_lat,
         location_lng: tenant.location_lng,
-        entry_lat: tenant.entry_lat,
-        entry_lng: tenant.entry_lng,
-        entry_radius: tenant.entry_radius || 50,
-        exit_lat: tenant.exit_lat,
-        exit_lng: tenant.exit_lng,
-        exit_radius: tenant.exit_radius || 50,
+        notify_guardian_on_exit: !!tenant.notify_guardian_on_exit,
       }
     });
   } catch (error: any) {
@@ -232,26 +223,41 @@ router.put("/config", authenticate, authorizePermission(AppPermission.MANAGE_SET
     }
 
     const {
-      name, curfew_time, open_time, location_radius, is_active,
-      location_lat, location_lng,
-      entry_lat, entry_lng, entry_radius,
-      exit_lat, exit_lng, exit_radius,
+      name, location, curfew_time, open_time, is_active, notify_guardian_on_exit,
     } = req.body;
 
     const updateData: Record<string, any> = {};
     if (name !== undefined) updateData.name = name;
+    if (location !== undefined) updateData.location = String(location).slice(0, 500) || null;
     if (curfew_time !== undefined) updateData.curfew_time = curfew_time || null;
     if (open_time !== undefined) updateData.open_time = open_time || null;
-    if (location_radius !== undefined) updateData.location_radius = location_radius;
     if (is_active !== undefined) updateData.is_active = is_active ? 1 : 0;
-    if (location_lat !== undefined) updateData.location_lat = location_lat;
-    if (location_lng !== undefined) updateData.location_lng = location_lng;
-    if (entry_lat !== undefined) updateData.entry_lat = entry_lat;
-    if (entry_lng !== undefined) updateData.entry_lng = entry_lng;
-    if (entry_radius !== undefined) updateData.entry_radius = entry_radius;
-    if (exit_lat !== undefined) updateData.exit_lat = exit_lat;
-    if (exit_lng !== undefined) updateData.exit_lng = exit_lng;
-    if (exit_radius !== undefined) updateData.exit_radius = exit_radius;
+    if (notify_guardian_on_exit !== undefined) updateData.notify_guardian_on_exit = notify_guardian_on_exit ? 1 : 0;
+
+    // التحقق من صحة الإحداثيات والنطاقات قبل الحفظ (لا تُقبل قيم خارج النطاق أو نطاق سالب).
+    const coordFields = [
+      { key: 'location_lat', label: 'خط عرض الموقع', min: -90, max: 90 },
+      { key: 'location_lng', label: 'خط طول الموقع', min: -180, max: 180 },
+    ] as const;
+    for (const { key, label, min, max } of coordFields) {
+      const value = (req.body as Record<string, any>)[key];
+      if (value === undefined) continue;
+      if (value === null || value === '') { updateData[key] = null; continue; }
+      const num = Number(value);
+      if (!Number.isFinite(num) || num < min || num > max) {
+        return res.status(400).json({ success: false, message: `${label} غير صالح` });
+      }
+      updateData[key] = num;
+    }
+    for (const key of ['location_radius'] as const) {
+      const value = req.body[key];
+      if (value === undefined || value === null || value === '') continue;
+      const num = Number(value);
+      if (!Number.isFinite(num) || num <= 0 || num > 100000) {
+        return res.status(400).json({ success: false, message: 'نطاق الموقع يجب أن يكون رقماً موجباً' });
+      }
+      updateData[key] = Math.round(num);
+    }
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ success: false, message: "لا توجد بيانات للتحديث" });
@@ -259,6 +265,30 @@ router.put("/config", authenticate, authorizePermission(AppPermission.MANAGE_SET
 
     await kdb('tenants').where({ id: tenantId }).update(updateData);
     res.json({ success: true, message: "تم حفظ الإعدادات بنجاح" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
+  }
+});
+
+// تفعيل/تعطيل الخدمات (الغسيل/المطعم/الكانتين) — سلطة حصرية لمدير التطبيق فقط.
+// لا يملك أي دور آخر (مشرف/كاهن/مساعد) صلاحية تفعيل أو تعطيل الخدمات لأي سكن.
+router.patch("/services", authenticate, authorize([UserRole.Admin]), validate(tenantServicesSchema), async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ success: false, message: "لا توجد بيانات سكن مرتبطة بحسابك" });
+    }
+    const { laundry_enabled, restaurant_enabled, canteen_enabled } = req.body;
+    const updateData: Record<string, number> = {};
+    if (laundry_enabled !== undefined) updateData.laundry_enabled = laundry_enabled ? 1 : 0;
+    if (restaurant_enabled !== undefined) updateData.restaurant_enabled = restaurant_enabled ? 1 : 0;
+    if (canteen_enabled !== undefined) updateData.canteen_enabled = canteen_enabled ? 1 : 0;
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: "لا توجد بيانات للتحديث" });
+    }
+    await kdb('tenants').where({ id: tenantId }).update(updateData);
+    invalidateServiceCache(tenantId);
+    res.json({ success: true, message: "تم تحديث الخدمات بنجاح" });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
   }
@@ -280,29 +310,6 @@ router.get("/services", authenticate, async (req, res) => {
         canteen_enabled: tenant ? tenant.canteen_enabled !== 0 && tenant.canteen_enabled !== false : true,
       },
     });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
-  }
-});
-
-// Update current tenant's service toggles (supervisor/priest/admin) — لا يمس خدمتي القراءات/الراديو
-router.patch("/services", authenticate, authorizePermission(AppPermission.MANAGE_SETTINGS), validate(tenantServicesSchema), async (req, res) => {
-  try {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ success: false, message: "لا توجد بيانات سكن مرتبطة بحسابك" });
-    }
-    const { laundry_enabled, restaurant_enabled, canteen_enabled } = req.body;
-    const updateData: Record<string, number> = {};
-    if (laundry_enabled !== undefined) updateData.laundry_enabled = laundry_enabled ? 1 : 0;
-    if (restaurant_enabled !== undefined) updateData.restaurant_enabled = restaurant_enabled ? 1 : 0;
-    if (canteen_enabled !== undefined) updateData.canteen_enabled = canteen_enabled ? 1 : 0;
-    if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ success: false, message: "لا توجد بيانات للتحديث" });
-    }
-    await kdb('tenants').where({ id: tenantId }).update(updateData);
-    invalidateServiceCache(tenantId);
-    res.json({ success: true, message: "تم تحديث الخدمات بنجاح" });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "حصل خطأ. لو سمحت كرر المحاولة." });
   }
@@ -356,8 +363,6 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
   const { 
     name, location, supervisor_ids, priest_ids, bishop_id, is_active, 
     location_lat, location_lng, location_radius,
-    entry_lat, entry_lng, entry_radius,
-    exit_lat, exit_lng, exit_radius,
     curfew_time, open_time,
     semester1_start, semester1_end, semester2_start, semester2_end,
     daily_readings_enabled,
@@ -415,12 +420,6 @@ router.put("/:id", authenticate, authorize([UserRole.Admin, UserRole.Bishop]), v
             location_lat: location_lat ?? null, 
             location_lng: location_lng ?? null,
             location_radius: location_radius ?? 50,
-            entry_lat: entry_lat ?? null,
-            entry_lng: entry_lng ?? null,
-            entry_radius: entry_radius ?? 50,
-            exit_lat: exit_lat ?? null,
-            exit_lng: exit_lng ?? null,
-            exit_radius: exit_radius ?? 50,
             curfew_time: curfew_time || null,
             open_time: open_time || null,
             semester1_start: semester1_start || null,
@@ -483,6 +482,12 @@ router.patch("/:id/toggle-services", authenticate, authorizePermission(AppPermis
   try {
     if (!await canAccessTenant(req, id)) {
       return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    // تفعيل/تعطيل الخدمات (الغسيل/المطعم/الكانتين) سلطة حصرية لمدير التطبيق،
+    // بينما تبقى القراءات والراديو متاحة لمن يملك صلاحية إدارة السكنات.
+    const togglesServices = laundry_enabled !== undefined || restaurant_enabled !== undefined || canteen_enabled !== undefined;
+    if (togglesServices && req.user.role !== UserRole.Admin) {
+      return res.status(403).json({ success: false, message: "تفعيل/تعطيل الخدمات مسموح لمدير التطبيق فقط" });
     }
     const tenantUpdate: any = {};
     if (daily_readings_enabled !== undefined) {
@@ -739,9 +744,8 @@ router.post("/:id/import", authenticate, authorize([UserRole.Admin, UserRole.Bis
   const IMPORTABLE_ROLES = [UserRole.Student, UserRole.Parent, UserRole.Supervisor, UserRole.AssistantSupervisor, UserRole.Priest];
 
   try {
-    // الحسابات المنشأة أثناء الاستيراد تبقى بانتظار التفعيل؛ الروابط تُرسل بعد
-    // نجاح الـ commit حتى لا يُرسل بريد لحساب أُلغي مع rollback.
-    const pendingActivationUserIds: string[] = [];
+    // الحسابات المنشأة أثناء الاستيراد تُفعَّل تلقائياً فور إنشائها — لا يوجد
+    // تفعيل بالبريد بعد الآن.
 
     await kdb.transaction(async trx => {
       // 1. Import Apartments
@@ -790,9 +794,8 @@ router.post("/:id/import", authenticate, authorize([UserRole.Admin, UserRole.Bis
           if (!existingUser) {
             userId = userId || uuidv4();
             await trx('users').insert({
-                id: userId, tenant_id: id, email: std.email, password: defaultPassword, role: requestedRole, name: std.name
+                id: userId, tenant_id: id, email: std.email, password: defaultPassword, role: requestedRole, name: std.name, activated_at: new Date()
             });
-            pendingActivationUserIds.push(userId);
           } else {
             userId = existingUser.id;
             const belongsToTenant = existingUser.tenant_id === id;
@@ -839,12 +842,9 @@ router.post("/:id/import", authenticate, authorize([UserRole.Admin, UserRole.Bis
       }
     });
 
-    const activation = await issueActivationInvites(pendingActivationUserIds);
-
     res.json({
       success: true,
-      message: "Data imported successfully",
-      activation
+      message: "Data imported successfully"
     });
   } catch (error: any) {
     res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });

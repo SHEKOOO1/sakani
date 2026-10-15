@@ -263,6 +263,7 @@ export async function getStudentAccounts(filters: FinanceFilters): Promise<Stude
       'r.room_number',
       's.agreed_price',
       's.billing_cycle',
+      's.price_frozen_at',
       'r.price_daily',
       'r.price_monthly',
       'r.price_semester',
@@ -271,9 +272,10 @@ export async function getStudentAccounts(filters: FinanceFilters): Promise<Stude
   if (!isAdmin && tenantId) studentsQuery.where('s.tenant_id', tenantId);
   else if (!isAdmin && filters.tenantIds?.length) studentsQuery.whereIn('s.tenant_id', filters.tenantIds);
 
-  // The invoice is the same figure the student profile uses (room price wins,
-  // agreed_price is the fallback) and `paid` is posted ledger payments only —
-  // so this report and StudentProfile can no longer disagree. The invoice has
+  // The invoice is the same figure the student profile uses (a frozen price
+  // agreed at enrollment wins; otherwise the room price wins with agreed_price
+  // as the fallback) and `paid` is posted ledger payments only — so this report
+  // and StudentProfile can no longer disagree. The invoice has
   // no date/category dimension, so the paid scope deliberately drops those
   // filters: a date/category window must not shrink `paid` against an unfiltered
   // invoice, producing a misleading `remaining`.

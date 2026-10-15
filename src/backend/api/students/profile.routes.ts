@@ -7,7 +7,8 @@ import { authenticate, authorizePermission, computeUserTenantIds } from "../midd
 import { AppPermission } from "../../../types/permissions";
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
-import { getStudentAccount, notifyStudentFinance, formatMoney, roomPriceFor, logFinanceEdit } from "../../services/student-account.service";
+import { getStudentAccount, notifyStudentFinance, formatMoney, logFinanceEdit } from "../../services/student-account.service";
+import { invoiceForStudent } from "../../services/ledger.service";
 import { collapseDuplicateColumns } from "../../infrastructure/duplicate-columns";
 import { sameId, includesId } from '../../infrastructure/id-match';
 
@@ -682,15 +683,21 @@ router.get("/:id/finance", authenticate, async (req, res) => {
   }
 });
 
-// تعديل سعر الغرفة من بروفايل الطالب — مشرف السكن فقط
-// يحدّث سعر الغرفة المسجل في جدول rooms حسب دورة التحصيل، أو agreed_price لو الغرفة مش فاضية سعر.
+// تعديل سعر الإقامة المتفق عليه — إجراء إداري صريح (مشرف السكن فقط).
+// يثبّت سعر الطالب (agreed_price) ولا يمس سعر الغرفة المشترك إطلاقاً، ولا
+// يُعدّل أو يحذف أي قيد أو دفعة مرحّلة. يُسجَّل السعر السابق والجديد والسبب
+// والمستخدم وتاريخ السريان في finance_edit_logs.
 router.patch("/:id/finance", authenticate, async (req, res) => {
   if (req.user.role !== 'supervisor') {
     return res.status(403).json({ success: false, message: "تعديل الحساب المالي مسموح لمشرف السكن فقط" });
   }
 
   try {
-    const student = await kdb('students').where({ id: req.params.id }).first();
+    const student = await kdb('students as s')
+      .leftJoin('rooms as r', 's.room_id', 'r.id')
+      .select('s.*', 'r.price_daily', 'r.price_monthly', 'r.price_semester')
+      .where('s.id', req.params.id)
+      .first();
     if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
     if (!sameId(student.tenant_id, req.user.tenantId)) {
       return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
@@ -698,53 +705,46 @@ router.patch("/:id/finance", authenticate, async (req, res) => {
 
     const value = Number(req.body?.value);
     if (Number.isNaN(value) || value < 0 || value > 999999999) {
-      return res.status(400).json({ success: false, message: "سعر الغرفة غير صحيح" });
+      return res.status(400).json({ success: false, message: "سعر الإقامة غير صحيح" });
+    }
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const effectiveDate = req.body?.effective_date ? new Date(req.body.effective_date) : new Date();
+    if (Number.isNaN(effectiveDate.getTime())) {
+      return res.status(400).json({ success: false, message: "تاريخ السريان غير صحيح" });
     }
 
-    const cycle = student.billing_cycle || 'semester';
-    const priceField = cycle === 'daily' ? 'price_daily' : cycle === 'monthly' ? 'price_monthly' : 'price_semester';
-    let updatedRoom = false;
-    let updatedAgreed = false;
-    let oldPrice = Number(student.agreed_price || 0);
+    // السعر الفعلي الحالي (سعر مثبَّت سابق، أو سعر الغرفة للطالب القديم).
+    const oldPrice = invoiceForStudent(student).invoice;
+    const delta = value - oldPrice;
 
-    if (student.room_id) {
-      const room = await kdb('rooms').where({ id: student.room_id, tenant_id: student.tenant_id }).first();
-      if (room) {
-        oldPrice = Number(room[priceField] || 0);
-        await kdb('rooms').where({ id: room.id }).update({ [priceField]: value, updated_at: kdb.fn.now() });
-        updatedRoom = true;
-      }
-    }
+    // يُثبَّت سعر الطالب فقط — لا يُعدَّل سعر الغرفة المشترك ولا أي قيد مرحّل.
+    await kdb('students').where({ id: student.id }).update({
+      agreed_price: value,
+      price_frozen_at: effectiveDate,
+      updated_at: kdb.fn.now(),
+    });
 
-    if (!updatedRoom) {
-      await kdb('students').where({ id: student.id }).update({ agreed_price: value, updated_at: kdb.fn.now() });
-      updatedAgreed = true;
-    }
-
-    // تسجيل تعديل سعر الغرفة — بالتاريخ والوقت الفعليين للتعديل في السيرفر
-    if (value !== oldPrice) {
-      await logFinanceEdit({
-        tenantId: student.tenant_id ?? null,
-        studentId: student.id,
-        editType: 'room_price',
-        direction: value > oldPrice ? 'increase' : 'decrease',
-        delta: Math.abs(value - oldPrice),
-        summary: `تعديل سعر الغرفة من ${formatMoney(oldPrice)} إلى ${formatMoney(value)}${updatedRoom ? ` (${cycle === 'daily' ? 'اليومية' : cycle === 'monthly' ? 'الشهرية' : 'الفصلية'})` : ''}`,
-        createdBy: req.user?.id || null,
-      });
-    }
+    const effectiveLabel = effectiveDate.toISOString().slice(0, 10);
+    await logFinanceEdit({
+      tenantId: student.tenant_id,
+      studentId: student.id,
+      editType: 'room_price',
+      direction: delta > 0 ? 'increase' : delta < 0 ? 'decrease' : null,
+      delta: Math.abs(delta),
+      summary: `تعديل سعر الإقامة من ${formatMoney(oldPrice)} إلى ${formatMoney(value)} — يسري من ${effectiveLabel}${reason ? ` — السبب: ${reason}` : ''}`,
+      createdBy: req.user?.id || null,
+    });
 
     // Only supervisors reach this route, so the parent-facing message must use
     // tenant visibility — admin-only ledger rows never leak into notifications.
     const account = await getStudentAccount(student.id, { visibility: 'tenant' });
-    const roomLabel = updatedRoom ? (cycle === 'daily' ? 'اليومية' : cycle === 'monthly' ? 'الشهرية' : 'الفصلية') : null;
-    const message = `تم تعديل سعر الغرفة${roomLabel ? ` (${roomLabel})` : ''} إلى ${formatMoney(value)}.\nإجمالي المدفوع: ${formatMoney(account?.totalPaid || 0)}\nالمتبقي: ${formatMoney(account?.remaining || 0)}`;
+    const message = `تم تعديل سعر الإقامة إلى ${formatMoney(value)} (يسري من ${effectiveLabel}).\nإجمالي المدفوع: ${formatMoney(account?.totalPaid || 0)}\nالمتبقي: ${formatMoney(account?.remaining || 0)}`;
     await notifyStudentFinance(student.id, message, `حساب الغرفة - تعديل السعر`);
 
     res.json({
       success: true,
-      message: "تم تعديل سعر الغرفة بنجاح",
-      data: { value, updatedRoom, updatedAgreed, account }
+      message: "تم تعديل سعر الإقامة بنجاح",
+      data: { value, oldPrice, delta, effectiveDate: effectiveLabel, account }
     });
   } catch (error: any) {
     console.error('[Student Finance Update Error]', error);

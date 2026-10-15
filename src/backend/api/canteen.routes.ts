@@ -20,6 +20,7 @@ import { createNotification } from "./notifications.routes";
 import { sameId } from "../infrastructure/id-match";
 import { requireServiceEnabled } from "../infrastructure/service-features";
 import { postEntry, reverseEntry, canteenRevenueLines } from "../services/ledger.service";
+import { buildServiceLedgerRouter } from "./service-ledger.routes";
 import { priceLine } from "../services/pricing.service";
 import { resolveCustomerIdentity } from "../services/customer-identity.service";
 import { InputError, ConflictError, InsufficientStockError, StockChangedError, affected } from "../infrastructure/domain-errors";
@@ -542,6 +543,7 @@ router.post("/sales", authenticate, requireServiceEnabled("canteen"), validate(c
           reference: `canteen-sale:${saleId}`,
           source: "api",
           createdBy: userId,
+          ledgerKind: 'canteen',
         });
         await trx("canteen_sales").where({ id: saleId }).update({ ledger_entry_id: entry.id });
       }
@@ -565,20 +567,44 @@ router.post("/returns", authenticate, requireServiceEnabled("canteen"), validate
   if (!tenantId) return res.status(400).json({ success: false, message: "معرف السكن مطلوب" });
   if (!(await canOperateCanteen(req))) return res.status(403).json({ success: false, message: "غير مسموح بتسجيل مرتجع في الكانتين" });
   const { sale_id, items, reason } = req.body;
+  const returnRef = typeof req.body.return_ref === "string" && req.body.return_ref.trim()
+    ? req.body.return_ref.trim()
+    : null;
 
   try {
     const sale = await kdb("canteen_sales").where({ id: sale_id, tenant_id: tenantId }).first();
     if (!sale) return res.status(404).json({ success: false, message: "الفاتورة غير موجودة" });
     if (sale.status !== "completed") return res.status(400).json({ success: false, message: "لا يمكن الإرجاع لفاتورة غير مكتملة" });
 
-    const saleItems = await kdb("canteen_sale_items").where({ sale_id: sale.id });
-    const saleItemByProduct = new Map<string, any>(saleItems.map((s: any) => [s.product_id, s]));
-
     await kdb.transaction(async (trx) => {
+      // اجعل إرجاع الفاتورة ذرّيًا: احجز قفل تحديث على صف الفاتورة حتى لا تتقاطع
+      // قراءة كميات الإرجاع السابقة وتحديث المخزون وعكس القيد مع طلب إرجاع آخر
+      // لنفس الفاتورة. بدون هذا القفل يمكن لقراءتين متزامنتين رؤية "لا مرتجعات"
+      // ثم الموافقة معًا → تجاوز الكمية المباعة (over-return) أو عكس القيد مرتين.
+      const lockedSale = await trx("canteen_sales")
+        .where({ id: sale.id, tenant_id: tenantId })
+        .forUpdate()
+        .first();
+      if (!lockedSale) throw new InputError("الفاتورة غير موجودة");
+      if (lockedSale.status !== "completed") throw new InputError("لا يمكن الإرجاع لفاتورة غير مكتملة");
+
+      // Idempotent replay: a retried return carrying the same return_ref must not
+      // restock or reverse again. Checked under the sale lock, so a concurrent
+      // duplicate waits here, sees the committed movement, and becomes a no-op.
+      if (returnRef) {
+        const already = await trx("canteen_stock_movements")
+          .where({ tenant_id: tenantId, return_ref: returnRef })
+          .first();
+        if (already) return;
+      }
+
+      const saleItems = await trx("canteen_sale_items").where({ sale_id: lockedSale.id });
+      const saleItemByProduct = new Map<string, any>(saleItems.map((s: any) => [s.product_id, s]));
+
       for (const r of items) {
         const si = saleItemByProduct.get(r.product_id);
         if (!si) throw new InputError("هذا المنتج ليس ضمن الفاتورة");
-        const prev = await trx("canteen_stock_movements").where({ sale_id: sale.id, product_id: si.product_id, movement_type: "return" });
+        const prev = await trx("canteen_stock_movements").where({ sale_id: lockedSale.id, product_id: si.product_id, movement_type: "return" });
         const prevQty = prev.reduce((sum: number, m: any) => sum + Number(m.quantity || 0), 0);
         if (prevQty + Number(r.quantity) > Number(si.quantity)) {
           throw new InputError(`كمية الإرجاع من "${si.product_name}" أكبر من المباع`);
@@ -592,13 +618,13 @@ router.post("/returns", authenticate, requireServiceEnabled("canteen"), validate
         await trx("canteen_stock_movements").insert({
           id: uuidv4(), tenant_id: tenantId, product_id: si.product_id,
           movement_type: "return", quantity: Number(r.quantity), unit_cost: Number(si.unit_price || 0),
-          note: reason, actor_id: req.user.id, student_id: sale.student_id || null,
-          sale_id: sale.id, sale_item_id: si.id, created_at: new Date(),
+          note: reason, actor_id: req.user.id, student_id: lockedSale.student_id || null,
+          sale_id: lockedSale.id, sale_item_id: si.id, return_ref: returnRef, created_at: new Date(),
         });
       }
 
       // إرجاع كامل لكل الفاتورة → عكس القيد المالي (المبالغ المستردة نقدية)
-      const allReturns = await trx("canteen_stock_movements").where({ sale_id: sale.id, movement_type: "return" });
+      const allReturns = await trx("canteen_stock_movements").where({ sale_id: lockedSale.id, movement_type: "return" });
       const returnedByProduct = new Map<string, number>();
       for (const m of allReturns) {
         returnedByProduct.set(m.product_id, (returnedByProduct.get(m.product_id) || 0) + Number(m.quantity || 0));
@@ -606,22 +632,31 @@ router.post("/returns", authenticate, requireServiceEnabled("canteen"), validate
       const fullyReturned = saleItems.length > 0 && saleItems.every((si: any) =>
         (returnedByProduct.get(si.product_id) || 0) >= Number(si.quantity),
       );
-      if (fullyReturned && sale.ledger_entry_id) {
+      if (fullyReturned && lockedSale.ledger_entry_id) {
         await reverseEntry(trx, {
-          entryId: sale.ledger_entry_id,
+          entryId: lockedSale.ledger_entry_id,
           reason: reason || "إرجاع كامل لفاتورة الكانتين",
           createdBy: req.user.id,
           source: "api",
         });
-        await trx("canteen_sales").where({ id: sale.id }).update({ status: "returned" });
+        await trx("canteen_sales").where({ id: lockedSale.id }).update({ status: "returned" });
       }
     });
 
     notifyLowStock(tenantId).catch(() => { /* best-effort */ });
     res.json({ success: true });
-  } catch (e) {
+  } catch (e: any) {
+    // A duplicate return_ref (unique filtered index race) means this exact
+    // return was already booked — acknowledge it instead of reporting a failure.
+    const dup = e?.number === 2601 || e?.number === 2627;
+    const ours = typeof e?.message === "string" && e.message.includes("UX_canteen_return_ref");
+    if (dup && ours) return res.json({ success: true });
     respondDomainError(res, e, "canteen.returns.create");
   }
 });
+
+// ─── Daily journal / accounts (دفتر اليومية) ───
+// The canteen keeps its own book, separate from the housing ledger.
+router.use("/ledger", buildServiceLedgerRouter({ kind: "canteen", canOperate: canOperateCanteen }));
 
 export default router;

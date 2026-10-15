@@ -7,9 +7,10 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { AppPermission } from '../types/permissions';
 import { effectivePrice } from '../utils/pricing';
 import { ImageUploadField } from './common/ImageUploadField';
+import { ServiceLedgerTab } from './ledger/ServiceLedgerTab';
 import {
   Store, Plus, Trash2, Pencil, ShoppingCart, Package, ArrowLeftRight,
-  Receipt, AlertTriangle, UserCog, Loader2, Check, X, Minus, RotateCcw, Search,
+  Receipt, AlertTriangle, UserCog, Loader2, Check, X, Minus, RotateCcw, Search, BookOpen,
 } from 'lucide-react';
 
 interface Category { id: string; name: string; sort_order: number; is_active: number | boolean; }
@@ -35,7 +36,7 @@ const MOVEMENT_LABELS: Record<string, string> = {
   purchase: 'توريد', sale: 'بيع', waste: 'تالف', adjustment: 'جرد', return: 'مرتجع',
 };
 
-type Tab = 'pos' | 'products' | 'stock' | 'sales' | 'low' | 'operators';
+type Tab = 'pos' | 'products' | 'stock' | 'sales' | 'ledger' | 'low' | 'operators';
 
 export function CanteenPage() {
   const { request } = useApi();
@@ -73,6 +74,7 @@ export function CanteenPage() {
     { id: 'products', label: 'المنتجات', icon: Package, show: canManage },
     { id: 'stock', label: 'المخزون', icon: ArrowLeftRight, show: true },
     { id: 'sales', label: 'الفواتير والمرتجعات', icon: Receipt, show: true },
+    { id: 'ledger', label: 'دفتر اليومية', icon: BookOpen, show: true },
     { id: 'low', label: 'تنبيهات المخزون', icon: AlertTriangle, show: true },
     { id: 'operators', label: 'المسؤولون', icon: UserCog, show: canManageOperators },
   ];
@@ -104,6 +106,7 @@ export function CanteenPage() {
       {tab === 'products' && canManage && <ProductsTab categories={categories} products={products} invalidate={invalidate} />}
       {tab === 'stock' && <StockTab products={products} movements={movementsQuery.data?.data ?? []} invalidate={invalidate} />}
       {tab === 'sales' && <SalesTab sales={salesQuery.data?.data ?? []} invalidate={invalidate} />}
+      {tab === 'ledger' && <ServiceLedgerTab basePath="/api/canteen/ledger" canRecord={canOperate} />}
       {tab === 'low' && <LowStockTab products={lowQuery.data?.data ?? []} />}
       {tab === 'operators' && canManageOperators && <OperatorsTab operators={operatorsQuery.data?.data ?? []} invalidate={invalidate} />}
     </div>

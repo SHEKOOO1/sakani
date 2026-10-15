@@ -32,7 +32,7 @@ interface TransactionItem {
 interface FinanceData {
   invoice: number;
   roomPrice: number;
-  source?: 'room' | 'agreed';
+  source?: 'room' | 'agreed' | 'frozen';
   totalPaid: number;
   remaining: number;
   balance: number;

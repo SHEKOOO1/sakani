@@ -22,6 +22,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { TravelModal } from './attendance/TravelModal';
+import { evaluateAutoCrossing } from './attendance/autoCrossing';
 
 export function AttendancePage() {
   const { request } = useApi();
@@ -37,7 +38,8 @@ export function AttendancePage() {
   const [hourlyStats, setHourlyStats] = useState([]);
   
   const watchId = useRef<number | null>(null);
-  const lastState = useRef<'inside' | 'outside' | null>(null);
+  const lastInside = useRef(false);
+  const lastPresencePing = useRef(0);
   const [tenantLocation, setTenantLocation] = useState<any>(null);
 
   // Travel state
@@ -48,6 +50,22 @@ export function AttendancePage() {
 
   const mounted = useMounted();
   const { showSuccess, showError, showInfo, confirm } = useSnackbar();
+
+  // Quiet, throttled presence ping: the student PWA reports its position so the
+  // SERVER can decide inside/outside at lock time. This never shows a message
+  // and never blocks the UI — ordinary movement stays silent.
+  const PRESENCE_PING_INTERVAL_MS = 5 * 60 * 1000;
+  const sendPresence = useCallback((lat: number, lng: number, accuracy?: number) => {
+    if (user?.role?.toLowerCase() !== 'student') return;
+    const now = Date.now();
+    if (now - lastPresencePing.current < PRESENCE_PING_INTERVAL_MS) return;
+    lastPresencePing.current = now;
+    request('/api/attendance/presence', {
+      method: 'POST',
+      body: JSON.stringify({ lat, lng, accuracy }),
+    }).catch(() => { /* presence is best-effort */ });
+  }, [request, user?.role]);
+
   const fetchTenantLocation = useCallback(async () => {
     try {
       const res = await request(`/api/tenants/${user?.tenantId}`);
@@ -88,71 +106,43 @@ export function AttendancePage() {
     };
   }, []);
 
-  // وظيفة حساب المسافة في الواجهة (للرصد الأولي)
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  };
-
   // تفعيل وضع الرصد التلقائي (العبور الذكي)
   useEffect(() => {
     if (isAutoMode && !isTraveling && tenantLocation) {
       setStatus('checking');
-      setMessage('نظام العبور الذكي نشط.. يرجى إبقاء التطبيق مفتوحاً عند نقاط الدخول.');
+      setMessage('نظام العبور الذكي نشط.. يرجى إبقاء التطبيق مفتوحاً عند نقاط الدخول/الخروج.');
       showSuccess('نظام العبور الذكي نشط.');
-      
+
+      // دائرة السكن الرسمية (المركز + النطاق) — المرجع الوحيد للدخول والخروج.
+      const center = {
+        lat: tenantLocation.location_lat ?? null,
+        lng: tenantLocation.location_lng ?? null,
+        radius: tenantLocation.location_radius || 50,
+      };
+
       watchId.current = navigator.geolocation.watchPosition(
         async (position) => {
-          const { latitude, longitude } = position.coords;
+          const { latitude, longitude, accuracy } = position.coords;
           setCurrentCoords({ lat: latitude, lng: longitude });
-          
-          const entryDistance = calculateDistance(latitude, longitude, tenantLocation.location_lat, tenantLocation.location_lng);
-          const isInsideEntryGeofence = entryDistance <= (tenantLocation.location_radius || 50);
+          sendPresence(latitude, longitude, accuracy);
 
-          let isInsideExitGeofence = false;
-          let exitDistance = null;
-          if (tenantLocation.exit_lat && tenantLocation.exit_lng && tenantLocation.exit_radius) {
-            exitDistance = calculateDistance(latitude, longitude, tenantLocation.exit_lat, tenantLocation.exit_lng);
-            isInsideExitGeofence = exitDistance <= (tenantLocation.exit_radius || 50);
-          } else {
-            // If no explicit exit geofence, use entry geofence for both
-            isInsideExitGeofence = isInsideEntryGeofence;
+          const crossing = evaluateAutoCrossing({
+            latitude, longitude, center,
+            wasInside: lastInside.current,
+          });
+
+          // الدخول إلى نطاق السكن → تسجيل حضور تلقائي
+          if (crossing.checkIn) {
+            await processAutoCheck('check-in', latitude, longitude, accuracy);
+            showSuccess('تم تسجيل دخولك تلقائياً.');
+          }
+          // الخروج من نطاق السكن → تسجيل انصراف تلقائي (الخادم يتحقق من الموقع فعلياً)
+          if (crossing.checkOut) {
+            await processAutoCheck('check-out', latitude, longitude, accuracy);
+            showSuccess('تم تسجيل خروجك تلقائياً.');
           }
 
-          // Determine current state based on geofences
-          let currentState: 'inside' | 'outside' | null = null;
-          if (isInsideEntryGeofence || isInsideExitGeofence) { // If within either, consider "inside" the general area
-            currentState = 'inside';
-          } else {
-            currentState = 'outside';
-          }
-
-          // Logic for automatic check-in/check-out
-          if (currentState === 'inside' && lastState.current === 'outside') {
-            // Student just entered the general area (could be entry or exit geofence)
-            // Prioritize check-in if within entry geofence
-            if (isInsideEntryGeofence) {
-              await processAutoCheck('check-in', latitude, longitude);
-              lastState.current = 'inside';
-              showSuccess('تم تسجيل دخولك تلقائياً.');
-            }
-          } else if (currentState === 'outside' && lastState.current === 'inside') {
-            // Student just left the general area (could be exiting entry or exit geofence)
-            // Prioritize check-out if outside exit geofence
-            if (!isInsideExitGeofence) { // If outside the exit geofence
-              await processAutoCheck('check-out', latitude, longitude);
-              lastState.current = 'outside';
-              showSuccess('تم تسجيل خروجك تلقائياً.');
-            }
-          } else if (lastState.current === null) {
-            // Initial state setup
-            lastState.current = currentState;
-          }
+          lastInside.current = crossing.inside;
         },
         (err) => {
           showError('فشل الوصول إلى موقعك لتفعيل العبور الذكي.');
@@ -164,16 +154,19 @@ export function AttendancePage() {
       showInfo('تم إيقاف نظام العبور الذكي.');
       if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
     }
+
+    return () => {
+      if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
+      watchId.current = null;
+    };
   }, [isAutoMode, isTraveling, tenantLocation]);
 
-  const processAutoCheck = async (type: string, lat: number, lng: number) => {
+  const processAutoCheck = async (type: string, lat: number, lng: number, accuracy?: number) => {
     try {
-      const response = await request('/api/attendance/check-in', {
+      await request('/api/attendance/check-in', {
         method: 'POST',
-        body: JSON.stringify({ lat, lng, type })
+        body: JSON.stringify({ lat, lng, type, accuracy })
       });
-      // The backend now sends notifications, so frontend message can be simpler
-      // showSuccess(response.message || `تم رصد ${type === 'check-in' ? 'دخولك' : 'خروجك'} تلقائياً ✅`);
       fetchHistory();
     } catch (err: any) { showError(err.message || "فشل التسجيل التلقائي."); console.error("Auto Check Error", err); }
   };
@@ -191,14 +184,15 @@ export function AttendancePage() {
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const { latitude, longitude } = position.coords;
+        const { latitude, longitude, accuracy } = position.coords;
         setCurrentCoords({ lat: latitude, lng: longitude });
+        sendPresence(latitude, longitude, accuracy);
         
         try {
           const type = checkType === 'entry' ? 'check-in' : 'check-out';
           const response = await request('/api/attendance/check-in', {
             method: 'POST',
-            body: JSON.stringify({ lat: latitude, lng: longitude, type })
+            body: JSON.stringify({ lat: latitude, lng: longitude, type, accuracy })
           });
           showSuccess(response.message || `تم تسجيل ${type === 'check-in' ? 'دخولك' : 'خروجك'} بنجاح.`);
           fetchHistory();

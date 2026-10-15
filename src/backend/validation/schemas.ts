@@ -27,16 +27,6 @@ export const registerSchema = z.object({
   gender: z.enum(['male', 'female']).optional(),
 });
 
-// التوكن = 32 بايت عشوائية مُرمّزة hex ⇒ 64 محرفاً. الحد الأدنى 32 يمنع
-// قبول أي نص قصير قبل الوصول إلى قاعدة البيانات (بطء/تكلفة بلا فائدة).
-export const activateAccountSchema = z.object({
-  token: z.string().trim().min(32, 'رابط التفعيل غير صالح').max(128),
-});
-
-export const resendActivationSchema = z.object({
-  email: z.string().email('ايميل مش صحيح').min(1, 'الايميل مطلوب').max(255),
-});
-
 // ─── Event ───
 export const eventRuleSchema = z.object({
   id: z.string().max(128).nullable().optional(),
@@ -103,9 +93,9 @@ export const updateEventSchema = z.object({
   description: z.string().optional(),
   event_date: z.string().min(1, 'تاريخ الفعالية مطلوب').optional(),
   location: z.string().optional(),
-  location_lat: z.number().optional(),
-  location_lng: z.number().optional(),
-  location_radius: z.number().optional(),
+  location_lat: z.number().min(-90).max(90).optional(),
+  location_lng: z.number().min(-180).max(180).optional(),
+  location_radius: z.number().min(0).max(100000).optional(),
   is_paid: z.boolean().or(z.number()).optional(),
   price: z.number().optional(),
   is_competition: z.boolean().or(z.number()).optional(),
@@ -264,15 +254,9 @@ export const finishCompetitionSchema = z.object({
 export const createTenantSchema = z.object({
   name: z.string().min(1, 'اسم السكن مطلوب'),
   location: z.string().optional(),
-  location_lat: z.number().optional(),
-  location_lng: z.number().optional(),
-  location_radius: z.number().int().optional().default(50),
-  entry_lat: z.number().optional(),
-  entry_lng: z.number().optional(),
-  entry_radius: z.number().int().optional().default(50),
-  exit_lat: z.number().optional(),
-  exit_lng: z.number().optional(),
-  exit_radius: z.number().int().optional().default(50),
+  location_lat: z.number().min(-90).max(90).optional(),
+  location_lng: z.number().min(-180).max(180).optional(),
+  location_radius: z.number().int().min(1).max(100000).optional().default(50),
   curfew_time: z.string().optional(),
   open_time: z.string().optional(),
   semester1_start: z.string().optional(),
@@ -301,15 +285,9 @@ export const updateTenantSchema = z.object({
   priest_ids: z.array(z.string()).optional(),
   bishop_id: z.string().nullable().optional(),
   is_active: z.boolean().or(z.number()).optional(),
-  location_lat: z.number().optional(),
-  location_lng: z.number().optional(),
-  location_radius: z.number().int().optional(),
-  entry_lat: z.number().optional(),
-  entry_lng: z.number().optional(),
-  entry_radius: z.number().int().optional(),
-  exit_lat: z.number().optional(),
-  exit_lng: z.number().optional(),
-  exit_radius: z.number().int().optional(),
+  location_lat: z.number().min(-90).max(90).optional(),
+  location_lng: z.number().min(-180).max(180).optional(),
+  location_radius: z.number().int().min(1).max(100000).optional(),
   curfew_time: z.string().optional(),
   open_time: z.string().optional(),
   semester1_start: z.string().optional(),
@@ -456,6 +434,15 @@ export const updateFinanceSchema = z.object({
   studentId: z.string().uuid().optional().nullable(),
   paymentMethodId: z.string().uuid().optional().nullable(),
   paymentMethodName: z.string().max(128).optional(),
+});
+
+// Manual income/expense entry for a service book (restaurant/canteen محضر يومي).
+export const serviceLedgerEntrySchema = z.object({
+  type: z.enum(['income', 'expense'], { message: 'النوع يا وارد يا مصروف' }),
+  category: z.string().trim().min(1, 'التصنيف مطلوب').max(100),
+  amount: z.number().positive('المبلغ لازم يكون أكبر من صفر'),
+  description: z.string().trim().max(500).optional(),
+  date: z.string().optional(),
 });
 
 export const createApartmentSchema = z.object({
@@ -758,6 +745,9 @@ export const canteenReturnSchema = z.object({
   sale_id: z.string().min(1, 'معرف الفاتورة مطلوب').max(128),
   items: z.array(canteenSaleItemInputSchema).min(1, 'اختار منتج للإرجاع').max(100),
   reason: z.string().min(3, 'سبب الإرجاع مطلوب').max(2000),
+  // Optional client idempotency key: a retried/double-submitted return carrying
+  // the same ref is treated as already processed (no double restock/reversal).
+  return_ref: z.string().min(1).max(100).nullable().optional().default(null),
 });
 
 export const canteenWasteSchema = z.object({

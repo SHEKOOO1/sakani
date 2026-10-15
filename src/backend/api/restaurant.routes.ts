@@ -17,6 +17,7 @@ import { createNotification } from "./notifications.routes";
 import { sameId } from "../infrastructure/id-match";
 import { requireServiceEnabled } from "../infrastructure/service-features";
 import { postEntry, restaurantRevenueLines } from "../services/ledger.service";
+import { buildServiceLedgerRouter } from "./service-ledger.routes";
 import { priceLine } from "../services/pricing.service";
 import { resolveCustomerIdentity } from "../services/customer-identity.service";
 import { InputError, affected } from "../infrastructure/domain-errors";
@@ -435,6 +436,21 @@ router.post("/orders/:id/status", authenticate, requireServiceEnabled("restauran
 
     let ledgerEntryId: string | null = null;
     await kdb.transaction(async (trx) => {
+      // Re-read inside the transaction so a concurrent request that already
+      // performed this transition is absorbed instead of double-applied (a
+      // double-click on "serve" can both pass the read-before-transition check
+      // above). Idempotent: the second request sees the target state already
+      // reached and is answered with the recorded ledger entry.
+      const current = await trx("restaurant_orders").where({ id: order.id, tenant_id: tenantId }).first();
+      if (!current) throw new InputError("الطلب غير موجود");
+      if (current.status === target) {
+        ledgerEntryId = current.ledger_entry_id || null;
+        return;
+      }
+      if (!((STATUS_TRANSITIONS[current.status] || []).includes(target))) {
+        throw new InputError("تحويل الحالة غير مسموح");
+      }
+
       const update: Record<string, any> = { status: target, updated_at: kdb.fn.now(), processed_by: req.user.id };
       if (action === "cancel") {
         update.cancelled_at = kdb.fn.now();
@@ -443,7 +459,7 @@ router.post("/orders/:id/status", authenticate, requireServiceEnabled("restauran
       }
       await trx("restaurant_orders").where({ id: order.id, tenant_id: tenantId }).update(update);
 
-      if (action === "serve" && !order.ledger_entry_id && Number(order.total) > 0) {
+      if (action === "serve" && !current.ledger_entry_id && Number(order.total) > 0) {
         const amount = Number(order.total);
         const entry = await postEntry(trx, {
           entryType: "payment",
@@ -456,6 +472,7 @@ router.post("/orders/:id/status", authenticate, requireServiceEnabled("restauran
           reference: `restaurant-order:${order.id}`,
           source: "api",
           createdBy: req.user.id,
+          ledgerKind: 'restaurant',
         });
         await trx("restaurant_orders").where({ id: order.id }).update({ ledger_entry_id: entry.id });
         ledgerEntryId = entry.id;
@@ -484,5 +501,9 @@ router.post("/orders/:id/status", authenticate, requireServiceEnabled("restauran
     respondDomainError(res, e, "restaurant.orders.status");
   }
 });
+
+// ─── Daily journal / accounts (دفتر اليومية) ───
+// The restaurant keeps its own book, separate from the housing ledger.
+router.use("/ledger", buildServiceLedgerRouter({ kind: "restaurant", canOperate: canOperateRestaurant }));
 
 export default router;

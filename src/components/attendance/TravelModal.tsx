@@ -69,6 +69,14 @@ export function TravelModal({
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase mr-2 tracking-widest">سبب السفر</label>
+                <div className="flex flex-wrap gap-2">
+                  {['مسافر إلى محافظتي', 'رحلة', 'مؤتمر', 'ظروف عائلية'].map((preset) => (
+                    <button key={preset} type="button" onClick={() => onReasonChange(preset)}
+                      className={`px-3 py-2 rounded-xl text-[11px] font-black transition-all ${reason === preset ? 'bg-primary-600 text-white shadow-lg' : 'bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-300 border border-slate-100 dark:border-white/10 hover:border-primary-300'}`}>
+                      {preset}
+                    </button>
+                  ))}
+                </div>
                 <div className="relative">
                   <MessageSquare className="absolute right-4 top-4 text-slate-300" size={18} />
                   <textarea

@@ -31,7 +31,10 @@ describe('HTTP error hardening', () => {
 
   it('the client surfaces the support reference code when a 500 is returned', () => {
     const useApi = readRepoFile('src/hooks/useApi.ts');
-    expect(useApi).toContain('response.status >= 500 && data?.requestId');
-    expect(useApi).toContain('error.message = `${error.message} (رمز: ${data.requestId})`');
+    // The requestId echoed by a 5xx response is appended to the message the user
+    // sees, so support can correlate the report with the server log.
+    expect(useApi).toContain('data?.requestId');
+    expect(useApi).toContain('response.status >= 500 && requestId');
+    expect(useApi).toContain('(رمز: ${requestId})');
   });
 });

@@ -38,14 +38,9 @@ CREATE TABLE tenants (
     location_lat DECIMAL(10,7),
     location_lng DECIMAL(10,7),
     location_radius INT DEFAULT 50,
-    entry_lat DECIMAL(10,7),
-    entry_lng DECIMAL(10,7),
-    entry_radius INT DEFAULT 50,
-    exit_lat DECIMAL(10,7),
-    exit_lng DECIMAL(10,7),
-    exit_radius INT DEFAULT 50,
     curfew_time NVARCHAR(20),
-    open_time NVARCHAR(20)
+    open_time NVARCHAR(20),
+    notify_guardian_on_exit BIT NOT NULL DEFAULT 0
 );
 END
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'location')
@@ -160,6 +155,7 @@ CREATE TABLE students (
     travel_destination NVARCHAR(255),
     travel_reason NVARCHAR(500),
     travel_start_time DATETIME2,
+    travel_end_time DATETIME2,
     curfew_time NVARCHAR(20),
     is_graduate BIT DEFAULT 0,
     graduation_date DATETIME2,
@@ -173,6 +169,22 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students')
 ALTER TABLE [dbo].[students] ADD [is_graduate] BIT NOT NULL DEFAULT 0;
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'graduation_date')
 ALTER TABLE [dbo].[students] ADD [graduation_date] DATETIME2 NULL;
+
+-- Optional expected-return time. Travel is open ended by default; this only
+-- supports monitoring when the student chooses to provide a return time.
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'travel_end_time')
+ALTER TABLE [dbo].[students] ADD [travel_end_time] DATETIME2 NULL;
+
+-- Opt-in: notify guardians on a normal check-out (off by default).
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'notify_guardian_on_exit')
+ALTER TABLE [dbo].[tenants] ADD [notify_guardian_on_exit] BIT NOT NULL DEFAULT 0;
+
+-- Frozen residence price marker. When set, the student's invoice is the price
+-- agreed at enrollment (students.agreed_price) and never tracks the shared
+-- room price again. NULL means a legacy record that still follows the room
+-- price until it is frozen by an explicit decision.
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'price_frozen_at')
+ALTER TABLE [dbo].[students] ADD [price_frozen_at] DATETIME2 NULL;
 
 -- Academic / identity profile columns. Required by the application and by the
 -- student list filters (college, major, university, gender, graduation_year...).
@@ -1263,4 +1275,59 @@ CREATE TABLE disciplinary_cases (
 );
 CREATE UNIQUE INDEX UQ_open_disciplinary_cases ON disciplinary_cases (student_id, case_type) WHERE status IN ('OPEN','UNDER_REVIEW');
 CREATE INDEX IX_disciplinary_cases_student_id ON disciplinary_cases (student_id);
+END
+
+-- Residence absence system: last known presence (one row per student).
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'student_presence')
+BEGIN
+CREATE TABLE student_presence (
+    id NVARCHAR(128) PRIMARY KEY,
+    tenant_id NVARCHAR(128) NOT NULL,
+    student_id NVARCHAR(128) NOT NULL,
+    last_lat DECIMAL(10,7) NULL,
+    last_lng DECIMAL(10,7) NULL,
+    accuracy INT NULL,
+    inside BIT NULL,
+    source NVARCHAR(20) NULL,
+    updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
+);
+CREATE UNIQUE INDEX UX_student_presence_student ON student_presence (student_id);
+CREATE INDEX IX_student_presence_tenant ON student_presence (tenant_id, updated_at);
+END
+
+-- Residence absence cases: one per (tenant, student, lock-date).
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'student_absence_cases')
+BEGIN
+CREATE TABLE student_absence_cases (
+    id NVARCHAR(128) PRIMARY KEY,
+    tenant_id NVARCHAR(128) NOT NULL,
+    student_id NVARCHAR(128) NOT NULL,
+    lock_date DATE NOT NULL,
+    lock_time NVARCHAR(10) NULL,
+    state NVARCHAR(20) NOT NULL DEFAULT 'unconfirmed',
+    evidence_lat DECIMAL(10,7) NULL,
+    evidence_lng DECIMAL(10,7) NULL,
+    evidence_accuracy INT NULL,
+    evidence_at DATETIME2 NULL,
+    notified_supervisor_at DATETIME2 NULL,
+    notified_guardian_at DATETIME2 NULL,
+    last_notified_at DATETIME2 NULL,
+    escalation_count INT NOT NULL DEFAULT 0,
+    ack_by NVARCHAR(128) NULL,
+    ack_at DATETIME2 NULL,
+    decision_action NVARCHAR(30) NULL,
+    decision_notes NVARCHAR(MAX) NULL,
+    decided_by NVARCHAR(128) NULL,
+    decided_at DATETIME2 NULL,
+    escalated_to_priest BIT NOT NULL DEFAULT 0,
+    priest_note NVARCHAR(MAX) NULL,
+    fine_amount DECIMAL(10,2) NULL,
+    financial_state NVARCHAR(20) NULL,
+    ledger_entry_id NVARCHAR(128) NULL,
+    warning_id NVARCHAR(128) NULL,
+    created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
+    updated_at DATETIME2 NULL
+);
+CREATE UNIQUE INDEX UX_absence_cases_per_day ON student_absence_cases (tenant_id, student_id, lock_date);
+CREATE INDEX IX_absence_cases_tenant_state ON student_absence_cases (tenant_id, state, lock_date);
 END

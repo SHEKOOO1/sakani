@@ -132,8 +132,8 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEE
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // اسم المستخدم اختياري؛ لو أُدخل فهو معرّف دخول فريد عالمياً ويجعل الحساب فعّالاً
-    // فوراً (بدلاً من انتظار رابط تفعيل البريد). بدون اسم مستخدم يبقى السلوك السابق.
+    // اسم المستخدم اختياري؛ لو أُدخل فهو معرّف دخول فريد عالمياً. كل الحسابات
+    // تُفعَّل تلقائياً فور إنشائها (لا يوجد تفعيل بالبريد بعد الآن).
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
     if (normalizedUsername) {
       if (!/^[\p{L}\p{N}._-]{3,50}$/u.test(normalizedUsername)) {
@@ -171,7 +171,8 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_EMPLOYEE
         custom_role_id: custom_role_id || null,
         daily_readings_enabled: req.user.role === 'admin' && daily_readings_enabled !== undefined ? (daily_readings_enabled ? 1 : 0) : 1,
         radio_514_enabled: req.user.role === 'admin' && radio_514_enabled !== undefined ? (radio_514_enabled ? 1 : 0) : 1,
-        activated_at: normalizedUsername ? new Date() : null,
+        // كل الحسابات تُفعَّل تلقائياً فور إنشائها (لا يوجد تفعيل بالبريد بعد الآن).
+        activated_at: new Date(),
         created_at: new Date()
       });
 

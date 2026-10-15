@@ -6,6 +6,7 @@ import { validate } from "../validation/middleware";
 import { createRoomSchema, updateRoomSchema } from "../validation/schemas";
 import { AppPermission } from "../../types/permissions";
 import { parsePagination, paginateQuery } from "../services/radio/pagination.ts";
+import { invoiceForStudent } from "../services/ledger.service";
 
 const router = express.Router();
 
@@ -28,6 +29,10 @@ const router = express.Router();
  *       - in: query
  *         name: apartmentId
  *         schema: { type: string }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: بحث برقم الغرفة أو اسم الشقة عبر كل الغرف
  *     responses:
  *       200:
  *         description: قائمة الغرف
@@ -38,7 +43,7 @@ const router = express.Router();
  */
 router.get("/", authenticate, authorizePermission(AppPermission.VIEW_ROOMS), async (req, res) => {
   const tenantId = req.user.tenantId;
-  const { apartmentId } = req.query;
+  const { apartmentId, search } = req.query;
   const { page, limit } = parsePagination(req.query);
 
   let query = kdb('rooms as r')
@@ -47,6 +52,12 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_ROOMS), asy
     .where('r.tenant_id', tenantId);
   if (apartmentId) {
     query = query.where('r.apartment_id', apartmentId);
+  }
+  // البحث على كامل مجموعة الغرف في السكن (لا على الصفحة الحالية فقط).
+  const term = typeof search === 'string' ? search.trim() : '';
+  if (term) {
+    const like = `%${term}%`;
+    query = query.whereRaw('(r.room_number LIKE ? OR a.name LIKE ?)', [like, like]);
   }
 
   try {
@@ -150,9 +161,40 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOUSIN
   };
 
   try {
+    const existingRoom = await kdb('rooms').where({ id }).where('tenant_id', tenantId).first();
+
+    // تثبيت سعر الإقامة عند تغيير سعر الغرفة فقط: كل طالب ساكن لم يُثبَّت سعره
+    // بعد يُثبَّت على سعره الفعلي الحالي، فيظل سعر الغرفة الجديد للتسجيلات
+    // الجديدة فقط ولا يُعيد تسعير الطلاب الحاليين. لا تُمس أي قيود أو دفعات.
+    const priceChanged = !!existingRoom && (
+      Number(existingRoom.price_daily || 0) !== Number(dataToUpdate.price_daily || 0) ||
+      Number(existingRoom.price_monthly || 0) !== Number(dataToUpdate.price_monthly || 0) ||
+      Number(existingRoom.price_semester || 0) !== Number(dataToUpdate.price_semester || 0)
+    );
+
+    const occupants = priceChanged
+      ? await kdb('students as s')
+          .leftJoin('rooms as r', 's.room_id', 'r.id')
+          .where('s.room_id', id)
+          .where('s.tenant_id', tenantId)
+          .whereNull('s.price_frozen_at')
+          .select('s.id', 's.agreed_price', 's.billing_cycle', 'r.price_daily', 'r.price_monthly', 'r.price_semester')
+      : [];
+
     await kdb('rooms')
       .where({ id }).where('tenant_id', tenantId)
       .update(dataToUpdate);
+
+    for (const occ of occupants) {
+      const { invoice } = invoiceForStudent(occ);
+      if (invoice > 0) {
+        await kdb('students').where({ id: occ.id }).update({
+          agreed_price: invoice,
+          price_frozen_at: kdb.fn.now(),
+          updated_at: kdb.fn.now(),
+        });
+      }
+    }
 
     res.json({ success: true, message: "تم تحديث بيانات الغرفة بنجاح" });
   } catch (error: any) {

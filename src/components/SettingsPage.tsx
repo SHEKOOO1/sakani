@@ -2,13 +2,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
-import { AppPermission } from '../types/permissions';
 import { ALL_PERMISSIONS, getVisiblePermissions, type PermissionInfo } from './profiles/rolesConfig';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Settings, Shield, Clock, MapPin, Save, Lock,
-  Users, AlertCircle, Sparkles, Building2, DoorOpen, DoorClosed, Navigation,
-  Waves, UtensilsCrossed, Store
+  Settings, Shield, Clock, Save, Lock,
+  Users, AlertCircle, Sparkles, Building2, DoorOpen, DoorClosed, Navigation
 } from 'lucide-react';
 import { CustomRolesManager } from './CustomRolesManager';
 import { LocationMapPicker } from './LocationMapPicker';
@@ -17,28 +15,23 @@ type TabType = 'general' | 'permissions_map' | 'roles';
 
 export function SettingsPage() {
   const { request } = useApi();
-  const { user, hasPermission } = useAuth();
+  const { user } = useAuth();
   const { showSnackbar, confirm } = useSnackbar();
   const [activeTab, setActiveTab] = useState<TabType>('general');
   const [loading, setLoading] = useState(false);
   
   const [tenantConfig, setTenantConfig] = useState({
     name: '',
-    open_time: '',
+    location: '',
     curfew_time: '',
+    open_time: '',
     location_radius: 50,
+    notify_guardian_on_exit: false,
     is_active: true
   });
 
   const [locationData, setLocationData] = useState({
-    entry: { lat: null as number | null, lng: null as number | null, radius: 50 },
-    exit: { lat: null as number | null, lng: null as number | null, radius: 50 },
-  });
-
-  const [services, setServices] = useState({
-    laundry_enabled: true,
-    restaurant_enabled: true,
-    canteen_enabled: true,
+    center: { lat: null as number | null, lng: null as number | null, radius: 50 },
   });
 
   const visiblePermissionKeys = useMemo(() => {
@@ -62,30 +55,19 @@ export function SettingsPage() {
       if (res.success && res.data) {
         setTenantConfig({
           name: res.data.name || '',
+          location: res.data.location || '',
           open_time: res.data.open_time || '',
           curfew_time: res.data.curfew_time || '',
           location_radius: res.data.location_radius || 50,
+          notify_guardian_on_exit: !!res.data.notify_guardian_on_exit,
           is_active: res.data.is_active ?? true
         });
         setLocationData({
-          entry: {
-            lat: res.data.entry_lat ?? null,
-            lng: res.data.entry_lng ?? null,
-            radius: res.data.entry_radius || 50,
+          center: {
+            lat: res.data.location_lat ?? null,
+            lng: res.data.location_lng ?? null,
+            radius: res.data.location_radius || 50,
           },
-          exit: {
-            lat: res.data.exit_lat ?? null,
-            lng: res.data.exit_lng ?? null,
-            radius: res.data.exit_radius || 50,
-          },
-        });
-      }
-      const svc = await request('/api/tenants/services');
-      if (svc.success && svc.data) {
-        setServices({
-          laundry_enabled: svc.data.laundry_enabled !== false,
-          restaurant_enabled: svc.data.restaurant_enabled !== false,
-          canteen_enabled: svc.data.canteen_enabled !== false,
         });
       }
     } catch (err) { console.error(err); }
@@ -100,12 +82,9 @@ export function SettingsPage() {
         method: 'PUT',
         body: JSON.stringify({
           ...tenantConfig,
-          entry_lat: locationData.entry.lat,
-          entry_lng: locationData.entry.lng,
-          entry_radius: locationData.entry.radius,
-          exit_lat: locationData.exit.lat,
-          exit_lng: locationData.exit.lng,
-          exit_radius: locationData.exit.radius,
+          location_lat: locationData.center.lat,
+          location_lng: locationData.center.lng,
+          location_radius: locationData.center.radius,
         })
       });
       showSnackbar('تم حفظ الإعدادات بنجاح', 'success');
@@ -117,20 +96,6 @@ export function SettingsPage() {
     { id: 'permissions_map', label: 'خريطة الصلاحيات', icon: Shield },
     { id: 'roles', label: 'إدارة الأدوار', icon: Users },
   ] as const;
-
-  const canManageSettings = hasPermission(AppPermission.MANAGE_SETTINGS);
-
-  const toggleService = async (key: 'laundry_enabled' | 'restaurant_enabled' | 'canteen_enabled', value: boolean) => {
-    const prev = services;
-    setServices(s => ({ ...s, [key]: value }));
-    try {
-      await request('/api/tenants/services', { method: 'PATCH', body: JSON.stringify({ [key]: value }) });
-      showSnackbar('تم تحديث حالة الخدمة', 'success');
-    } catch (err: any) {
-      setServices(prev);
-      showSnackbar(err.message || 'تعذر تحديث الخدمة', 'error');
-    }
-  };
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -223,40 +188,18 @@ export function SettingsPage() {
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-vibrant-300 dark:focus:border-vibrant-500 transition-all dark:text-white"
                       />
                     </div>
-                  </div>
-                </div>
-
-                {canManageSettings && (
-                <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm dark:border-white/[0.04] dark:bg-card-dark">
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-vibrant-50 dark:bg-vibrant-500/10">
-                      <Sparkles size={18} className="text-vibrant-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-slate-800 dark:text-white">الخدمات</h3>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-300">تفعيل/تعطيل خدمات السكن</p>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {([
-                      { key: 'laundry_enabled', label: 'خدمة الغسيل', icon: Waves },
-                      { key: 'restaurant_enabled', label: 'خدمة المطعم', icon: UtensilsCrossed },
-                      { key: 'canteen_enabled', label: 'خدمة الكانتين', icon: Store },
-                    ] as const).map(item => (
-                      <div key={item.key} className="flex items-center justify-between rounded-xl bg-slate-50 p-4 dark:bg-white/5">
-                        <div className="flex items-center gap-2">
-                          <item.icon size={16} className="text-slate-400" />
-                          <span className="text-xs font-black text-slate-600 dark:text-slate-300">{item.label}</span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={services[item.key]} onChange={e => toggleService(item.key, e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                        </label>
+                    <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4 dark:bg-white/5">
+                      <div>
+                        <span className="text-xs font-black text-slate-600 dark:text-slate-300">إشعار ولي الأمر عند الخروج</span>
+                        <p className="text-[10px] font-bold text-slate-400 dark:text-slate-300">إرسال إشعار لولي الأمر عند تسجيل الخروج العادي</p>
                       </div>
-                    ))}
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={tenantConfig.notify_guardian_on_exit} onChange={e => setTenantConfig(f => ({ ...f, notify_guardian_on_exit: e.target.checked }))} className="sr-only peer" />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-vibrant-600"></div>
+                      </label>
+                    </div>
                   </div>
                 </div>
-                )}
               </div>
 
               {/* الموقع الجغرافي */}
@@ -268,30 +211,27 @@ export function SettingsPage() {
                     </div>
                     <div>
                       <h3 className="text-sm font-black text-slate-800 dark:text-white">الموقع الجغرافي</h3>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-300">نقاط الدخول والخروج GPS</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-300">مركز السكن ودائرة النطاق الرسمية</p>
                     </div>
                   </div>
                   <div className="space-y-6">
                     <div>
-                      <label className="block text-xs font-black text-slate-500 dark:text-slate-300 mb-1.5 flex items-center gap-2">
-                        <MapPin size={14} /> نصف قطر الموقع العام (متر)
-                      </label>
-                      <div className="flex items-center gap-4">
-                        <input type="range" min={10} max={500} value={tenantConfig.location_radius} onChange={e => setTenantConfig(f => ({ ...f, location_radius: Number(e.target.value) }))}
-                          className="flex-1 accent-primary-600 dark:accent-primary-400"
-                        />
-                        <span className="text-sm font-black text-slate-800 dark:text-white w-16 text-left">{tenantConfig.location_radius} م</span>
-                      </div>
+                      <label className="block text-xs font-black text-slate-500 dark:text-slate-300 mb-1.5">الموقع الفعلي / عنوان السكن</label>
+                      <input
+                        type="text"
+                        value={tenantConfig.location}
+                        onChange={e => setTenantConfig(f => ({ ...f, location: e.target.value }))}
+                        placeholder="مثال: ١٢ شارع ... ، بجوار ..."
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-blue-300 dark:focus:border-blue-500 transition-all dark:text-white"
+                      />
                     </div>
-                    <div className="border-t border-slate-100 dark:border-white/10 pt-6">
+                    <div>
                       <p className="text-[11px] text-slate-400 dark:text-slate-300 font-bold mb-4">
-                        حدد على الخريطة نقطة الدخول ونقطة الخروج من السكن مع تحديد نطاق كل نقطة
+                        حدّد <span className="text-blue-500 font-black">مركز السكن</span> ودائرة النطاق (القطر). هذا هو المرجع الرسمي الوحيد لتسجيل الحضور والانصراف وفحص الوجود.
                       </p>
                       <LocationMapPicker
-                        entry={locationData.entry}
-                        exit={locationData.exit}
-                        onEntryChange={(entry) => setLocationData(d => ({ ...d, entry }))}
-                        onExitChange={(exit) => setLocationData(d => ({ ...d, exit }))}
+                        center={locationData.center}
+                        onCenterChange={(center) => setLocationData(d => ({ ...d, center }))}
                       />
                     </div>
                   </div>

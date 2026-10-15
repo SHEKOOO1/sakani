@@ -22,12 +22,6 @@ interface Tenant {
   location_lat?: number;
   location_lng?: number;
   location_radius?: number;
-  entry_lat?: number;
-  entry_lng?: number;
-  entry_radius?: number;
-  exit_lat?: number;
-  exit_lng?: number;
-  exit_radius?: number;
   open_time?: string;
   curfew_time?: string;
   semester1_start?: string;
@@ -77,12 +71,6 @@ export const AdminSystemPage: React.FC = () => {
     location_lat: '',
     location_lng: '',
     location_radius: '50',
-    entry_lat: '',
-    entry_lng: '',
-    entry_radius: '50',
-    exit_lat: '',
-    exit_lng: '',
-    exit_radius: '50',
     open_time: '',
     curfew_time: '',
     semester1_start: '',
@@ -167,8 +155,6 @@ export const AdminSystemPage: React.FC = () => {
     setForm({
       name: '', location: '', bishop_id: '', supervisor_ids: [], priest_ids: [],
       is_active: true, location_lat: '', location_lng: '', location_radius: '50',
-      entry_lat: '', entry_lng: '', entry_radius: '50',
-      exit_lat: '', exit_lng: '', exit_radius: '50',
       open_time: '', curfew_time: '', semester1_start: '', semester1_end: '', semester2_start: '', semester2_end: '',
       daily_readings_enabled: true,
       radio_514_enabled: true,
@@ -231,12 +217,6 @@ export const AdminSystemPage: React.FC = () => {
       location_lat: tenant.location_lat?.toString() || '',
       location_lng: tenant.location_lng?.toString() || '',
       location_radius: tenant.location_radius?.toString() || '50',
-      entry_lat: tenant.entry_lat?.toString() || '',
-      entry_lng: tenant.entry_lng?.toString() || '',
-      entry_radius: tenant.entry_radius?.toString() || '50',
-      exit_lat: tenant.exit_lat?.toString() || '',
-      exit_lng: tenant.exit_lng?.toString() || '',
-      exit_radius: tenant.exit_radius?.toString() || '50',
       open_time: tenant.open_time || '',
       curfew_time: tenant.curfew_time || '',
       semester1_start: tenant.semester1_start ? tenant.semester1_start.split('T')[0] : '',
@@ -275,12 +255,6 @@ export const AdminSystemPage: React.FC = () => {
       if (form.location_lat) body.location_lat = parseFloat(form.location_lat);
       if (form.location_lng) body.location_lng = parseFloat(form.location_lng);
       if (form.location_radius) body.location_radius = parseFloat(form.location_radius);
-      if (form.entry_lat) body.entry_lat = parseFloat(form.entry_lat);
-      if (form.entry_lng) body.entry_lng = parseFloat(form.entry_lng);
-      if (form.entry_radius) body.entry_radius = parseFloat(form.entry_radius);
-      if (form.exit_lat) body.exit_lat = parseFloat(form.exit_lat);
-      if (form.exit_lng) body.exit_lng = parseFloat(form.exit_lng);
-      if (form.exit_radius) body.exit_radius = parseFloat(form.exit_radius);
       if (form.open_time) body.open_time = form.open_time;
       if (form.curfew_time) body.curfew_time = form.curfew_time;
       if (form.semester1_start) body.semester1_start = form.semester1_start;

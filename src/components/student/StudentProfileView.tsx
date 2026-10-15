@@ -20,6 +20,7 @@ import { EditStudentModal } from './modals/EditStudentModal';
 import { SendProfileModal } from './modals/SendProfileModal';
 import { PriestEditModal } from './modals/PriestEditModal';
 import { AttendanceHistoryCard } from './AttendanceHistoryCard';
+import { MovementHistoryCard } from './MovementHistoryCard';
 
 interface Guardian {
   id: string;
@@ -793,6 +794,8 @@ export function StudentProfileView({
           )}
 
           <AttendanceHistoryCard studentId={selectedStudent.id} />
+
+          <MovementHistoryCard studentId={selectedStudent.id} />
         </div>
 
         {/* Student QR Code */}

@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useApi } from '../hooks/useApi';
 import { isValidEmail, isValidPassword } from '../utils/validators';
 import { motion } from 'motion/react';
-import { Mail, Lock, User, ShieldCheck, Send } from 'lucide-react';
+import { Mail, Lock, User, ShieldCheck, RefreshCw } from 'lucide-react';
 
 function FloatingShape({ className, delay = 0 }: { className: string; delay?: number }) {
   return (
@@ -26,18 +26,22 @@ export function LoginPage() {
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const [setupCheckFailed, setSetupCheckFailed] = useState(false);
   const [error, setError] = useState('');
-  const [notActivated, setNotActivated] = useState(false);
-  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const mounted = useMounted();
 
   const checkSetup = useCallback(async () => {
+    setSetupCheckFailed(false);
     try {
       const response = await request('/api/auth/setup-status', { method: 'GET' });
       if (mounted.current) setNeedsSetup(response.needsSetup);
     } catch {
-      if (mounted.current) setNeedsSetup(false);
+      if (mounted.current) {
+        // لا نفترض أن الإعداد اكتمل عند فشل الطلب — نعرض حالة خطأ وزر إعادة محاولة.
+        setNeedsSetup(null);
+        setSetupCheckFailed(true);
+      }
     }
   }, [request]);
 
@@ -89,39 +93,9 @@ export function LoginPage() {
         login(response.data.user);
       }
     } catch (err: any) {
-      // الخادم يميّز "الحساب بانتظار التفعيل" برمز ثابت — نعرض له مسار
-      // استعادة بدل رسالة "بيانات خاطئة" المضلّلة.
-      if (err?.code === 'ACCOUNT_NOT_ACTIVATED' || /لم يتم تفعيله/.test(err?.message || '')) {
-        setNotActivated(true);
-      } else {
-        setNotActivated(false);
-      }
       setError(err.message || (needsSetup ? 'فشل إنشاء الحساب' : 'فشل تسجيل الدخول'));
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleResendActivation = async () => {
-    if (!email.trim()) {
-      setError('اكتب بريدك الإلكتروني الأول عشان نرسل لك رابط تفعيل جديد.');
-      return;
-    }
-    setResendState('sending');
-    setError('');
-    setNotActivated(false);
-    try {
-      const response = await request('/api/auth/activate/resend', {
-        method: 'POST',
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      if (mounted.current) setResendState('sent');
-      if (!response.success && mounted.current) setError(response.message || 'تعذّر إرسال رابط التفعيل.');
-    } catch (err: any) {
-      if (mounted.current) {
-        setResendState('idle');
-        setError(err.message || 'تعذّر إرسال رابط التفعيل.');
-      }
     }
   };
 
@@ -173,42 +147,28 @@ export function LoginPage() {
                 </motion.div>
               )}
 
-              {!needsSetup && (notActivated || resendState === 'sent') && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-6 p-4 bg-amber-500/15 border border-amber-300/30 text-amber-100 rounded-xl text-sm space-y-3"
+              {needsSetup === null ? (
+            setupCheckFailed ? (
+              <div className="text-center py-10">
+                <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-300/30 text-rose-200 flex items-center justify-center mx-auto mb-4">
+                  <RefreshCw size={22} />
+                </div>
+                <p className="text-white/80 text-sm font-bold mb-1">تعذّر التحقق من حالة النظام</p>
+                <p className="text-white/50 text-xs mb-4 leading-relaxed">لا يمكننا التأكد الآن من اكتمال الإعداد الأولي. تأكد من اتصالك وحاول مرة أخرى.</p>
+                <button
+                  type="button"
+                  onClick={() => void checkSetup()}
+                  className="inline-flex items-center gap-2 py-2.5 px-6 bg-white/10 border border-white/25 rounded-xl font-bold text-sm text-white hover:bg-white/20 transition-all"
                 >
-                  {resendState === 'sent' ? (
-                    <p className="text-center font-medium leading-relaxed">
-                      لو الحساب موجود ومش مفعّل، هنرسل له رابط تفعيل جديد على بريده الإلكتروني.
-                    </p>
-                  ) : (
-                    <>
-                      <p className="leading-relaxed">حسابك لسه مش مفعّل. ابعتلنالرابط تاني؟</p>
-                      <button
-                        type="button"
-                        onClick={handleResendActivation}
-                        disabled={resendState === 'sending'}
-                        className="w-full py-2.5 bg-white/10 border border-white/25 rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 hover:bg-white/20 transition-all disabled:opacity-60"
-                      >
-                        {resendState === 'sending' ? (
-                          <><div className="w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full animate-spin" /> جاري الإرسال...</>
-                        ) : (
-                          <><Send size={16} /> إرسال رابط تفعيل جديد</>
-                        )}
-                      </button>
-                    </>
-                  )}
-                </motion.div>
-              )}
-
-
-          {needsSetup === null ? (
-            <div className="text-center py-12">
-              <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-white/50 text-sm">جارٍ التحقق من حالة النظام...</p>
-            </div>
+                  <RefreshCw size={16} /> إعادة المحاولة
+                </button>
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-white/50 text-sm">جارٍ التحقق من حالة النظام...</p>
+              </div>
+            )
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {needsSetup && (

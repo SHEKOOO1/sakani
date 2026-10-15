@@ -7,9 +7,10 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { AppPermission } from '../types/permissions';
 import { effectivePrice } from '../utils/pricing';
 import { ImageUploadField } from './common/ImageUploadField';
+import { ServiceLedgerTab } from './ledger/ServiceLedgerTab';
 import {
   UtensilsCrossed, Plus, Trash2, Pencil, ShoppingCart, ClipboardList,
-  Settings2, UserCog, Loader2, Check, X, Minus, Search,
+  Settings2, UserCog, Loader2, Check, X, Minus, Search, BookOpen,
 } from 'lucide-react';
 
 interface Category { id: string; name: string; sort_order: number; is_active: number | boolean; }
@@ -32,7 +33,7 @@ const STATUS_COLORS: Record<string, string> = {
 const flag = (v: unknown, fallback = true): boolean =>
   v === undefined || v === null ? fallback : v !== 0 && v !== '0' && v !== false && v !== 'false';
 
-type Tab = 'menu' | 'orders' | 'manage' | 'operators';
+type Tab = 'menu' | 'orders' | 'ledger' | 'manage' | 'operators';
 
 export function RestaurantPage() {
   const { request } = useApi();
@@ -50,6 +51,7 @@ export function RestaurantPage() {
   const itemsQuery = useApiQuery<{ data: Item[] }>(['restaurant-items'], '/api/restaurant/items');
   const ordersQuery = useApiQuery<{ data: Order[] }>(['restaurant-orders'], '/api/restaurant/orders', {}, { refetchInterval: 20000 });
   const operatorsQuery = useApiQuery<{ data: Operator[] }>(['restaurant-operators'], '/api/restaurant/operators', {}, { enabled: canManageOperators });
+  const isOperatorQuery = useApiQuery<{ isOperator: boolean }>(['restaurant-is-operator'], '/api/restaurant/is-operator');
 
   const categories = categoriesQuery.data?.data ?? [];
   const items = itemsQuery.data?.data ?? [];
@@ -113,14 +115,16 @@ export function RestaurantPage() {
     finally { setBusy(false); }
   };
 
+  const isStaff = ['admin', 'supervisor', 'priest', 'assistant_supervisor', 'employee', 'bishop'].includes((user?.role || '').toLowerCase());
+  const canOperateLedger = isStaff || canManage || !!isOperatorQuery.data?.isOperator;
+
   const tabs: { id: Tab; label: string; icon: any; show: boolean }[] = [
     { id: 'menu', label: 'القائمة', icon: UtensilsCrossed, show: true },
     { id: 'orders', label: 'الطلبات', icon: ClipboardList, show: true },
+    { id: 'ledger', label: 'دفتر اليومية', icon: BookOpen, show: canOperateLedger },
     { id: 'manage', label: 'إدارة القائمة', icon: Settings2, show: canManage },
     { id: 'operators', label: 'المسؤولون', icon: UserCog, show: canManageOperators },
   ];
-
-  const isStaff = ['admin', 'supervisor', 'priest', 'assistant_supervisor', 'employee', 'bishop'].includes((user?.role || '').toLowerCase());
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -177,6 +181,10 @@ export function RestaurantPage() {
           busy={busy}
           onChangeStatus={changeStatus}
         />
+      )}
+
+      {tab === 'ledger' && canOperateLedger && (
+        <ServiceLedgerTab basePath="/api/restaurant/ledger" canRecord={canOperateLedger} />
       )}
 
       {tab === 'manage' && canManage && (

@@ -313,23 +313,31 @@ describe('per-tenant service toggles', () => {
     expect(res.body.data).toEqual({ laundry_enabled: true, restaurant_enabled: true, canteen_enabled: true });
   });
 
-  it('PATCH /services updates the tenant row and is reflected on read', async () => {
+  it('PATCH /services is rejected for a supervisor even with MANAGE_SETTINGS', async () => {
+    dbMock.checkUserPermission.mockResolvedValue(true);
     const res = await request('/api/tenants/services', {
       method: 'PATCH',
       token: signToken(USERS.supervisor),
       body: { restaurant_enabled: false },
     });
+    expect(res.status).toBe(403);
+  });
+
+  it('a global admin toggles services per tenant via /:id/toggle-services', async () => {
+    const res = await request('/api/tenants/A/toggle-services', {
+      method: 'PATCH',
+      token: signToken(USERS.admin),
+      body: { restaurant_enabled: false },
+    });
     expect(res.status).toBe(200);
     const after = await request('/api/tenants/services', { token: signToken(USERS.supervisor) });
     expect(after.body.data.restaurant_enabled).toBe(false);
-    expect(after.body.data.canteen_enabled).toBe(true);
   });
 
-  it('PATCH /services rejects a user without MANAGE_SETTINGS', async () => {
-    dbMock.checkUserPermission.mockResolvedValueOnce(false);
-    const res = await request('/api/tenants/services', {
+  it('a supervisor cannot toggle services via /:id/toggle-services', async () => {
+    const res = await request('/api/tenants/A/toggle-services', {
       method: 'PATCH',
-      token: signToken(USERS.student),
+      token: signToken(USERS.supervisor),
       body: { canteen_enabled: false },
     });
     expect(res.status).toBe(403);
@@ -338,7 +346,7 @@ describe('per-tenant service toggles', () => {
   it('PATCH /services with an empty body is rejected', async () => {
     const res = await request('/api/tenants/services', {
       method: 'PATCH',
-      token: signToken(USERS.supervisor),
+      token: signToken(USERS.admin),
       body: {},
     });
     expect(res.status).toBe(400);

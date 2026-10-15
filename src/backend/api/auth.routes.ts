@@ -9,14 +9,7 @@ import { parseStoredPermissionsArray } from "../infrastructure/permission-parser
 import { UserRole } from "../../types/permissions";
 import { authenticate } from "./middleware";
 import { validate } from "../validation/middleware";
-import { activateAccountSchema, loginSchema, registerSchema, resendActivationSchema } from "../validation/schemas";
-import {
-  ACTIVATION_MESSAGES,
-  consumeActivationToken,
-  issueActivationInvite,
-  isMailerReady,
-  resolveActivationToken,
-} from "../services/activation.service";
+import { loginSchema, registerSchema } from "../validation/schemas";
 
 const router = express.Router();
 
@@ -60,21 +53,8 @@ const loginLimiter = rateLimit({
   message: { success: false, message: "محاولات دخول كتيرة لو سمحت استنى شوية قبل ما تعيد المحاولة." }
 });
 
-// حد معدل منفصل للتفعيل: الرابط نفسه غير قابل لإعادة الاستخدام، لكن أي حد
-// معدل مشترك مع الدخول كان سيمنع المستخدم من تفعيل حسابه بعد 10 محاولات دخول.
-const activationLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
-  message: { success: false, message: "محاولات تفعيل كتيرة لو سمحت استنى شوية." }
-});
-
-// إرسال رابط تفعيل جديد: الرد موحّد دائماً لمنع كشف الحسابات المسجّلة (enumeration).
-const resendActivationLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  message: { success: false, message: "طلبات كتيرة. لو سمحت استنى شوية قبل ما تطلب رابط جديد." }
-});
-
+// حد معدل منفصل للدخول فقط: لا يوجد تفعيل بالبريد بعد الآن — كل الحسابات
+// تُفعَّل تلقائياً فور إنشائها.
 
 /**
  * @openapi
@@ -153,8 +133,8 @@ router.post("/register", rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: 
     const id = uuidv4();
     const role = 'admin';
 
-    // حساب المدير الأول يختار كلمة مروره بنفسه ⇒ لا حاجة لبريد تفعيل.
-    // كل الحسابات الأخرى تُنشأ معلّقة (activated_at = NULL) حتى يُفتح رابط التفعيل.
+    // حساب المدير الأول يختار كلمة مروره بنفسه. كل الحسابات — بما فيها هذا — تُفعَّل
+    // تلقائياً فور إنشائها (لا يوجد تفعيل بالبريد بعد الآن).
     const activatedAt = new Date();
 
     await kdb('users').insert({
@@ -230,15 +210,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
       return res.status(401).json({ success: false, message: "بيانات الدخول غير صحيحة" });
     }
 
-    // الحساب المعلّق (أُنشئ بصلاحية ولم يُفعَّل بعد) لا يستطيع الدخول إطلاقاً.
-    // الفحص بعد التحقق من كلمة المرور حتى لا تكشف رسالة مختلفة وجود الحساب من عدمه.
-    if (!user.activated_at) {
-      return res.status(403).json({
-        success: false,
-        code: "ACCOUNT_NOT_ACTIVATED",
-        message: "حسابك لم يتم تفعيله بعد. افتح رابط التفعيل المرسل إلى بريدك الإلكتروني، أو اطلب إرسال رابط جديد من صفحة الدخول."
-      });
-    }
+    // كل الحسابات تُفعَّل تلقائياً فور إنشائها، فلا يوجد حساب معلّق بعد الآن.
 
     // Auto-detect tenant from user record or assignments
     let effectiveTenantId = user.tenant_id;
@@ -304,107 +276,6 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
         }
       }
     });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
-  }
-});
-
-/**
- * @openapi
- * /auth/activate:
- *   post:
- *     tags: [المصادقة]
- *     summary: تفعيل الحساب عبر التوكن المُرسل بالبريد
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [token]
- *             properties:
- *               token: { type: string }
- *     responses:
- *       200:
- *         description: تم تفعيل الحساب
- *       400:
- *         description: رابط غير صالح أو منتهي
- */
-router.post("/activate", activationLimiter, validate(activateAccountSchema), async (req, res) => {
-  try {
-    const lookup = await resolveActivationToken(req.body.token);
-
-    if (lookup.state === 'expired') {
-      return res.status(400).json({ success: false, code: 'ACTIVATION_EXPIRED', message: ACTIVATION_MESSAGES.expired });
-    }
-    if (lookup.state === 'already-activated') {
-      return res.status(400).json({ success: false, code: 'ALREADY_ACTIVATED', message: ACTIVATION_MESSAGES.alreadyActivated });
-    }
-    if (lookup.state !== 'valid') {
-      return res.status(400).json({ success: false, code: 'ACTIVATION_INVALID', message: ACTIVATION_MESSAGES.invalid });
-    }
-
-    const consumed = await consumeActivationToken(lookup.userId);
-    if (!consumed) {
-      return res.status(400).json({ success: false, code: 'ACTIVATION_INVALID', message: ACTIVATION_MESSAGES.invalid });
-    }
-
-    res.json({
-      success: true,
-      message: "تم تفعيل حسابك بنجاح. يمكنك تسجيل الدخول الآن بكلمة المرور التي حددها لك المسؤول."
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
-  }
-});
-
-/**
- * @openapi
- * /auth/activate/resend:
- *   post:
- *     tags: [المصادقة]
- *     summary: طلب إعادة إرسال رابط التفعيل
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [email]
- *             properties:
- *               email: { type: string }
- *     responses:
- *       200:
- *         description: تم استلام الطلب (الرد موحّد لمنع كشف الحسابات)
- *       503:
- *         description: البريد غير مُهيأ
- */
-router.post("/activate/resend", resendActivationLimiter, validate(resendActivationSchema), async (req, res) => {
-  const email = String(req.body.email).trim().toLowerCase();
-
-  try {
-    const user = await kdb('users').select('id', 'activated_at').where({ email }).first();
-
-    // الرد موحّد سواء وُجد الحساب أم لا حتى لا يُستدل على الحسابات المسجّلة.
-    const generic = {
-      success: true,
-      message: "لو الحساب موجود ومش مفعّل، هنرسل له رابط تفعيل جديد على بريده الإلكتروني."
-    };
-
-    if (!user || user.activated_at) return res.json(generic);
-
-    const result = await issueActivationInvite(user.id);
-    if (!result.ok) return res.json(generic);
-
-    if (!result.emailed && !isMailerReady()) {
-      return res.status(503).json({
-        success: false,
-        code: 'MAILER_NOT_CONFIGURED',
-        message: ACTIVATION_MESSAGES.notConfigured
-      });
-    }
-
-    res.json(generic);
   } catch (error: any) {
     res.status(500).json({ success: false, message: "حدث خطأ. من فضلك حاول مرة أخرى." });
   }

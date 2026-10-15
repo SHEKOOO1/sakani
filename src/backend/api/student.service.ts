@@ -6,7 +6,7 @@ import { createNotification } from '../api/notifications.routes';
 import bcrypt from 'bcryptjs';
 import { UPLOADS_BASE } from '../middleware/upload';
 import { resolveAccountPassword, describeDefaultUserPasswordRejection } from '../config/default-password';
-import { issueActivationInvite } from '../services/activation.service';
+import { resolveFrozenPrice } from '../services/ledger.service';
 
 /**
  * خطأ تحقق من بيانات متوقع (خطأ مستخدم) — يُترجم إلى 400 مع الرسالة العربية
@@ -89,7 +89,7 @@ export class StudentService {
         } = data;
 
         // اسم المستخدم اختياري لكلٍّ من الطالب وولي الأمر: لو أُدخل فهو معرّف دخول
-        // فريد عالمياً ويجعل الحساب فعّالاً فوراً (بدلاً من انتظار رابط التفعيل).
+        // فريد عالمياً. كل الحسابات تُفعَّل تلقائياً فور إنشائها (لا يوجد تفعيل بالبريد بعد الآن).
         const studentUsername = typeof username === 'string' ? username.trim() : '';
         const parentUsernameClean = typeof parentUsername === 'string' ? parentUsername.trim() : '';
         const usernamePattern = /^[\p{L}\p{N}._-]{3,50}$/u;
@@ -125,9 +125,8 @@ export class StudentService {
         const transaction = new mssql.Transaction(pool);
         await transaction.begin();
 
-        // حسابات تُنشأ مع هذا الطالب (الحساب نفسه + ولي أمر جديد) وتبقى بانتظار
-        // التفعيل؛ يُرسل لها رابط البريد بعد نجاح الـ commit فقط.
-        const pendingActivationUserIds: string[] = [];
+        // حسابات تُنشأ مع هذا الطالب (الحساب نفسه + ولي أمر جديد) جميعها مفعّلة
+        // تلقائياً فور الإنشاء — لا يوجد تفعيل بالبريد بعد الآن.
 
         try {
             const studentId = uuidv4();
@@ -137,9 +136,15 @@ export class StudentService {
                 await this.assertRoomAssignable(kdb, roomId, tenantId);
             }
 
-            // 1. Create the user's account (the account itself + a new guardian) and keep them
-            // pending activation; the email link is sent only after a successful commit.
-            const studentUserId = uuidv4();
+            // يُثبَّت سعر الإقامة وقت التسجيل (السعر المتفق عليه إن وُجد، وإلا
+            // سعر الغرفة لدورة التحصيل) فلا يتأثر الطالب لاحقاً بتغيّر سعر الغرفة.
+            const roomRow = roomId ? await kdb('rooms').where({ id: roomId }).first() : null;
+            const frozenPrice = resolveFrozenPrice(roomRow, billingCycle, agreedPrice);
+            const frozenAt = frozenPrice > 0 ? new Date() : null;
+
+// 1. Create the user's account (the account itself + a new guardian).
+        //    Accounts are active immediately — no email verification.
+        const studentUserId = uuidv4();
             const resolvedStudentPassword = resolveAccountPassword(password);
             if (!resolvedStudentPassword.ok) {
               throw new Error(describeDefaultUserPasswordRejection(resolvedStudentPassword.reason));
@@ -155,11 +160,9 @@ export class StudentService {
                 .input('role', mssql.NVarChar(50), 'student')
                 .input('name', mssql.NVarChar(255), name)
             .input('daily_readings_enabled', mssql.Bit, 1)
-            .input('activated_at', mssql.DateTime2, studentUsername ? new Date() : null)
+            .input('activated_at', mssql.DateTime2, new Date())
             .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, daily_readings_enabled, activated_at) 
                         VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @daily_readings_enabled, @activated_at)`);
-            // الحساب المفعّل فوراً (له اسم مستخدم) لا يحتاج رابط بريد تفعيل.
-            if (!studentUsername) pendingActivationUserIds.push(studentUserId);
 
             // 1. إدراج بيانات الطالب الأساسية
             await transaction.request()
@@ -178,7 +181,8 @@ export class StudentService {
                 .input('student_photo', mssql.NVarChar(mssql.MAX), studentPhoto)
                 .input('room_id', mssql.NVarChar(128), roomId || null)
                 .input('billing_cycle', mssql.NVarChar(50), billingCycle)
-                .input('agreed_price', mssql.Decimal(10, 2), agreedPrice)
+                .input('agreed_price', mssql.Decimal(10, 2), frozenPrice)
+                .input('price_frozen_at', mssql.DateTime2, frozenAt)
                 .input('governorate', mssql.NVarChar(100), governorate)
                 .input('village', mssql.NVarChar(100), village)
                 .input('church_name', mssql.NVarChar(200), churchName)
@@ -189,11 +193,11 @@ export class StudentService {
                 .input('deacon_rank', mssql.NVarChar(100), deacon_rank)
                 .query(`INSERT INTO Students (id, user_id, tenant_id, name, student_id_number, university, college, major, 
                                             enrollment_year, birth_date, id_card_number, address, student_photo, room_id,
-                                            billing_cycle, agreed_price, governorate, village, church_name, 
+                                            billing_cycle, agreed_price, price_frozen_at, governorate, village, church_name, 
                                             confession_father_name, is_servant, servant_services, is_deacon, deacon_rank) 
                         VALUES (@id, @user_id, @tenant_id, @name, @student_id_number, @university, @college, @major, 
                                 @enrollment_year, @birth_date, @id_card_number, @address, @student_photo, @room_id,
-                                @billing_cycle, @agreed_price, @governorate, @village, @church_name, 
+                                @billing_cycle, @agreed_price, @price_frozen_at, @governorate, @village, @church_name, 
                                 @confession_father_name, @is_servant, @servant_services, @is_deacon, @deacon_rank)`);
 
             // 1.b Track occupancy so the room cannot be over-filled or deleted while occupied
@@ -249,10 +253,9 @@ export class StudentService {
                         .input('password', mssql.NVarChar(255), parentHashedPassword)
                         .input('role', mssql.NVarChar(50), 'parent')
                         .input('name', mssql.NVarChar(255), parentFullName)
-                        .input('activated_at', mssql.DateTime2, parentUsernameClean ? new Date() : null)
+                        .input('activated_at', mssql.DateTime2, new Date())
                         .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, activated_at) 
                                 VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @activated_at)`);
-                    if (!parentUsernameClean) pendingActivationUserIds.push(parentUserId);
 
                     const guardianId = uuidv4();
                     await transaction.request()
@@ -291,16 +294,7 @@ export class StudentService {
 
             await transaction.commit();
 
-            // إرسال روابط التفعيل بعد الـ commit — الفشل هنا لا يُسقط التسجيل
-            // (fail-soft) ولا يُبطل ما كُتب بالفعل.
-            let activationEmailSent = 0;
-            for (const userId of pendingActivationUserIds) {
-                const invite = await issueActivationInvite(userId);
-                if (invite.emailed) activationEmailSent += 1;
-                else console.warn('[StudentService] activation email not sent for user', userId, invite.reason || '');
-            }
-
-            return { studentId, activationEmailSent, pendingActivationCount: pendingActivationUserIds.length };
+            return { studentId };
         } catch (error) {
             if (transaction) await transaction.rollback();
             throw error;

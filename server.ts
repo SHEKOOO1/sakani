@@ -100,7 +100,10 @@ import radioRoutes from "./src/backend/api/radio.routes.ts";
 import itemManagersRoutes from "./src/backend/api/itemManagers.routes.ts";
 import uploadsRoutes from "./src/backend/api/uploads.routes.ts";
 import mediaRoutes from "./src/backend/api/media.routes.ts";
+import devicesRoutes from "./src/backend/api/devices.routes.ts";
+import absenceRoutes from "./src/backend/api/absence.routes.ts";
 import { startRadiojarService } from "./src/backend/services/radiojar.service.ts";
+import { startAbsenceScheduler } from "./src/backend/services/absenceScheduler.service.ts";
 import { auditLogger, sanitizeInput, authenticate, authorizePermission, resolveSocketUser } from "./src/backend/api/middleware.ts";
 import { AppPermission } from "./src/types/permissions.ts";
 import swaggerUi from "swagger-ui-express";
@@ -308,6 +311,9 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
   app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    // OSM tiles require a Referer header (tile usage policy); Helmets default
+    // "no-referrer" makes the browser strip it, causing 403 "Access blocked".
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -322,7 +328,7 @@ async function startServer() {
           "https://connect.facebook.net",
         ],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        imgSrc: ["'self'", "data:", "blob:", "https://*.radiojar.com", "https://radiojar-lib.appspot.com", "https://i.ytimg.com", "https://img.youtube.com", "https://*.fbcdn.net", "https://*.cdninstagram.com", "https://*.whatsapp.net"],
+        imgSrc: ["'self'", "data:", "blob:", "https://*.radiojar.com", "https://radiojar-lib.appspot.com", "https://i.ytimg.com", "https://img.youtube.com", "https://*.fbcdn.net", "https://*.cdninstagram.com", "https://*.whatsapp.net", "https://tile.openstreetmap.org", "https://*.tile.openstreetmap.org"],
         connectSrc: ["'self'", "https://*.radiojar.com", "https://www.googleapis.com", "https://graph.facebook.com", "https://oembed.com", "https://www.youtube.com", ...(isProd ? [] : ["ws://localhost:24678", "ws://localhost:5173"])],
         frameSrc: ["'self'", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://www.facebook.com", "https://connect.facebook.net"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
@@ -495,6 +501,8 @@ async function startServer() {
   app.use("/api", studentAttendanceRoutes);
   app.use("/api", attendancePolicyRoutes);
   app.use("/api/attendance", attendanceRoutes);
+  app.use("/api/devices", devicesRoutes);
+  app.use("/api", absenceRoutes);
   app.use("/api/maintenance", maintenanceRoutes);
   app.use("/api/laundry", laundryRoutes);
   app.use("/api/restaurant", restaurantRoutes);
@@ -528,6 +536,9 @@ app.use("/api/items", itemManagersRoutes);
 
   // Start Radiojar background polling service
   startRadiojarService();
+
+  // Start the lock-time absence check (idempotent; disabled under NODE_ENV=test)
+  startAbsenceScheduler();
 
   // Global error handler - يمنع تسريب تفاصيل قاعدة البيانات
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -132,15 +132,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/auth/me', { credentials: 'include' })
+    // Bound the initial session check so an unresponsive server can never leave
+    // the app stuck on the loading screen forever (fetch has no default timeout).
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    fetch('/api/auth/me', { credentials: 'include', signal: controller.signal })
       .then(r => r.json())
       .then(res => {
         if (res.success && res.data?.user) {
           setUser(res.data.user);
         }
       })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
+      .catch(() => {
+        // No session (or the server is unreachable) — fall through to the login
+        // screen instead of hanging. Auth is never bypassed here.
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+        setIsLoading(false);
+      });
+    return () => { clearTimeout(timeoutId); };
   }, []);
 
   const hasPermission = useCallback((permission: AppPermission): boolean => {

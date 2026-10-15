@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building, X, Save, Shield, Clock, LogIn, LogOut } from 'lucide-react';
+import { Building, X, Save, Shield, Clock } from 'lucide-react';
 import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
 
 export interface TenantFormData {
@@ -12,12 +12,6 @@ export interface TenantFormData {
   location_lat: string;
   location_lng: string;
   location_radius: string;
-  entry_lat: string;
-  entry_lng: string;
-  entry_radius: string;
-  exit_lat: string;
-  exit_lng: string;
-  exit_radius: string;
   open_time: string;
   curfew_time: string;
   semester1_start: string;
@@ -43,12 +37,6 @@ interface Tenant {
   location_lat?: number;
   location_lng?: number;
   location_radius?: number;
-  entry_lat?: number;
-  entry_lng?: number;
-  entry_radius?: number;
-  exit_lat?: number;
-  exit_lng?: number;
-  exit_radius?: number;
   open_time?: string;
   curfew_time?: string;
   semester1_start?: string;
@@ -303,46 +291,6 @@ export const TenantFormModal: React.FC<TenantFormModalProps> = ({
                   <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">نطاق الموقع (متر)</label>
                   <input type="number" value={form.location_radius} onChange={e => onFormChange({...form, location_radius: e.target.value})}
                     className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                </div>
-              </div>
-              <div className="rounded-xl border border-emerald-100 dark:border-emerald-500/20 p-3 space-y-3 bg-emerald-50/30 dark:bg-emerald-500/5">
-                <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><LogIn size={12} /> نقطة الدخول</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">خط العرض (Lat)</label>
-                    <input type="text" value={form.entry_lat} onChange={e => onFormChange({...form, entry_lat: e.target.value})}
-                      className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">خط الطول (Lng)</label>
-                    <input type="text" value={form.entry_lng} onChange={e => onFormChange({...form, entry_lng: e.target.value})}
-                      className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">نطاق الدخول (متر)</label>
-                    <input type="number" value={form.entry_radius} onChange={e => onFormChange({...form, entry_radius: e.target.value})}
-                      className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-xl border border-red-100 dark:border-red-500/20 p-3 space-y-3 bg-red-50/30 dark:bg-red-500/5">
-                <p className="text-[10px] font-black text-red-600 dark:text-red-400 flex items-center gap-1"><LogOut size={12} /> نقطة الخروج</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">خط العرض (Lat)</label>
-                    <input type="text" value={form.exit_lat} onChange={e => onFormChange({...form, exit_lat: e.target.value})}
-                      className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">خط الطول (Lng)</label>
-                    <input type="text" value={form.exit_lng} onChange={e => onFormChange({...form, exit_lng: e.target.value})}
-                      className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 dark:text-slate-300">نطاق الخروج (متر)</label>
-                    <input type="number" value={form.exit_radius} onChange={e => onFormChange({...form, exit_radius: e.target.value})}
-                      className="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-xs font-bold dark:text-white" />
-                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

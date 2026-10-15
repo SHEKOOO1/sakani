@@ -128,35 +128,10 @@ export async function initializeDb() {
       ALTER TABLE [dbo].[users] ADD [token_version] INT NOT NULL DEFAULT 0;
     `);
 
-    // أعمدة تفعيل الحساب (activation) — مطابقة لـ migrations/041
-    // الترقية التلقائية إلى "مُفعّل" تجري داخل نفس عبارة إضافة العمود فقط، فحساب
-    // أُنشئ بعد الترقية يبقى بانتظار التفعيل ولا يُمنح وصولاً تلقائياً عند إعادة التشغيل.
-    // sp_executesql ضرورية: SQL Server يترجم الـ batch كاملاً قبل تنفيذه، فالـ UPDATE
-    // في نفس الـ batch الذي يضيف العمود يفشل بـ "Invalid column name" قبل أي تنفيذ.
-    await kdb.raw(`
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'activated_at')
-      BEGIN
-        ALTER TABLE [dbo].[users] ADD [activated_at] DATETIME2 NULL;
-        EXEC sp_executesql N'UPDATE [dbo].[users] SET [activated_at] = ISNULL([created_at], GETDATE()) WHERE [activated_at] IS NULL;';
-      END;
-    `);
-    await kdb.raw(`
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'activation_token_hash')
-      ALTER TABLE [dbo].[users] ADD [activation_token_hash] NVARCHAR(64) NULL;
-    `);
-    await kdb.raw(`
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'activation_expires_at')
-      ALTER TABLE [dbo].[users] ADD [activation_expires_at] DATETIME2 NULL;
-    `);
-    await kdb.raw(`
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'activation_sent_at')
-      ALTER TABLE [dbo].[users] ADD [activation_sent_at] DATETIME2 NULL;
-    `);
-    await kdb.raw(`
-      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_users_activation_token_hash' AND object_id = OBJECT_ID('users'))
-      CREATE NONCLUSTERED INDEX [IX_users_activation_token_hash] ON [dbo].[users] ([activation_token_hash]);
-    `);
-
+    // Email verification was removed (2026-10): accounts are activated
+    // automatically at creation. The `activated_at` column stays (it records
+    // the activation timestamp); the activation-token columns were created by
+    // migration 041 and are now unused — see migrations/053 for the backfill.
     // أعمدة الصيانة
     await kdb.raw(`
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('maintenance_requests') AND name = 'photo_url')
@@ -224,12 +199,6 @@ export async function initializeDb() {
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'location_lat') ALTER TABLE [dbo].[tenants] ADD [location_lat] DECIMAL(10,7) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'location_lng') ALTER TABLE [dbo].[tenants] ADD [location_lng] DECIMAL(10,7) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'location_radius') ALTER TABLE [dbo].[tenants] ADD [location_radius] INT DEFAULT 50;
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'entry_lat') ALTER TABLE [dbo].[tenants] ADD [entry_lat] DECIMAL(10,7) NULL;
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'entry_lng') ALTER TABLE [dbo].[tenants] ADD [entry_lng] DECIMAL(10,7) NULL;
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'entry_radius') ALTER TABLE [dbo].[tenants] ADD [entry_radius] INT DEFAULT 50;
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'exit_lat') ALTER TABLE [dbo].[tenants] ADD [exit_lat] DECIMAL(10,7) NULL;
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'exit_lng') ALTER TABLE [dbo].[tenants] ADD [exit_lng] DECIMAL(10,7) NULL;
-      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'exit_radius') ALTER TABLE [dbo].[tenants] ADD [exit_radius] INT DEFAULT 50;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'curfew_time') ALTER TABLE [dbo].[tenants] ADD [curfew_time] NVARCHAR(20) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'open_time') ALTER TABLE [dbo].[tenants] ADD [open_time] NVARCHAR(20) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'semester1_start') ALTER TABLE [dbo].[tenants] ADD [semester1_start] DATE NULL;
@@ -240,6 +209,7 @@ export async function initializeDb() {
 
     // أعمدة إضافية للحضور، الغياب، الإشعارات
     await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'price_frozen_at') ALTER TABLE [dbo].[students] ADD [price_frozen_at] DATETIME2 NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('attendance') AND name = 'location_lat') ALTER TABLE [dbo].[attendance] ADD [location_lat] DECIMAL(10,7) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('attendance') AND name = 'location_lng') ALTER TABLE [dbo].[attendance] ADD [location_lng] DECIMAL(10,7) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_delays') AND name = 'curfew_time') ALTER TABLE [dbo].[student_delays] ADD [curfew_time] NVARCHAR(20) NULL;
@@ -568,9 +538,16 @@ export async function initializeDb() {
           [student_id] NVARCHAR(128) NULL,
           [sale_id] NVARCHAR(128) NULL,
           [sale_item_id] NVARCHAR(128) NULL,
+          [return_ref] NVARCHAR(100) NULL,
           [created_at] DATETIME2 NOT NULL DEFAULT GETDATE()
         );
       END;
+    `);
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('canteen_stock_movements') AND name = 'return_ref')
+        ALTER TABLE [dbo].[canteen_stock_movements] ADD [return_ref] NVARCHAR(100) NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_canteen_return_ref' AND object_id = OBJECT_ID('canteen_stock_movements'))
+        CREATE UNIQUE INDEX [UX_canteen_return_ref] ON [dbo].[canteen_stock_movements] ([tenant_id], [return_ref], [product_id]) WHERE [return_ref] IS NOT NULL;
     `);
     await kdb.raw(`
       IF OBJECT_ID('canteen_sales') IS NULL
@@ -617,6 +594,91 @@ export async function initializeDb() {
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_canteen_operators_tenant_user' AND object_id = OBJECT_ID('canteen_operators')) CREATE UNIQUE INDEX UX_canteen_operators_tenant_user ON canteen_operators (tenant_id, user_id);
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_canteen_sales_tenant_ref' AND object_id = OBJECT_ID('canteen_sales')) CREATE UNIQUE INDEX UX_canteen_sales_tenant_ref ON canteen_sales (tenant_id, sale_ref);
       IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_canteen_sale_items_sale' AND object_id = OBJECT_ID('canteen_sale_items')) CREATE INDEX IX_canteen_sale_items_sale ON canteen_sale_items (sale_id);
+    `);
+
+    // ─── Trusted student devices (mirrors migrations/058) ───
+    await kdb.raw(`
+      IF OBJECT_ID('student_devices') IS NULL
+        CREATE TABLE [dbo].[student_devices] (
+          [id]                NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id]         NVARCHAR(128) NOT NULL,
+          [student_id]        NVARCHAR(128) NOT NULL,
+          [device_token_hash] NVARCHAR(128) NOT NULL,
+          [label]             NVARCHAR(100) NULL,
+          [platform]          NVARCHAR(40)  NULL,
+          [user_agent]        NVARCHAR(400) NULL,
+          [status]            NVARCHAR(20)  NOT NULL DEFAULT 'pending',
+          [approved_by]       NVARCHAR(128) NULL,
+          [approved_at]       DATETIME2     NULL,
+          [last_seen_at]      DATETIME2     NULL,
+          [revoked_at]        DATETIME2     NULL,
+          [created_at]        DATETIME2     NOT NULL DEFAULT GETDATE()
+        );
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_student_devices_token' AND object_id = OBJECT_ID('student_devices'))
+        CREATE UNIQUE INDEX [UX_student_devices_token] ON [dbo].[student_devices] ([device_token_hash]);
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_student_devices_tenant_student' AND object_id = OBJECT_ID('student_devices'))
+        CREATE INDEX [IX_student_devices_tenant_student] ON [dbo].[student_devices] ([tenant_id], [student_id]);
+    `);
+
+    // ─── Residence absence: tri-state presence + per-day cases (mirrors migrations/059) ───
+    await kdb.raw(`
+      IF OBJECT_ID('student_presence') IS NULL
+        CREATE TABLE [dbo].[student_presence] (
+          [id]         NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id]  NVARCHAR(128) NOT NULL,
+          [student_id] NVARCHAR(128) NOT NULL,
+          [last_lat]   DECIMAL(10,7) NULL,
+          [last_lng]   DECIMAL(10,7) NULL,
+          [accuracy]   INT           NULL,
+          [inside]     BIT           NULL,
+          [source]     NVARCHAR(20)  NULL,
+          [updated_at] DATETIME2     NOT NULL DEFAULT GETDATE()
+        );
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_student_presence_student' AND object_id = OBJECT_ID('student_presence'))
+        CREATE UNIQUE INDEX [UX_student_presence_student] ON [dbo].[student_presence] ([student_id]);
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_student_presence_tenant' AND object_id = OBJECT_ID('student_presence'))
+        CREATE INDEX [IX_student_presence_tenant] ON [dbo].[student_presence] ([tenant_id], [updated_at]);
+
+      IF OBJECT_ID('student_absence_cases') IS NULL
+        CREATE TABLE [dbo].[student_absence_cases] (
+          [id]                    NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id]             NVARCHAR(128) NOT NULL,
+          [student_id]            NVARCHAR(128) NOT NULL,
+          [lock_date]             DATE          NOT NULL,
+          [lock_time]             NVARCHAR(10)  NULL,
+          [state]                 NVARCHAR(20)  NOT NULL DEFAULT 'unconfirmed',
+          [evidence_lat]          DECIMAL(10,7) NULL,
+          [evidence_lng]          DECIMAL(10,7) NULL,
+          [evidence_accuracy]     INT           NULL,
+          [evidence_at]           DATETIME2     NULL,
+          [notified_supervisor_at] DATETIME2    NULL,
+          [notified_guardian_at]  DATETIME2     NULL,
+          [last_notified_at]      DATETIME2     NULL,
+          [escalation_count]      INT           NOT NULL DEFAULT 0,
+          [ack_by]                NVARCHAR(128) NULL,
+          [ack_at]                DATETIME2     NULL,
+          [decision_action]       NVARCHAR(30)  NULL,
+          [decision_notes]        NVARCHAR(MAX) NULL,
+          [decided_by]            NVARCHAR(128) NULL,
+          [decided_at]            DATETIME2     NULL,
+          [escalated_to_priest]   BIT           NOT NULL DEFAULT 0,
+          [priest_note]           NVARCHAR(MAX) NULL,
+          [fine_amount]           DECIMAL(10,2) NULL,
+          [financial_state]       NVARCHAR(20)  NULL,
+          [ledger_entry_id]       NVARCHAR(128) NULL,
+          [warning_id]            NVARCHAR(128) NULL,
+          [created_at]            DATETIME2     NOT NULL DEFAULT GETDATE(),
+          [updated_at]            DATETIME2     NULL
+        );
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_absence_cases_per_day' AND object_id = OBJECT_ID('student_absence_cases'))
+        CREATE UNIQUE INDEX [UX_absence_cases_per_day] ON [dbo].[student_absence_cases] ([tenant_id], [student_id], [lock_date]);
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_absence_cases_tenant_state' AND object_id = OBJECT_ID('student_absence_cases'))
+        CREATE INDEX [IX_absence_cases_tenant_state] ON [dbo].[student_absence_cases] ([tenant_id], [state], [lock_date]);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'travel_end_time')
+        ALTER TABLE [dbo].[students] ADD [travel_end_time] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'notify_guardian_on_exit')
+        ALTER TABLE [dbo].[tenants] ADD [notify_guardian_on_exit] BIT NOT NULL CONSTRAINT DF_tenants_notify_guardian_on_exit DEFAULT 0;
     `);
 
     // ─── Discounts + product images (mirrors migrations/049) ───

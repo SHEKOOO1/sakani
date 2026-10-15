@@ -49,6 +49,7 @@ export function FinancePage() {
   const [endDate, setEndDate] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 15;
 
@@ -72,6 +73,13 @@ export function FinancePage() {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const mounted = useMounted();
+  const fetchSeq = useRef(0);
+
+  // Debounce the search term so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 400);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -84,6 +92,7 @@ export function FinancePage() {
   }, []);
 
   const fetchData = useCallback(async () => {
+    const seq = ++fetchSeq.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -91,12 +100,13 @@ export function FinancePage() {
       if (categoryFilter) params.set('category', categoryFilter);
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
-      if (searchTerm) params.set('search', searchTerm);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       params.set('page', String(page));
       params.set('limit', String(pageSize));
 
       const resp = await request(`/api/finances?${params.toString()}`);
-      if (!mounted.current) return;
+      // Ignore stale responses: only the latest request may update the view.
+      if (!mounted.current || seq !== fetchSeq.current) return;
       setFinances(Array.isArray(resp.data) ? resp.data : []);
       setTotalRecords(Number(resp.total || 0));
 
@@ -108,7 +118,7 @@ export function FinancePage() {
       if (endDate) summaryParams.set('endDate', endDate);
 
       const summaryResp = await request(`/api/finances/summary?${summaryParams.toString()}`);
-      if (!mounted.current) return;
+      if (!mounted.current || seq !== fetchSeq.current) return;
       const sum = { income: 0, expense: 0 };
       (Array.isArray(summaryResp.data) ? summaryResp.data : []).forEach((item: any) => {
         if (item.type === 'revenue') sum.income = item.total;
@@ -118,9 +128,9 @@ export function FinancePage() {
     } catch (err) {
       console.error(err);
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && seq === fetchSeq.current) setLoading(false);
     }
-  }, [request, filter, categoryFilter, startDate, endDate, searchTerm, page]);
+  }, [request, filter, categoryFilter, startDate, endDate, debouncedSearch, page]);
 
   const fetchReport = useCallback(async () => {
     setReportLoading(true);

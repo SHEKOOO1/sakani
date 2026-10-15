@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
-import { ActivationPage } from './components/ActivationPage';
 import { Layout } from './components/Layout';
 import { AnimatePresence, motion } from 'motion/react';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -11,21 +9,6 @@ import { Sparkles } from 'lucide-react';
 
 export default function App() {
   const { user, isLoading } = useAuth();
-  // رابط التفعيل يفتح هذه الشاشة بدل صفحة الدخول، وقبل أي جلسة قائمة.
-  const [hasActivationToken] = useState(
-    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('activate'),
-  );
-
-  if (hasActivationToken) {
-    return (
-      <>
-        <PageHelmet title="تفعيل الحساب" />
-        <ErrorBoundary>
-          <ActivationPage />
-        </ErrorBoundary>
-      </>
-    );
-  }
 
   if (isLoading) {
     return (
