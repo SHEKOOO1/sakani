@@ -27,6 +27,10 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+          // يضيف معالج Web Push (push + notificationclick) للسيرفس وركر المولّد
+          importScripts: ['push-sw.js'],
+          // لا نُخزّن مسارات الـ API مؤقتًا حتى لا تُعرض بيانات قديمة بلا اتصال
+          navigateFallbackDenylist: [/^\/api\//],
         },
         manifest: {
           name: 'سكني - نظام إدارة سكن الطلاب الذكي',

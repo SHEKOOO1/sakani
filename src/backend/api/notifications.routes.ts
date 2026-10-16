@@ -27,6 +27,11 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   console.warn('⚠️ Web-Push VAPID keys are missing. Push notifications will be disabled until VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are added to .env');
 }
 
+// المفتاح العام لـ VAPID — ليس سرًّا، تستخدمه الواجهة للاشتراك في Web Push
+router.get("/vapid-public-key", (_req, res) => {
+  res.json({ success: true, key: process.env.VAPID_PUBLIC_KEY || null });
+});
+
 // Get recent notifications for the logged-in user
 router.get("/", authenticate, async (req, res) => {
   try {
@@ -186,6 +191,9 @@ export const createNotification = async (data: {
       body: data.message,
       icon: '/img/pwa-192x192.png',
       badge: '/img/pwa-192x192.png',
+      tag: `sakani-${id}`,
+      renotify: false,
+      vibrate: [200, 100, 200],
       data: {
         url: '/notifications'
       }
@@ -203,6 +211,27 @@ export const createNotification = async (data: {
     });
   } catch (error) {
     console.error("Error sending push notification:", error);
+  }
+
+  // 3. بث فوري (Socket.IO) للمستخدم لظهور الإشعار لحظيًا والتطبيق مفتوح،
+  //    بدل انتظار دورة الـ polling التالية. البثّ best-effort.
+  try {
+    const io = (global as any).__io;
+    if (io) {
+      io.to(`user-${data.userId}`).emit("notification", {
+        id,
+        userId: data.userId,
+        tenantId: data.tenantId,
+        title: data.title,
+        message: data.message,
+        type: data.type || "info",
+        metadata: metaJson,
+        is_read: 0,
+        created_at: new Date().toISOString(),
+      });
+    }
+  } catch {
+    /* realtime is best-effort */
   }
 };
 
@@ -379,6 +408,67 @@ export const getTenantStaffUserIds = async (tenantId: string): Promise<string[]>
     })
     .whereIn('u.role', ['supervisor', 'assistant_supervisor', 'priest']);
   return (staff as any[]).map((s) => s.id);
+};
+
+// مسؤولو المطعم (restaurant_operators) + مشرف السكن/المساعد/الكاهن — خاصون بهذا السكن فقط
+export const getRestaurantStaffUserIds = async (tenantId: string): Promise<string[]> => {
+  const [operators, staff] = await Promise.all([
+    kdb('restaurant_operators').where({ tenant_id: tenantId }).select('user_id'),
+    getTenantStaffUserIds(tenantId),
+  ]);
+  const ids = new Set<string>();
+  for (const o of operators as any[]) if (o.user_id) ids.add(o.user_id);
+  for (const s of staff) ids.add(s);
+  return [...ids];
+};
+
+// إشعار إدارة المطعم ومشرف السكن عند وصول طلب جديد (أو طلب متأخر من يوم سابق)
+export const notifyRestaurantOrderPlaced = async (data: {
+  tenantId: string;
+  orderId: string;
+  orderNumber: number | null;
+  orderDate: string | null;
+  total: number;
+  itemCount: number;
+  ordererName: string | null;
+  customerName: string | null;
+  roomName: string | null;
+  apartmentName: string | null;
+  orderedBy: string;
+  isLate?: boolean;
+}): Promise<void> => {
+  try {
+    const recipients = await getRestaurantStaffUserIds(data.tenantId);
+    if (recipients.length === 0) return;
+
+    const numberTag = data.orderNumber ? `#${String(data.orderNumber).padStart(4, '0')}` : '';
+    const who = data.ordererName || data.customerName || 'أحد المستخدمين';
+    const place = [data.apartmentName, data.roomName].filter(Boolean).join(' - ');
+    const title = data.isLate
+      ? `طلب مطعم متأخر ${numberTag} 🍽️`.trim()
+      : `طلب مطعم جديد ${numberTag} 🍽️`.trim();
+    const message = [
+      `من «${who}»${place ? ` — ${place}` : ''}`,
+      `${Number(data.total).toLocaleString('ar-EG')} ج.م • ${data.itemCount} عنصر`,
+      data.isLate && data.orderDate ? `(طلب من يوم ${data.orderDate})` : '',
+    ].filter(Boolean).join('\n');
+
+    const meta = JSON.stringify({ page: 'restaurant', order_id: data.orderId });
+
+    for (const userId of recipients) {
+      if (sameId(userId, data.orderedBy)) continue; // لا تُشعر من قام بالطلب نفسه
+      await createNotification({
+        userId,
+        tenantId: data.tenantId,
+        title,
+        message,
+        type: data.isLate ? 'warning' : 'info',
+        metadata: meta,
+      });
+    }
+  } catch (error) {
+    console.error('Error in notifyRestaurantOrderPlaced:', error);
+  }
 };
 
 // إشعار للمشرف/الكاهن عند تقديم طالب عذراً قبل الموعد النهائي — يحوي زرّي القبول والرفض

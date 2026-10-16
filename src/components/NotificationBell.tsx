@@ -1,8 +1,10 @@
-import { Bell, Check, Clock, Info, AlertTriangle, XCircle, CheckCircle2, ArrowLeft, Building2 } from 'lucide-react';
+import { Bell, BellRing, Check, Clock, Info, AlertTriangle, XCircle, CheckCircle2, ArrowLeft, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { io } from 'socket.io-client';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import { AppPermission } from '../types/permissions';
 import { normalizeFilePath } from './student/FileViewerModal';
 
@@ -16,6 +18,7 @@ interface NotificationBellProps {
 export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPage, onNavigateToFinance }: NotificationBellProps = {}) {
   const { request } = useApi();
   const { isLoading, user, hasPermission } = useAuth();
+  const { supported: pushSupported, iosNeedsInstall: pushIosNeedsInstall, permission: pushPermission, subscribed: pushSubscribed, busy: pushBusy, enable: enablePush } = usePushNotifications(!isLoading && !!user);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
@@ -37,6 +40,18 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
     const interval = setInterval(() => fetchNotifications(), 5000);
     return () => clearInterval(interval);
   }, [fetchNotifications, isLoading]);
+
+  // إشعارات لحظية عبر Socket.IO حتى تظهر فورًا دون انتظار الاستقصاء الدوري
+  useEffect(() => {
+    if (isLoading || !user) return;
+    const socket = io({ transports: ['websocket', 'polling'], withCredentials: true });
+    socket.on('connect', () => {
+      socket.emit('join-user', user.id);
+      if (user.tenantId) socket.emit('join-tenant', user.tenantId);
+    });
+    socket.on('notification', () => { fetchNotifications(); });
+    return () => { socket.disconnect(); };
+  }, [isLoading, user, fetchNotifications]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -146,6 +161,29 @@ export function NotificationBell({ onNavigate, onNavigateToEvent, onNavigateToPa
                 </button>
               )}
             </div>
+
+            {pushIosNeedsInstall ? (
+              <div className="px-4 py-3 bg-slate-50 dark:bg-white/5 text-[11px] font-bold text-slate-500 border-b border-slate-100 dark:border-white/10 leading-relaxed">
+                لتفعيل الإشعارات على الآيفون: اضغط زر المشاركة ← «إضافة إلى الشاشة الرئيسية»، ثم افتح التطبيق من الأيقونة وفعّل الإشعارات من هنا.
+              </div>
+            ) : pushSupported && !pushSubscribed && pushPermission !== 'denied' ? (
+              <button
+                onClick={() => { void enablePush(); }}
+                disabled={pushBusy}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[11px] font-black border-b border-blue-100 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+              >
+                <BellRing size={14} />
+                {pushBusy ? 'جارٍ تفعيل الإشعارات...' : 'فعّل الإشعارات على هذا الجهاز لتصلك فورًا'}
+              </button>
+            ) : pushPermission === 'denied' ? (
+              <div className="px-4 py-3 bg-amber-50 dark:bg-amber-500/10 text-[11px] font-bold text-amber-700 dark:text-amber-300 border-b border-amber-100 dark:border-amber-500/20 leading-relaxed">
+                الإشعارات محظورة. افتح إعدادات المتصفح لهذا الموقع واسمح بالإشعارات، ثم أعد المحاولة.
+              </div>
+            ) : pushSubscribed ? (
+              <div className="px-4 py-2.5 bg-emerald-50 dark:bg-emerald-500/10 text-[11px] font-black text-emerald-700 dark:text-emerald-300 border-b border-emerald-100 dark:border-emerald-500/20">
+                تم تفعيل الإشعارات على هذا الجهاز ✓
+              </div>
+            ) : null}
 
             <div className="max-h-[400px] overflow-y-auto">
               {notifications.length > 0 ? (

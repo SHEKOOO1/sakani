@@ -558,7 +558,14 @@ app.use("/api/items", itemManagersRoutes);
   // --- Socket.io Logic with JWT Auth (mirrors HTTP authenticate: blacklist + user-exists + role/tenant recheck) ---
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      // التوكن يأتي من auth/query، أو من كوكي httpOnly (نفس جلسة الويب)
+      const rawCookie = socket.handshake.headers?.cookie || "";
+      const cookieToken = rawCookie
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("token="))
+        ?.slice("token=".length);
+      const token = socket.handshake.auth?.token || socket.handshake.query?.token || cookieToken;
       if (!token) return next(new Error("Authentication required"));
       (socket as any).user = await resolveSocketUser(token as string);
       next();

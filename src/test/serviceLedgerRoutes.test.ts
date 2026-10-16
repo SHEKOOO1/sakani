@@ -126,6 +126,7 @@ vi.mock('../backend/services/ledger.service', () => ({
 }));
 vi.mock('../backend/api/notifications.routes', () => ({
   createNotification: vi.fn(async () => ({ id: 'n1' })),
+  notifyRestaurantOrderPlaced: vi.fn(async () => {}),
 }));
 
 let server: Server;

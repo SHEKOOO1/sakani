@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageHelmet } from './components/PageHelmet';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
+import { PermissionsPrompt } from './components/PermissionsPrompt';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
           </AnimatePresence>
         </div>
       </ErrorBoundary>
+      {user && <PermissionsPrompt />}
       <PwaInstallPrompt />
     </>
   );

@@ -16,7 +16,7 @@ import {
 interface Category { id: string; name: string; sort_order: number; is_active: number | boolean; }
 interface Item { id: string; name: string; category_id: string | null; description: string | null; price: number; is_available: number | boolean; is_included_meal: number | boolean; sort_order: number; image_url: string | null; discount_type: 'percent' | 'amount' | null; discount_value: number; }
 interface OrderItem { id: string; item_name: string; unit_price: number; quantity: number; line_total: number; is_included_meal: number | boolean; }
-interface Order { id: string; status: string; total: number; item_count: number; meal_slot: string | null; notes: string | null; created_at: string; ordered_by: string; student_id: string | null; items: OrderItem[]; customer_name?: string | null; customer_phone?: string | null; apartment_name?: string | null; room_name?: string | null; }
+interface Order { id: string; status: string; total: number; item_count: number; meal_slot: string | null; notes: string | null; created_at: string; ordered_by: string; student_id: string | null; items: OrderItem[]; customer_name?: string | null; customer_phone?: string | null; apartment_name?: string | null; room_name?: string | null; order_number?: number | null; order_date?: string | null; ordered_by_name?: string | null; ordered_by_role?: string | null; collected_at?: string | null; }
 interface Operator { id: string; user_id: string; name?: string; email?: string; role?: string; }
 interface AssignableUser { id: string; name: string; email: string; role: string; }
 
@@ -315,57 +315,91 @@ function OrdersTab(props: {
   orders: Order[]; loading: boolean; isStaff: boolean; busy: boolean;
   onChangeStatus: (o: Order, action: string) => void;
 }) {
+  const [scope, setScope] = useState<'queue' | 'all'>(props.isStaff ? 'queue' : 'all');
   if (props.loading) return <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-primary-500" /></div>;
-  if (props.orders.length === 0) return <Empty text="لا توجد طلبات" />;
 
   const nextActions = (status: string): { action: string; label: string }[] => {
     switch (status) {
       case 'pending': return [{ action: 'confirm', label: 'تأكيد' }, { action: 'cancel', label: 'إلغاء' }];
       case 'confirmed': return [{ action: 'preparing', label: 'بدء التحضير' }, { action: 'cancel', label: 'إلغاء' }];
       case 'preparing': return [{ action: 'ready', label: 'جاهز' }, { action: 'cancel', label: 'إلغاء' }];
-      case 'ready': return [{ action: 'serve', label: 'تم التقديم' }];
+      case 'ready': return [{ action: 'serve', label: 'اتلم' }];
       default: return [];
     }
   };
 
+  // مفتاح اليوم (محلي) لاكتشاف الطلبات القديمة التي لم تُلم بعد
+  const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dateKey = (s?: string | null): string | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? s.slice(0, 10) : key(d);
+  };
+  const todayKey = key(new Date());
+
+  const queueStatuses = ['pending', 'confirmed', 'preparing', 'ready'];
+  const visible = props.isStaff && scope === 'queue'
+    ? props.orders.filter(o => queueStatuses.includes(o.status))
+    : props.orders;
+
+  if (props.orders.length === 0) return <Empty text="لا توجد طلبات" />;
+
   return (
     <div className="space-y-3">
-      {props.orders.map(o => (
-        <div key={o.id} className="bg-white dark:bg-card-dark rounded-2xl border border-slate-100 dark:border-white/5 p-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className={`text-[11px] font-black px-2.5 py-1 rounded-lg ${STATUS_COLORS[o.status] || 'bg-slate-100 text-slate-600'}`}>{STATUS_LABELS[o.status] || o.status}</span>
-              <span className="text-xs font-bold text-slate-400">{new Date(o.created_at).toLocaleString('ar-EG')}</span>
-              {o.meal_slot && <span className="text-xs font-bold text-slate-400">• {o.meal_slot}</span>}
+      {props.isStaff && (
+        <div className="flex items-center gap-2">
+          <button onClick={() => setScope('queue')} className={`px-3 py-1.5 rounded-xl text-xs font-black ${scope === 'queue' ? 'bg-primary-500 text-white' : 'bg-slate-100 text-slate-600'}`}>قائمة الانتظار</button>
+          <button onClick={() => setScope('all')} className={`px-3 py-1.5 rounded-xl text-xs font-black ${scope === 'all' ? 'bg-primary-500 text-white' : 'bg-slate-100 text-slate-600'}`}>كل الطلبات</button>
+          <span className="text-[11px] font-bold text-slate-400">{visible.length} طلب</span>
+        </div>
+      )}
+      {visible.length === 0 ? <Empty text={props.isStaff && scope === 'queue' ? 'لا توجد طلبات في قائمة الانتظار' : 'لا توجد طلبات'} /> : visible.map(o => {
+        const lateDate = o.order_date ? dateKey(o.order_date) : null;
+        const isLate = !!lateDate && lateDate !== todayKey;
+        const orderer = o.ordered_by_name || o.customer_name || null;
+        return (
+          <div key={o.id} className={`bg-white dark:bg-card-dark rounded-2xl border p-4 ${isLate ? 'border-amber-300 dark:border-amber-500/40' : 'border-slate-100 dark:border-white/5'}`}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                {o.order_number != null && (
+                  <span className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900">طلب #{o.order_number}</span>
+                )}
+                <span className={`text-[11px] font-black px-2.5 py-1 rounded-lg ${STATUS_COLORS[o.status] || 'bg-slate-100 text-slate-600'}`}>{STATUS_LABELS[o.status] || o.status}</span>
+                {isLate && (
+                  <span className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-amber-100 text-amber-700">طلب قديم • {lateDate}</span>
+                )}
+                <span className="text-xs font-bold text-slate-400">{new Date(o.created_at).toLocaleString('ar-EG')}</span>
+                {o.meal_slot && <span className="text-xs font-bold text-slate-400">• {o.meal_slot}</span>}
+              </div>
+              <span className="font-black text-slate-900 dark:text-white">{Number(o.total).toLocaleString()} ج.م</span>
             </div>
-            <span className="font-black text-slate-900 dark:text-white">{Number(o.total).toLocaleString()} ج.م</span>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-500">
-            {o.items?.map(it => (
-              <span key={it.id}>{it.item_name} × {it.quantity}{flag(it.is_included_meal, false) ? ' (ضمن الإقامة)' : ''}</span>
-            ))}
-          </div>
-          {o.notes && <p className="mt-2 text-xs text-slate-400">ملاحظات: {o.notes}</p>}
-          {o.customer_name && (
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-slate-400">
-              <span>صاحب الطلب: {o.customer_name}</span>
-              {o.customer_phone && <span>تليفون: {o.customer_phone}</span>}
-              {o.apartment_name && <span>الشقة: {o.apartment_name}</span>}
-              {o.room_name && <span>غرفة: {o.room_name}</span>}
-            </div>
-          )}
-          {props.isStaff && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {nextActions(o.status).map(a => (
-                <button key={a.action} disabled={props.busy} onClick={() => props.onChangeStatus(o, a.action)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold disabled:opacity-50 ${a.action === 'cancel' ? 'bg-rose-50 text-rose-600' : 'bg-primary-500 text-white'}`}>
-                  {a.label}
-                </button>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-500">
+              {o.items?.map(it => (
+                <span key={it.id}>{it.item_name} × {it.quantity}{flag(it.is_included_meal, false) ? ' (ضمن الإقامة)' : ''}</span>
               ))}
             </div>
-          )}
-        </div>
-      ))}
+            {o.notes && <p className="mt-2 text-xs text-slate-400">ملاحظات: {o.notes}</p>}
+            {(orderer || o.customer_phone || o.apartment_name || o.room_name) && (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-slate-400">
+                {orderer && <span>صاحب الطلب: {orderer}{o.ordered_by_role ? ` (${o.ordered_by_role})` : ''}</span>}
+                {o.customer_phone && <span>تليفون: {o.customer_phone}</span>}
+                {o.apartment_name && <span>الشقة: {o.apartment_name}</span>}
+                {o.room_name && <span>غرفة: {o.room_name}</span>}
+              </div>
+            )}
+            {props.isStaff && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {nextActions(o.status).map(a => (
+                  <button key={a.action} disabled={props.busy} onClick={() => props.onChangeStatus(o, a.action)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold disabled:opacity-50 ${a.action === 'cancel' ? 'bg-rose-50 text-rose-600' : a.action === 'serve' ? 'bg-emerald-600 text-white' : 'bg-primary-500 text-white'}`}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -13,7 +13,7 @@ import {
   restaurantOrderStatusSchema,
   restaurantOperatorSchema,
 } from "../validation/schemas";
-import { createNotification } from "./notifications.routes";
+import { createNotification, notifyRestaurantOrderPlaced } from "./notifications.routes";
 import { sameId } from "../infrastructure/id-match";
 import { requireServiceEnabled } from "../infrastructure/service-features";
 import { postEntry, restaurantRevenueLines } from "../services/ledger.service";
@@ -354,10 +354,25 @@ router.post("/orders", authenticate, requireServiceEnabled("restaurant"), author
     // سجّل بيانات صاحب الطلب (الاسم/التليفون/الشقة/الغرفة) وقت الطلب
     const identity = await resolveCustomerIdentity({ studentId: targetStudentId, userId });
 
-    const result = await kdb.transaction(async (trx) => {
+    // اسم من قام بالطلب فعليًا (حتى لو كان مشرفًا أو موظفًا)
+    const actor = await kdb("users").select("name").where({ id: userId }).first();
+    const actorName: string | null = (actor as any)?.name ?? null;
+
+    // رقم الطلب: تسلسلي لكل سكن ولكل يوم على حدة (يبدأ من 1 كل يوم جديد)
+    const today = new Date();
+    const orderDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    const buildOrder = () => kdb.transaction(async (trx) => {
       const ids: string[] = [...new Set((items as any[]).map((i) => String(i.item_id)))];
       const dbItems = await trx("restaurant_items").whereIn("id", ids).where({ tenant_id: tenantId });
       const map = new Map<string, any>(dbItems.map((i: any) => [i.id, i]));
+
+      const maxRow = await trx("restaurant_orders")
+        .where({ tenant_id: tenantId, order_date: orderDate })
+        .max("order_number as m")
+        .first();
+      const orderNumber = Number((maxRow as any)?.m || 0) + 1;
+
       const orderId = uuidv4();
       let total = 0;
       let itemCount = 0;
@@ -390,18 +405,51 @@ router.post("/orders", authenticate, requireServiceEnabled("restaurant"), author
         tenant_id: tenantId,
         student_id: targetStudentId,
         ordered_by: userId,
+        ordered_by_name: actorName,
+        ordered_by_role: req.user.role || null,
         status: "pending",
         meal_slot: meal_slot || null,
         notes: notes || null,
         total,
         item_count: itemCount,
+        order_number: orderNumber,
+        order_date: orderDate,
         customer_name: identity.customer_name,
         customer_phone: identity.customer_phone,
         apartment_name: identity.apartment_name,
         room_name: identity.room_name,
       });
       await trx("restaurant_order_items").insert(rows);
-      return { id: orderId, total, item_count: itemCount };
+      return { id: orderId, total, item_count: itemCount, order_number: orderNumber, order_date: orderDate };
+    });
+
+    // أعد المحاولة عند تعارض نادر في رقم الطلب (فهرس فريد على السكن/اليوم/الرقم)
+    let result: { id: string; total: number; item_count: number; order_number: number; order_date: string } | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        result = await buildOrder();
+        break;
+      } catch (e: any) {
+        const num = e?.number ?? e?.originalError?.info?.number;
+        if ((num === 2601 || num === 2627) && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!result) throw new InputError("تعذر تسجيل الطلب. حاول مرة أخرى.");
+
+    // إشعار إدارة المطعم ومشرف السكن (best-effort — لا يعطّل الطلب)
+    void notifyRestaurantOrderPlaced({
+      tenantId,
+      orderId: result.id,
+      orderNumber: result.order_number,
+      orderDate: result.order_date,
+      total: result.total,
+      itemCount: result.item_count,
+      ordererName: actorName,
+      customerName: identity.customer_name,
+      roomName: identity.room_name,
+      apartmentName: identity.apartment_name,
+      orderedBy: userId,
     });
 
     res.status(201).json({ success: true, data: result });
@@ -457,6 +505,10 @@ router.post("/orders/:id/status", authenticate, requireServiceEnabled("restauran
         update.cancelled_by = req.user.id;
         update.cancel_reason = reason || null;
       }
+      if (action === "serve") {
+        // "اتلم" — يُسجَّل وقت التسليم ليطهر الطلب من طابور الانتظار
+        update.collected_at = kdb.fn.now();
+      }
       await trx("restaurant_orders").where({ id: order.id, tenant_id: tenantId }).update(update);
 
       if (action === "serve" && !current.ledger_entry_id && Number(order.total) > 0) {
@@ -479,17 +531,24 @@ router.post("/orders/:id/status", authenticate, requireServiceEnabled("restauran
       }
     });
 
-    if (action === "ready" && order.student_id) {
-      kdb("students").select("user_id").where({ id: order.student_id }).first()
-        .then((st: any) => {
-          if (st?.user_id) {
-            return createNotification({
-              userId: st.user_id,
+    if (action === "ready") {
+      // أعلم الطالب (إن وُجد) ومن قام بالطلب فعليًا (قد يكون مشرفًا/موظفًا)
+      Promise.resolve()
+        .then(async () => {
+          const recipients = new Set<string>();
+          if (order.student_id) {
+            const st: any = await kdb("students").select("user_id").where({ id: order.student_id }).first();
+            if (st?.user_id) recipients.add(st.user_id);
+          }
+          if (order.ordered_by) recipients.add(order.ordered_by);
+          for (const userId of recipients) {
+            await createNotification({
+              userId,
               tenantId,
               title: "طلبك جاهز 🍽️",
               message: "طلبك في المطعم جاهز للاستلام",
               type: "success",
-              metadata: JSON.stringify({ page: "restaurant" }),
+              metadata: JSON.stringify({ page: "restaurant", order_id: order.id }),
             });
           }
         })
