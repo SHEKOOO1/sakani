@@ -1,6 +1,12 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
-import { X } from 'lucide-react';
+import { X, Plus, Trash2, Wand2 } from 'lucide-react';
 import { useCloseOnEscape } from '../../hooks/useCloseOnEscape';
+
+export interface ApartmentRoomInput {
+  roomNumber: string;
+  capacity: number;
+}
 
 interface ApartmentFormData {
   name: string;
@@ -11,6 +17,7 @@ interface ApartmentFormData {
   kitchen_details: string[];
   has_bathroom: boolean;
   bathroom_details: string[];
+  rooms: ApartmentRoomInput[];
 }
 
 interface ApartmentFormModalProps {
@@ -24,6 +31,10 @@ interface ApartmentFormModalProps {
 
 export function ApartmentFormModal({ isOpen, isEditing, formData, onFormDataChange, onSubmit, onClose }: ApartmentFormModalProps) {
   useCloseOnEscape(onClose, isOpen);
+  const [genStart, setGenStart] = useState('101');
+  const [genCount, setGenCount] = useState(2);
+  const [genCapacity, setGenCapacity] = useState(2);
+
   if (!isOpen) return null;
 
   const update = (field: keyof ApartmentFormData, value: any) => {
@@ -33,6 +44,24 @@ export function ApartmentFormModal({ isOpen, isEditing, formData, onFormDataChan
   const toggleArrayItem = (field: 'amenities' | 'kitchen_details' | 'bathroom_details', item: string) => {
     const current = formData[field] || [];
     update(field, current.includes(item) ? current.filter(i => i !== item) : [...current, item]);
+  };
+
+  const rooms = formData.rooms || [];
+  const setRooms = (next: ApartmentRoomInput[]) => update('rooms', next);
+  const addRoom = () => setRooms([...rooms, { roomNumber: '', capacity: 2 }]);
+  const removeRoom = (index: number) => setRooms(rooms.filter((_, i) => i !== index));
+  const updateRoom = (index: number, patch: Partial<ApartmentRoomInput>) =>
+    setRooms(rooms.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+
+  const generateRooms = () => {
+    const start = parseInt(genStart, 10);
+    const count = Math.max(1, Math.min(60, Number(genCount) || 1));
+    const capacity = Math.max(1, Number(genCapacity) || 1);
+    const next = [...rooms];
+    for (let i = 0; i < count; i++) {
+      next.push({ roomNumber: isNaN(start) ? `${genStart}-${i + 1}` : String(start + i), capacity });
+    }
+    setRooms(next);
   };
 
   return (
@@ -48,10 +77,7 @@ export function ApartmentFormModal({ isOpen, isEditing, formData, onFormDataChan
           <h3 className="text-xl font-black text-slate-800 dark:text-white">
             {isEditing ? 'تعديل بيانات الشقة' : 'إضافة شقة سكنية جديدة'}
           </h3>
-          
-            <button onClick={onClose} aria-label="إغلاق" className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><X />
-          
-            </button>
+          <button onClick={onClose} aria-label="إغلاق" className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><X /></button>
         </div>
 
         <form onSubmit={onSubmit} className="p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
@@ -74,6 +100,64 @@ export function ApartmentFormModal({ isOpen, isEditing, formData, onFormDataChan
                 placeholder="مثال: مبنى النور"
               />
             </div>
+
+            {!isEditing && (
+              <div className="space-y-4 pt-4 border-t border-slate-50 dark:border-white/10">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest">غرف الشقة</label>
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-400">{rooms.length} غرفة</span>
+                </div>
+
+                <div className="grid grid-cols-12 gap-2 items-end bg-slate-50 dark:bg-white/5 rounded-2xl p-3">
+                  <div className="col-span-4 space-y-1">
+                    <label className="text-[9px] text-slate-400 dark:text-slate-300 font-bold">رقم البداية</label>
+                    <input type="text" value={genStart} onChange={(e) => setGenStart(e.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg outline-none text-xs font-bold dark:text-white" />
+                  </div>
+                  <div className="col-span-3 space-y-1">
+                    <label className="text-[9px] text-slate-400 dark:text-slate-300 font-bold">العدد</label>
+                    <input type="number" min="1" value={genCount} onChange={(e) => setGenCount(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg outline-none text-xs font-bold dark:text-white" />
+                  </div>
+                  <div className="col-span-3 space-y-1">
+                    <label className="text-[9px] text-slate-400 dark:text-slate-300 font-bold">السعة</label>
+                    <input type="number" min="1" value={genCapacity} onChange={(e) => setGenCapacity(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg outline-none text-xs font-bold dark:text-white" />
+                  </div>
+                  <button type="button" onClick={generateRooms}
+                    className="col-span-2 flex items-center justify-center gap-1 px-2 py-2.5 bg-blue-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-700 transition-all">
+                    <Wand2 size={12} /> توليد
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {rooms.map((room, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        type="text" value={room.roomNumber}
+                        onChange={(e) => updateRoom(index, { roomNumber: e.target.value })}
+                        placeholder="رقم الغرفة"
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-sm font-bold dark:text-white"
+                      />
+                      <input
+                        type="number" min="1" value={room.capacity}
+                        onChange={(e) => updateRoom(index, { capacity: parseInt(e.target.value) || 1 })}
+                        className="w-20 px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl outline-none text-sm font-bold dark:text-white"
+                      />
+                      <button type="button" onClick={() => removeRoom(index)} aria-label="حذف الغرفة"
+                        className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button type="button" onClick={addRoom}
+                  className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-200 dark:border-white/10 rounded-xl text-xs font-black text-slate-500 dark:text-slate-300 hover:border-blue-400 hover:text-blue-600 transition-all">
+                  <Plus size={14} /> إضافة غرفة
+                </button>
+              </div>
+            )}
 
             <div className="space-y-4 pt-4 border-t border-slate-50 dark:border-white/10">
               <label className="text-[10px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest block">محتويات الشقة (عام)</label>

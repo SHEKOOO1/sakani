@@ -5,7 +5,7 @@ import { AppPermission } from '../types/permissions';
 import { useLaundrySocket } from '../hooks/useLaundrySocket';
 import { useTenantServices } from '../hooks/useTenantServices';
 import {
-  LayoutDashboard, Users, Building, Bed, CreditCard, Calendar, Settings,
+  LayoutDashboard, Users, Building, CreditCard, Calendar, Settings,
   LogOut, Bell, Search, Wrench, MapPin, Waves, BarChart3, UserCog,
   Package, Trophy, Target, History as HistoryIcon, ClipboardList,
   UserCheck, LayoutGrid, Sun, Moon, Menu, X, Gift, Award, Wallet,
@@ -25,7 +25,6 @@ const StudentsPage = lazy(() => import('./StudentsPage').then(m => ({ default: m
 const MaintenancePage = lazy(() => import('./MaintenancePage').then(m => ({ default: m.MaintenancePage })));
 const SettingsPage = lazy(() => import('./SettingsPage').then(m => ({ default: m.SettingsPage })));
 const ApartmentsPage = lazy(() => import('./ApartmentsPage').then(m => ({ default: m.ApartmentsPage })));
-const RoomsPage = lazy(() => import('./RoomsPage').then(m => ({ default: m.RoomsPage })));
 const AttendancePage = lazy(() => import('./AttendancePage').then(m => ({ default: m.AttendancePage })));
 const LaundryPage = lazy(() => import('./LaundryPage').then(m => ({ default: m.LaundryPage })));
 const RestaurantPage = lazy(() => import('./RestaurantPage').then(m => ({ default: m.RestaurantPage })));
@@ -113,7 +112,6 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     { id: 'priest_dashboard', icon: ShieldCheck, label: 'لوحة الأب المسؤول', permission: AppPermission.VIEW_PRIEST_DASHBOARD, path: '/priest-dashboard', hide: user?.role !== 'priest' },
     { id: 'students', icon: Users, label: 'الطلاب', permission: AppPermission.VIEW_STUDENT, path: '/students', hide: isStudent || isParent },
     { id: 'apartments', icon: Building, label: 'الشقق', permission: AppPermission.VIEW_HOUSING, path: '/apartments', hide: isParent },
-    { id: 'rooms', icon: Bed, label: 'الغرف', permission: AppPermission.VIEW_ROOMS, path: '/rooms', hide: isParent },
     { id: 'users', icon: UserCog, label: 'إدارة المستخدمين', permission: AppPermission.VIEW_USERS, path: '/users', hide: isStudent || isParent },
     { id: 'attendance', icon: MapPin, label: 'تسجيل حضور', permission: AppPermission.CHECKIN_ATTENDANCE, path: '/attendance', hide: false },
     { id: 'absence_cases', icon: ShieldAlert, label: 'حالات الغياب', permission: AppPermission.MANAGE_ATTENDANCE, path: '/absence-cases', hide: !['supervisor', 'assistant_supervisor'].includes(user?.role?.toLowerCase() || '') },
@@ -194,7 +192,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     admin_management: 'إدارة النظام', employees: 'الموظفون', badges_admin: 'الشارات',
     payment_methods: 'طرق الدفع', bishop_reports: 'تقارير الأسقف',
     settings: 'الإعدادات', apartments: 'الشقق', profile: 'الملف الشخصي',
-    users: 'المستخدمون', rooms: 'الغرف', shared_profiles: 'الملفات المشتركة',
+    users: 'المستخدمون', shared_profiles: 'الملفات المشتركة',
     radio: 'الراديو', admin_radio: 'إدارة الراديو',
     shared_profile: 'الملف المشترك',
     operator_attendance: 'تسجيل حضور الفعاليات',
@@ -248,7 +246,6 @@ export function Layout({ children }: { children?: React.ReactNode }) {
       case 'apartments': return hasPermission(AppPermission.VIEW_HOUSING) ? <ApartmentsPage /> : defaultDashboard;
       case 'profile': return <ProfilePage />;
       case 'users': return hasPermission(AppPermission.VIEW_USERS) ? <EmployeesPage /> : defaultDashboard;
-      case 'rooms': return hasPermission(AppPermission.VIEW_ROOMS) ? <RoomsPage /> : defaultDashboard;
       case 'shared_profiles': return <SharedStudentProfileList onSelect={(sid) => { setSharedProfileStudentId(sid); setCurrentView('shared_profile'); }} />;
       case 'radio': return hasPermission(AppPermission.VIEW_RADIO) ? <Radio514 /> : defaultDashboard;
       case 'admin_radio': return hasPermission(AppPermission.MANAGE_RADIO_BROADCAST) ? <AdminRadio514 /> : defaultDashboard;

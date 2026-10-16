@@ -72,7 +72,7 @@ router.get("/", authenticate, authorizePermission(AppPermission.VIEW_ROOMS), asy
 // Create a room
 router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING), validate(createRoomSchema), async (req, res) => {
   const { 
-    apartmentId, roomNumber, capacity, 
+    apartmentId, roomNumber, capacity, is_active,
     price_daily, price_monthly, price_semester,
     amenities, has_kitchen, kitchen_details, has_bathroom, bathroom_details 
   } = req.body;
@@ -86,8 +86,14 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING)
     }
   }
 
+  // New rooms go to the end of their apartment's manual order.
+  const maxRow = await kdb('rooms').where({ apartment_id: apartmentId, tenant_id: tenantId }).max({ m: 'sort_order' }).first();
+  const nextOrder = Number(maxRow?.m ?? -1) + 1;
+
   const dataToInsert = {
     id, tenant_id: tenantId, apartment_id: apartmentId, room_number: roomNumber, capacity,
+    is_active: is_active === false || is_active === 0 ? 0 : 1,
+    sort_order: nextOrder,
     price_daily: price_daily || 0, price_monthly: price_monthly || 0, price_semester: price_semester || 0,
     amenities: amenities ? JSON.stringify(amenities) : null,
     has_kitchen: has_kitchen ? 1 : 0,
@@ -104,6 +110,29 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING)
     // a generic validation error, which made the room columns drift invisible.
     console.error("Create room failed:", error.message);
     res.status(400).json({ success: false, message: "فشل العملية. تحقق من البيانات وحاول مرة أخرى." });
+  }
+});
+
+// Reorder rooms inside an apartment (drag & drop). Body: { apartmentId, order: [roomId, ...] }
+router.put("/reorder", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING), async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const apartmentId = req.body?.apartmentId;
+  const order = Array.isArray(req.body?.order) ? req.body.order : [];
+  if (!apartmentId || !order.length) {
+    return res.status(400).json({ success: false, message: "ترتيب غير صالح" });
+  }
+
+  try {
+    await kdb.transaction(async (trx) => {
+      for (let i = 0; i < order.length; i++) {
+        await trx('rooms')
+          .where({ id: String(order[i]), apartment_id: apartmentId, tenant_id: tenantId })
+          .update({ sort_order: i });
+      }
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
   }
 });
 
@@ -133,7 +162,7 @@ router.delete("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOU
 router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOUSING), validate(updateRoomSchema), async (req, res) => {
   const { id } = req.params;
   const { 
-    apartmentId, roomNumber, capacity,
+    apartmentId, roomNumber, capacity, is_active,
     price_daily, price_monthly, price_semester,
     amenities, has_kitchen, kitchen_details, has_bathroom, bathroom_details
   } = req.body;
@@ -150,6 +179,7 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOUSIN
     apartment_id: apartmentId,
     room_number: roomNumber,
     capacity,
+    is_active: is_active === undefined ? undefined : (is_active === false || is_active === 0 ? 0 : 1),
     price_daily: price_daily || 0,
     price_monthly: price_monthly || 0,
     price_semester: price_semester || 0,

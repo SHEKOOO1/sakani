@@ -5,6 +5,7 @@ interface RoomFormData {
   roomNumber: string;
   apartmentId: string;
   capacity: number;
+  is_active: boolean;
   price_daily: number;
   price_monthly: number;
   price_semester: number;
@@ -152,6 +153,17 @@ export function RoomFormModal({ isOpen, isEditMode, formData, apartments, onForm
                   <span className="text-[11px] font-black text-slate-700 dark:text-slate-200">حمام خاص</span>
                 </label>
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-50 dark:border-white/10">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.is_active} onChange={(e) => update('is_active', e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span className="text-[11px] font-black text-slate-700 dark:text-slate-200">الغرفة مفعّلة (متاحة للتسكين)</span>
+              </label>
             </div>
           </div>
 

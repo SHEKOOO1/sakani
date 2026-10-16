@@ -13,7 +13,7 @@ describe('NotFoundPage', () => {
     render(<NotFoundPage onBack={() => {}} />);
     expect(screen.getByText('لوحة التحكم')).toBeTruthy();
     expect(screen.getByText('الطلاب')).toBeTruthy();
-    expect(screen.getByText('الغرف')).toBeTruthy();
+    expect(screen.getByText('الشقق')).toBeTruthy();
   });
 
   it('calls onBack when clicking back button', () => {
@@ -33,7 +33,7 @@ describe('NotFoundPage', () => {
     render(<NotFoundPage onBack={() => {}} />);
     expect(screen.getByText('لوحة التحكم')).toBeTruthy();
     expect(screen.getByText('الطلاب')).toBeTruthy();
-    expect(screen.getByText('الغرف')).toBeTruthy();
+    expect(screen.getByText('الشقق')).toBeTruthy();
     expect(screen.getByText('المخازن')).toBeTruthy();
     expect(screen.getByText('الفعاليات')).toBeTruthy();
     expect(screen.getByText('الإعدادات')).toBeTruthy();

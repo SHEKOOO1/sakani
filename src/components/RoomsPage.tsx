@@ -54,6 +54,7 @@ export function RoomsPage() {
       apartmentId: '', 
       roomNumber: '', 
       capacity: 2,
+      is_active: true,
       price_daily: 0,
       price_monthly: 0,
       price_semester: 0,
@@ -73,6 +74,7 @@ export function RoomsPage() {
       apartmentId: room.apartment_id, 
       roomNumber: room.room_number, 
       capacity: room.capacity,
+      is_active: Number(room.is_active ?? 1) === 1,
       price_daily: room.price_daily || 0,
       price_monthly: room.price_monthly || 0,
       price_semester: room.price_semester || 0,
@@ -88,6 +90,7 @@ export function RoomsPage() {
     apartmentId: '',
     roomNumber: '',
     capacity: 2,
+    is_active: true,
     price_daily: 0,
     price_monthly: 0,
     price_semester: 0,
@@ -166,7 +169,7 @@ export function RoomsPage() {
         });
       }
       setAddModalOpen(false);
-      setFormData({ apartmentId: '', roomNumber: '', capacity: 2, price_daily: 0, price_monthly: 0, price_semester: 0, amenities: [], has_kitchen: false, kitchen_details: [], has_bathroom: false, bathroom_details: [] });
+      setFormData({ apartmentId: '', roomNumber: '', capacity: 2, is_active: true, price_daily: 0, price_monthly: 0, price_semester: 0, amenities: [], has_kitchen: false, kitchen_details: [], has_bathroom: false, bathroom_details: [] });
       fetchRooms();
     } catch (err: any) {
       showSnackbar(err.message || 'فشل العملية', 'error');

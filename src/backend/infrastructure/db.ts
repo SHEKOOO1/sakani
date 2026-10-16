@@ -706,6 +706,25 @@ export async function initializeDb() {
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('canteen_sales') AND name = 'room_name') ALTER TABLE [dbo].[canteen_sales] ADD [room_name] NVARCHAR(50) NULL;
     `);
 
+    // ─── Restaurant order number / who-placed-it / pickup (mirrors migrations/061) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'order_number') ALTER TABLE [dbo].[restaurant_orders] ADD [order_number] INT NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'order_date') ALTER TABLE [dbo].[restaurant_orders] ADD [order_date] DATE NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'ordered_by_name') ALTER TABLE [dbo].[restaurant_orders] ADD [ordered_by_name] NVARCHAR(255) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'ordered_by_role') ALTER TABLE [dbo].[restaurant_orders] ADD [ordered_by_role] NVARCHAR(50) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('restaurant_orders') AND name = 'collected_at') ALTER TABLE [dbo].[restaurant_orders] ADD [collected_at] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_restaurant_orders_number' AND object_id = OBJECT_ID('restaurant_orders'))
+        CREATE UNIQUE INDEX UX_restaurant_orders_number ON restaurant_orders (tenant_id, order_date, order_number) WHERE order_number IS NOT NULL;
+    `);
+
+    // ─── Apartment/room ordering + room enable state (mirrors migrations/062) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('apartments') AND name = 'sort_order') ALTER TABLE [dbo].[apartments] ADD [sort_order] INT NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('rooms') AND name = 'sort_order') ALTER TABLE [dbo].[rooms] ADD [sort_order] INT NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('rooms') AND name = 'is_active') ALTER TABLE [dbo].[rooms] ADD [is_active] BIT NOT NULL CONSTRAINT DF_rooms_is_active DEFAULT (1);
+      UPDATE [dbo].[rooms] SET [is_active] = 1 WHERE [is_active] IS NULL;
+    `);
+
     // ─── Journal line accounts: allow restaurant/canteen revenue (mirrors migrations/050) ───
     await kdb.raw(`
       IF OBJECT_ID('journal_lines') IS NOT NULL

@@ -455,6 +455,15 @@ export const createApartmentSchema = z.object({
   kitchen_details: z.any().optional(),
   has_bathroom: z.union([z.boolean(), z.number()]).optional(),
   bathroom_details: z.any().optional(),
+  rooms: z.array(z.object({
+    roomNumber: z.string().min(1).max(50).optional(),
+    room_number: z.string().min(1).max(50).optional(),
+    capacity: z.number().int().positive(),
+    is_active: z.union([z.boolean(), z.number()]).optional(),
+    price_daily: z.number().min(0).optional(),
+    price_monthly: z.number().min(0).optional(),
+    price_semester: z.number().min(0).optional(),
+  }).refine(r => !!(r.roomNumber || r.room_number), { message: 'رقم الغرفة مطلوب' })).optional(),
 });
 
 export const updateApartmentSchema = createApartmentSchema.partial();
@@ -463,6 +472,7 @@ export const createRoomSchema = z.object({
   apartmentId: z.string().uuid('معرف السكن غير صالح'),
   roomNumber: z.string().min(1, 'رقم الغرفة مطلوب').max(50),
   capacity: z.number().int('السعة لازم تكون رقم صحيح').positive('السعة لازم تكون أكبر من صفر'),
+  is_active: z.union([z.boolean(), z.number()]).optional(),
   price_daily: z.number().min(0).optional(),
   price_monthly: z.number().min(0).optional(),
   price_semester: z.number().min(0).optional(),

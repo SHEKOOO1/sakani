@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { FileQuestion, Home, Search, Users, DoorOpen, Package, Calendar, Settings, ChevronLeft, Compass } from 'lucide-react';
+import { FileQuestion, Home, Search, Users, Building, Package, Calendar, Settings, ChevronLeft, Compass } from 'lucide-react';
 
 const quickLinks = [
   { label: 'لوحة التحكم', icon: Home, view: 'dashboard' },
   { label: 'الطلاب', icon: Users, view: 'students' },
-  { label: 'الغرف', icon: DoorOpen, view: 'rooms' },
+  { label: 'الشقق', icon: Building, view: 'apartments' },
   { label: 'المخازن', icon: Package, view: 'inventory' },
   { label: 'الفعاليات', icon: Calendar, view: 'events' },
   { label: 'الإعدادات', icon: Settings, view: 'settings' },
