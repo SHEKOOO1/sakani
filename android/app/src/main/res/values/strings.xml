@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">سكني</string>
+    <string name="title_activity_main">سكني</string>
+    <string name="package_name">org.sakani.app</string>
+    <string name="custom_url_scheme">org.sakani.app</string>
+</resources>

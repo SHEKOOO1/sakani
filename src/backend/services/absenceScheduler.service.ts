@@ -16,7 +16,18 @@ import { runLockCheck, reEscalateUnacked, lockDateString } from "./absenceLock.s
 
 const TICK_MS = 60_000;
 
-function minutesOfDay(hhmm: string): number | null {
+/**
+ * Master switch for the curfew absence/attendance tracking. When set, the
+ * nightly lock-time check is paused AND the manual "run check" / "notify
+ * missing" endpoints are refused, so no absence case, warning or guardian
+ * notification can be produced from anywhere. Used while the student-app
+ * tracking is being reworked; remove the flag to restore the full system.
+ */
+export function isAbsenceTrackingDisabled(): boolean {
+  return process.env.ABSENCE_SCHEDULER_DISABLED === "1";
+}
+
+export function minutesOfDay(hhmm: string): number | null {
   const [h, m] = String(hhmm).split(":");
   const hh = parseInt(h, 10);
   const mm = parseInt(m || "0", 10);
@@ -59,7 +70,7 @@ async function tick(): Promise<void> {
 }
 
 export function startAbsenceScheduler(): void {
-  if (process.env.NODE_ENV === "test" || process.env.ABSENCE_SCHEDULER_DISABLED === "1") return;
+  if (process.env.NODE_ENV === "test" || isAbsenceTrackingDisabled()) return;
   if (timer) return;
   timer = setInterval(() => { void tick(); }, TICK_MS);
   if (typeof timer.unref === "function") timer.unref();

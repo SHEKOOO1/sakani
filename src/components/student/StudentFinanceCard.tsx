@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useApi } from '../../hooks/useApi';
 import {
   Wallet, TrendingUp, TrendingDown, CheckCircle2, AlertCircle,
-  Receipt, Calendar, Loader2, CornerDownLeft, Scale, PenLine
+  Receipt, Calendar, Loader2, CornerDownLeft, Scale, PenLine, Tag, FileText, Pen
 } from 'lucide-react';
+import { DiscountModal, DiscountState } from './modals/DiscountModal';
+import { FileViewerModal } from './FileViewerModal';
 
 interface PaymentItem {
   id: string;
@@ -29,10 +31,24 @@ interface TransactionItem {
   editor_name?: string | null;
 }
 
+interface DiscountInfo {
+  type: 'percent' | 'amount';
+  value: number;
+  amount: number;
+  note: string | null;
+  document: { id: number; doc_type: string | null; file_name: string | null; file_path: string } | null;
+}
+
 interface FinanceData {
   invoice: number;
   roomPrice: number;
   source?: 'room' | 'agreed' | 'frozen';
+  grossInvoice?: number;
+  hasDiscount?: boolean;
+  discountType?: 'percent' | 'amount' | null;
+  discountValue?: number | null;
+  discountAmount?: number;
+  discount?: DiscountInfo | null;
   totalPaid: number;
   remaining: number;
   balance: number;
@@ -74,6 +90,8 @@ export const StudentFinanceCard: React.FC<StudentFinanceCardProps> = ({ studentI
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [discountModal, setDiscountModal] = useState(false);
+  const [viewerFile, setViewerFile] = useState<DiscountState['document'] | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -105,6 +123,22 @@ export const StudentFinanceCard: React.FC<StudentFinanceCardProps> = ({ studentI
   const percent = data?.paymentPercent ?? 0;
   const transactions = data?.transactions || [];
 
+  const grossInvoice = data?.grossInvoice ?? data?.invoice ?? 0;
+  const discountAmount = data?.discountAmount ?? data?.discount?.amount ?? 0;
+  const hasDiscount = (data?.hasDiscount ?? false) || discountAmount > 0;
+  const discountType = data?.discountType ?? data?.discount?.type ?? null;
+  const discountValue = data?.discountValue ?? data?.discount?.value ?? null;
+  const discountNote = data?.discount?.note ?? null;
+  const discountDocument = data?.discount?.document ?? null;
+  const canManageDiscount = role === 'supervisor';
+
+  const discountState: DiscountState | null = hasDiscount || discountType ? {
+    type: discountType,
+    value: discountValue,
+    note: discountNote,
+    document: discountDocument,
+  } : null;
+
   return (
     <div className="bg-slate-900 p-8 rounded-[3rem] text-white shadow-lg">
       <div className="flex items-center justify-between mb-4">
@@ -131,6 +165,14 @@ export const StudentFinanceCard: React.FC<StudentFinanceCardProps> = ({ studentI
           {data?.source === 'agreed' && (
             <span className="text-[9px] bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded-full font-black" title="لا توجد غرفة مسجلة بسعر — يُستخدم السعر المتفق عليه">سعر مفقود</span>
           )}
+          {hasDiscount && (
+            <span
+              className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-full font-black"
+              title={`خصم على سعر الغرفة: ${discountType === 'percent' ? `${discountValue}%` : formatEGP(discountValue || 0)}`}
+            >
+              خصم {discountType === 'percent' ? `${discountValue}%` : formatEGP(discountValue || 0)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -151,6 +193,9 @@ export const StudentFinanceCard: React.FC<StudentFinanceCardProps> = ({ studentI
             <div className="p-4 bg-white/5 rounded-3xl border border-white/10">
               <p className="text-[9px] font-black text-slate-500 uppercase mb-1">{data.source === 'agreed' ? 'السعر المتفق عليه' : 'سعر الغرفة'}</p>
               <p className="text-sm font-black text-white">{formatEGP(data.invoice)}</p>
+              {hasDiscount && (
+                <p className="text-[9px] font-black text-slate-400 mt-1">قبل الخصم: {formatEGP(grossInvoice)}</p>
+              )}
             </div>
             <div className="p-4 bg-white/5 rounded-3xl border border-emerald-500/20">
               <p className="text-[9px] font-black text-slate-500 uppercase mb-1">المدفوع</p>
@@ -165,6 +210,67 @@ export const StudentFinanceCard: React.FC<StudentFinanceCardProps> = ({ studentI
               </p>
             </div>
           </div>
+
+          {/* Discount breakdown */}
+          {hasDiscount ? (
+            <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/25 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-emerald-500/20 rounded-lg"><Tag size={13} className="text-emerald-300" /></div>
+                  <p className="text-[11px] font-black text-emerald-200">
+                    خصم {discountType === 'percent' ? `${discountValue}%` : formatEGP(discountValue || 0)} على سعر الإقامة
+                  </p>
+                </div>
+                {canManageDiscount && (
+                  <button
+                    onClick={() => setDiscountModal(true)}
+                    className="flex items-center gap-1.5 text-[10px] font-black text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-colors shrink-0"
+                  >
+                    <Pen size={11} /> تعديل
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 bg-white/5 rounded-xl">
+                  <p className="text-[8px] font-black text-slate-500 mb-0.5">السعر الأصلي</p>
+                  <p className="text-[11px] font-black text-slate-300 line-through">{formatEGP(grossInvoice)}</p>
+                </div>
+                <div className="p-2.5 bg-emerald-500/10 rounded-xl">
+                  <p className="text-[8px] font-black text-emerald-400/70 mb-0.5">مبلغ الخصم</p>
+                  <p className="text-[11px] font-black text-emerald-300">−{formatEGP(discountAmount)}</p>
+                </div>
+                <div className="p-2.5 bg-emerald-500/20 rounded-xl">
+                  <p className="text-[8px] font-black text-emerald-400/70 mb-0.5">بعد الخصم</p>
+                  <p className="text-[11px] font-black text-white">{formatEGP(data.invoice)}</p>
+                </div>
+              </div>
+
+              {discountNote && (
+                <p className="text-[10px] font-bold text-emerald-100/80 leading-relaxed">
+                  <span className="text-[9px] font-black text-emerald-400">سبب الخصم: </span>
+                  {discountNote}
+                </p>
+              )}
+
+              {discountDocument && (
+                <button
+                  onClick={() => setViewerFile(discountDocument)}
+                  className="w-full flex items-center gap-2 p-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black text-slate-200 hover:border-emerald-400/50 transition-colors"
+                >
+                  <FileText size={14} className="text-emerald-300 shrink-0" />
+                  <span className="truncate">عرض جواب الخصم (الإثبات)</span>
+                </button>
+              )}
+            </div>
+          ) : canManageDiscount ? (
+            <button
+              onClick={() => setDiscountModal(true)}
+              className="w-full flex items-center justify-center gap-2 p-3.5 border-2 border-dashed border-white/10 hover:border-emerald-400/40 hover:bg-emerald-500/5 rounded-2xl transition-all text-[11px] font-black text-slate-400 hover:text-emerald-300"
+            >
+              <Tag size={14} /> إضافة خصم على سعر الإقامة
+            </button>
+          ) : null}
 
           {/* Progress */}
           <div>
@@ -265,6 +371,24 @@ export const StudentFinanceCard: React.FC<StudentFinanceCardProps> = ({ studentI
           </div>
         </div>
       )}
+
+      <DiscountModal
+        isOpen={discountModal}
+        onClose={() => setDiscountModal(false)}
+        studentId={studentId}
+        current={discountState}
+        onSaved={fetchData}
+      />
+
+      <FileViewerModal
+        file={viewerFile ? {
+          id: String(viewerFile.id),
+          file_name: viewerFile.file_name || undefined,
+          doc_type: viewerFile.doc_type || undefined,
+          file_path: viewerFile.file_path,
+        } : null}
+        onClose={() => setViewerFile(null)}
+      />
     </div>
   );
 };

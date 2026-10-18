@@ -3,8 +3,9 @@ import { v4 as uuidv4 } from "uuid";
 import fs from 'fs';
 import path from 'path';
 import { kdb } from "../../infrastructure/db";
-import { authenticate, authorizePermission, computeUserTenantIds } from "../middleware";
+import { authenticate, authorizePermission, computeUserTenantIds, sanitizeInput } from "../middleware";
 import { AppPermission } from "../../../types/permissions";
+import { upload, UPLOADS_BASE, validateMagicBytes } from "../../middleware/upload";
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { getStudentAccount, notifyStudentFinance, formatMoney, logFinanceEdit } from "../../services/student-account.service";
@@ -70,6 +71,11 @@ router.get("/finance/my-summary", authenticate, async (req, res) => {
         source: account?.source || 'agreed',
         paymentPercent: account?.paymentPercent || 0,
         billingCycle: student.billing_cycle || null,
+        hasDiscount: (account?.discountAmount || 0) > 0,
+        discountType: account?.discountType || null,
+        discountValue: account?.discountValue ?? null,
+        discountAmount: account?.discountAmount || 0,
+        grossInvoice: account?.grossInvoice || account?.invoice || 0,
         transactions: account?.transactions || [],
       }
     });
@@ -659,12 +665,30 @@ router.get("/:id/finance", authenticate, async (req, res) => {
     const account = await getStudentAccount(student.id, { visibility: isAdminScope ? 'all' : 'tenant' });
     if (!account) return res.status(500).json({ success: false, message: "تعذر حساب بيانات الغرفة" });
 
+    // الخصم يظهر للطلبة وأولياء الأمور (مبلغ وإجمالي الصافي فقط)، أما سببه
+    // وجوابه المُرفوع فلا يراه إلا أعضاء هيئة التدريس المسؤولون أدناه.
+    const hasDiscount = (account.discountAmount || 0) > 0;
+    let discountDocument: { id: number; doc_type: string | null; file_name: string | null; file_path: string } | null = null;
+    if (allowedStaff && hasDiscount && student.discount_document_id) {
+      const doc = await kdb('StudentDocuments')
+        .select('id', 'doc_type', 'file_name', 'file_path')
+        .where('id', student.discount_document_id)
+        .where('student_id', student.id)
+        .first();
+      if (doc) discountDocument = { id: doc.id, doc_type: doc.doc_type, file_name: doc.file_name, file_path: doc.file_path };
+    }
+
     res.json({
       success: true,
       data: {
         studentId: student.id,
         roomPrice: account.roomPrice,
         invoice: account.invoice,
+        grossInvoice: account.grossInvoice,
+        discountType: account.discountType,
+        discountValue: account.discountValue,
+        discountAmount: account.discountAmount,
+        hasDiscount,
         source: account.source,
         totalPaid: account.totalPaid,
         remaining: account.remaining,
@@ -675,6 +699,15 @@ router.get("/:id/finance", authenticate, async (req, res) => {
         billingCycle: account.billingCycle,
         payments: account.payments,
         transactions: account.transactions,
+        discount: hasDiscount || account.discountType
+          ? {
+              type: account.discountType,
+              value: account.discountValue,
+              amount: account.discountAmount,
+              note: allowedStaff ? account.discountNote : null,
+              document: discountDocument,
+            }
+          : null,
       }
     });
   } catch (error: any) {
@@ -713,8 +746,8 @@ router.patch("/:id/finance", authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: "تاريخ السريان غير صحيح" });
     }
 
-    // السعر الفعلي الحالي (سعر مثبَّت سابق، أو سعر الغرفة للطالب القديم).
-    const oldPrice = invoiceForStudent(student).invoice;
+    // السعر الفعلي الحالي قبل أي خصم (سعر مثبَّت سابق، أو سعر الغرفة للطالب القديم).
+    const oldPrice = invoiceForStudent(student).grossInvoice;
     const delta = value - oldPrice;
 
     // يُثبَّت سعر الطالب فقط — لا يُعدَّل سعر الغرفة المشترك ولا أي قيد مرحّل.
@@ -748,6 +781,162 @@ router.patch("/:id/finance", authenticate, async (req, res) => {
     });
   } catch (error: any) {
     console.error('[Student Finance Update Error]', error);
+    res.status(500).json({ success: false, message: "حصل خطأ فني. لو سمحت كرر المحاولة." });
+  }
+});
+
+const DISCOUNT_TYPES = ['percent', 'amount'];
+
+const studentWithRoomPrice = (id: string) =>
+  kdb('students as s')
+    .leftJoin('rooms as r', 's.room_id', 'r.id')
+    .select('s.*', 'r.price_daily', 'r.price_monthly', 'r.price_semester')
+    .where('s.id', id)
+    .first();
+
+const discountLabel = (type: string, value: number) =>
+  type === 'percent' ? `${value}%` : formatMoney(value);
+
+/**
+ * إضافة خصم على سعر إقامة الطالب — إجراء يخص مشرف السكن فقط.
+ *
+ * الخصم جزء من تسعير الطالب لا من الحركة النقدية: يقلّل الفاتورة المتوقعة
+ * (بتحويل invoiceForStudent) ولا يمس سعر الغرفة المشترك ولا يُنشئ قيداً
+ * مرحّل، فيبقى قابلاً للتغيير أو الإلغاء بوضوح. يُشترط وجود جواب مُرفوع
+ * (ملف جديد أو جواب محفوظ من قبل) كإثبات قبل تفعيل الخصم.
+ */
+router.put("/:id/discount", authenticate, upload.single('letter'), validateMagicBytes, sanitizeInput, async (req, res) => {
+  if (req.user.role !== 'supervisor') {
+    return res.status(403).json({ success: false, message: "إدارة الخصم مسموحة لمشرف السكن فقط" });
+  }
+
+  try {
+    const student = await studentWithRoomPrice(req.params.id);
+    if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
+    if (!sameId(student.tenant_id, req.user.tenantId)) {
+      return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
+    }
+
+    const type = String(req.body?.type || '').trim();
+    if (!DISCOUNT_TYPES.includes(type)) {
+      return res.status(400).json({ success: false, message: "نوع الخصم غير صحيح" });
+    }
+    const value = Number(req.body?.value);
+    if (!Number.isFinite(value) || value <= 0 || value > 999999999) {
+      return res.status(400).json({ success: false, message: "قيمة الخصم غير صحيحة" });
+    }
+    if (type === 'percent' && value > 100) {
+      return res.status(400).json({ success: false, message: "نسبة الخصم لا يمكن أن تتجاوز 100%" });
+    }
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
+
+    const before = invoiceForStudent(student);
+    const after = invoiceForStudent({ ...student, discount_type: type, discount_value: value });
+
+    // إثبات الخصم: جواب مرفوع الآن، أو جواب محفوظ من إعداد سابق.
+    const file = (req as any).file as Express.Multer.File | undefined;
+    let documentId: number | null = student.discount_document_id ?? null;
+    if (file) {
+      await kdb.raw(`INSERT INTO StudentDocuments (student_id, doc_type, file_path, file_name) VALUES (?, ?, ?, ?)`, [
+        student.id, 'discount_letter', `${UPLOADS_BASE}/documents/${file.filename}`, file.originalname,
+      ]);
+      const doc = await kdb('StudentDocuments')
+        .where('student_id', student.id)
+        .where('file_path', 'like', `%${file.filename}`)
+        .orderBy('id', 'desc')
+        .first();
+      documentId = doc ? Number(doc.id) : null;
+    }
+    if (!documentId) {
+      if (file) { try { fs.unlinkSync(file.path); } catch {} }
+      return res.status(400).json({ success: false, message: "لازم ترفع جواب الخصم (PDF أو صورة) لإثبات الخصم" });
+    }
+
+    await kdb('students').where({ id: student.id }).update({
+      discount_type: type,
+      discount_value: value,
+      discount_note: note || null,
+      discount_document_id: documentId,
+      discount_set_by: req.user.id,
+      discount_set_at: kdb.fn.now(),
+      updated_at: kdb.fn.now(),
+    });
+
+    await logFinanceEdit({
+      tenantId: student.tenant_id,
+      studentId: student.id,
+      editType: 'discount',
+      direction: after.invoice < before.invoice ? 'decrease' : after.invoice > before.invoice ? 'increase' : null,
+      delta: Math.abs(after.invoice - before.invoice),
+      summary: `خصم ${discountLabel(type, value)} على سعر الإقامة — الفاتورة من ${formatMoney(before.invoice)} إلى ${formatMoney(after.invoice)}${note ? ` — السبب: ${note}` : ''}`,
+      createdBy: req.user?.id || null,
+    });
+
+    const account = await getStudentAccount(student.id, { visibility: 'tenant' });
+    const message = `تم تطبيق خصم ${discountLabel(type, value)} على حسابك.\nإجمالي الفاتورة بعد الخصم: ${formatMoney(after.invoice)}\nالمتبقي: ${formatMoney(account?.remaining || 0)}`;
+    await notifyStudentFinance(student.id, message, `حساب الغرفة - خصم`);
+
+    res.json({
+      success: true,
+      message: "تم تطبيق الخصم بنجاح",
+      data: { invoice: after.invoice, grossInvoice: after.grossInvoice, discountAmount: after.discountAmount, account },
+    });
+  } catch (error: any) {
+    console.error('[Student Discount Update Error]', error);
+    res.status(500).json({ success: false, message: "حصل خطأ فني. لو سمحت كرر المحاولة." });
+  }
+});
+
+/** إلغاء الخصم وإعادة الفاتورة إلى سعرها الكامل — مشرف السكن فقط. */
+router.delete("/:id/discount", authenticate, async (req, res) => {
+  if (req.user.role !== 'supervisor') {
+    return res.status(403).json({ success: false, message: "إدارة الخصم مسموحة لمشرف السكن فقط" });
+  }
+
+  try {
+    const student = await studentWithRoomPrice(req.params.id);
+    if (!student) return res.status(404).json({ success: false, message: "الطالب غير موجود" });
+    if (!sameId(student.tenant_id, req.user.tenantId)) {
+      return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
+    }
+    if (!student.discount_type) {
+      return res.status(400).json({ success: false, message: "لا يوجد خصم مُفعَّل لهذا الطالب" });
+    }
+
+    const before = invoiceForStudent(student);
+    const after = invoiceForStudent({ ...student, discount_type: null, discount_value: null });
+
+    await kdb('students').where({ id: student.id }).update({
+      discount_type: null,
+      discount_value: null,
+      discount_note: null,
+      discount_document_id: null,
+      discount_set_by: null,
+      discount_set_at: null,
+      updated_at: kdb.fn.now(),
+    });
+
+    await logFinanceEdit({
+      tenantId: student.tenant_id,
+      studentId: student.id,
+      editType: 'discount',
+      direction: after.invoice > before.invoice ? 'increase' : null,
+      delta: Math.abs(after.invoice - before.invoice),
+      summary: `حذف الخصم من سعر الإقامة — الفاتورة من ${formatMoney(before.invoice)} إلى ${formatMoney(after.invoice)}`,
+      createdBy: req.user?.id || null,
+    });
+
+    const account = await getStudentAccount(student.id, { visibility: 'tenant' });
+    const message = `تم إلغاء الخصم من حسابك.\nإجمالي الفاتورة: ${formatMoney(after.invoice)}\nالمتبقي: ${formatMoney(account?.remaining || 0)}`;
+    await notifyStudentFinance(student.id, message, `حساب الغرفة - إلغاء الخصم`);
+
+    res.json({
+      success: true,
+      message: "تم إلغاء الخصم",
+      data: { invoice: after.invoice, grossInvoice: after.grossInvoice, account },
+    });
+  } catch (error: any) {
+    console.error('[Student Discount Delete Error]', error);
     res.status(500).json({ success: false, message: "حصل خطأ فني. لو سمحت كرر المحاولة." });
   }
 });

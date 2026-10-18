@@ -216,10 +216,12 @@ router.put("/:id", authenticate, authorizePermission(AppPermission.MANAGE_HOUSIN
       .update(dataToUpdate);
 
     for (const occ of occupants) {
-      const { invoice } = invoiceForStudent(occ);
-      if (invoice > 0) {
+      // النمط الأساسي قبل أي خصم: تجميد السعر يجب أن يثبت سعر الإقامة الكامل،
+      // والخصم يُطبَّق عليه لاحقاً عبر invoiceForStudent (وليس مُجمَّداً).
+      const { grossInvoice } = invoiceForStudent(occ);
+      if (grossInvoice > 0) {
         await kdb('students').where({ id: occ.id }).update({
-          agreed_price: invoice,
+          agreed_price: grossInvoice,
           price_frozen_at: kdb.fn.now(),
           updated_at: kdb.fn.now(),
         });

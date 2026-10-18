@@ -13,6 +13,11 @@ export interface StudentAccount {
   billingCycle: string | null;
   roomPrice: number;
   invoice: number;
+  grossInvoice: number;
+  discountType: 'percent' | 'amount' | null;
+  discountValue: number | null;
+  discountAmount: number;
+  discountNote: string | null;
   source: 'room' | 'agreed' | 'frozen';
   totalPaid: number;
   remaining: number;
@@ -48,7 +53,7 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
     .first();
   if (!student) return null;
 
-  const { roomPrice, invoice, source, billingCycle } = invoiceForStudent(student);
+  const { roomPrice, invoice, grossInvoice, discountAmount, source, billingCycle } = invoiceForStudent(student);
 
   // Phase 4: the statement is the journal, not `finances`. `paid` therefore
   // counts only posted payment entries — a penalty cancellation (a reversal)
@@ -68,14 +73,15 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
       created_at: e.created_at,
     }));
 
-  // Room-price edits are recorded in finance_edit_logs (see profile.routes
-  // PATCH /:id/finance) and shown as `edit` rows below. Older statements may
-  // also carry `adjustment` journal entries from the previous policy; those are
-  // still rendered so historical statements stay readable.
+  // Room-price and discount changes are recorded in finance_edit_logs (see
+  // profile.routes PATCH /:id/finance and PUT/DELETE /:id/discount) and shown
+  // as `edit` rows below. Older statements may also carry `adjustment` journal
+  // entries from the previous policy; those are still rendered so historical
+  // statements stay readable.
   const editLogsQuery = kdb('finance_edit_logs as e')
     .leftJoin('users as u', 'e.created_by', 'u.id')
     .where('e.student_id', studentId)
-    .where('e.edit_type', 'room_price');
+    .whereIn('e.edit_type', ['room_price', 'discount']);
   if (opts.visibility === 'tenant') {
     editLogsQuery.where(function () { this.whereNull('e.is_admin_only').orWhere('e.is_admin_only', 0); });
   }
@@ -130,7 +136,7 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
       id: e.id,
       kind: 'edit' as const,
       type: 'edit' as const,
-      description: e.edit_type === 'room_price' ? 'تعديل سعر الغرفة' : 'تعديل معاملة مالية',
+      description: e.edit_type === 'room_price' ? 'تعديل سعر الغرفة' : e.edit_type === 'discount' ? 'تعديل الخصم' : 'تعديل معاملة مالية',
       category: '',
       amount: Math.abs(Number(e.delta || 0)),
       sign: (e.direction === 'increase' || e.direction === 'decrease' ? e.direction : null) as 'increase' | 'decrease' | null,
@@ -159,6 +165,11 @@ export async function getStudentAccount(studentId: string, opts: { visibility?: 
     billingCycle,
     roomPrice,
     invoice,
+    grossInvoice,
+    discountType: (student.discount_type === 'percent' || student.discount_type === 'amount') ? student.discount_type : null,
+    discountValue: student.discount_value != null ? Number(student.discount_value) : null,
+    discountAmount,
+    discountNote: student.discount_note ?? null,
     source,
     totalPaid,
     remaining,
@@ -248,7 +259,7 @@ export async function logFinanceEdit(opts: {
   tenantId?: string | null;
   studentId?: string | null;
   financeId?: string | null;
-  editType: 'edit' | 'room_price';
+  editType: 'edit' | 'room_price' | 'discount';
   direction?: 'increase' | 'decrease' | null;
   delta?: number | null;
   summary: string;

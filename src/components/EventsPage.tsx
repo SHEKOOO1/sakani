@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useMounted } from '../hooks/useMounted';
 import { useApi } from '../hooks/useApi';
+import { getBestFix } from '../utils/location';
 import { useEventTargeting } from '../hooks/useEventTargeting';
 import { useEventCrud } from '../hooks/useEventCrud';
 import { useEventCompetition } from '../hooks/useEventCompetition';
@@ -143,17 +144,13 @@ export function EventsPage({ defaultView = 'management' }: { defaultView?: 'mana
     }
   }, [crud.modalOpen]);
 
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      showSnackbar('الجهاز لا يدعم تحديد الموقع', 'error');
-      return;
+  const getCurrentLocation = async () => {
+    try {
+      const fix = await getBestFix({ highAccuracy: true });
+      crud.setFormData({ ...crud.formData, location_lat: fix.lat.toString(), location_lng: fix.lng.toString() });
+    } catch (err: any) {
+      showSnackbar('فشل الحصول على الموقع: ' + (err?.message || ''), 'error');
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        crud.setFormData({ ...crud.formData, location_lat: pos.coords.latitude.toString(), location_lng: pos.coords.longitude.toString() });
-      },
-      (err) => showSnackbar('فشل الحصول على الموقع: ' + err.message, 'error')
-    );
   };
 
   const handleSave = async () => {

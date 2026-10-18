@@ -9,6 +9,9 @@ const router = express.Router();
 
 const UPLOADS_ROOT = path.resolve(process.cwd(), "uploads");
 
+// أصحاب جواب الخصم: مشرف السكن/الكاهن/الأسقف + مدير التطبيق.
+const DISCOUNT_LETTER_ROLES = ["admin", "bishop", "priest", "supervisor"];
+
 type OrphanedOwner =
   | { kind: "event-receipt"; tenant_id: string | null; user_id: string; student_id: string | null }
   | { kind: "maintenance"; tenant_id: string; requester_id: string }
@@ -109,11 +112,17 @@ router.get("/:path(*)", async (req, res) => {
 
     const baseName = path.basename(absPath);
     const row = await kdb("StudentDocuments")
-      .select("student_id", "file_path")
+      .select("student_id", "file_path", "doc_type")
       .where("file_path", "like", `%${baseName}`)
       .first();
 
     if (row) {
+      // جواب الخصم وثيقة داخلية: يراها مشرف السكن والكاهن والأسقف (والمدير)
+      // فقط — ولا يُعرَض لصاحب الحساب (الطالب/ولي الأمر) ولا لبقية الموظفين
+      // حتى لو كان الملف مربوطاً بالطالب نفسه.
+      if (row.doc_type === "discount_letter" && !DISCOUNT_LETTER_ROLES.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول لهذا الملف" });
+      }
       if (!await canAccessDocument(req.user, row.student_id)) {
         return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول لهذا الملف" });
       }

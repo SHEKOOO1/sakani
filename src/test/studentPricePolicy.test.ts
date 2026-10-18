@@ -179,6 +179,26 @@ describe('PUT /rooms/:id — freezes unfrozen occupants at their current price',
     expect(freeze!.patch.price_frozen_at).toBe('NOW');
   });
 
+  it('freezes a discounted occupant at the GROSS price so the discount stays changeable', async () => {
+    store['rooms'] = [{ id: 'r1', tenant_id: 'A', price_daily: 150, price_monthly: 1000, price_semester: 6000 }];
+    store['students as s'] = [{
+      id: 'occ1', agreed_price: 0, billing_cycle: 'semester', price_frozen_at: null,
+      price_daily: 150, price_monthly: 1000, price_semester: 6000,
+      discount_type: 'percent', discount_value: 10,
+    }];
+    const res = await call(rooms.default, {
+      method: 'PUT', url: '/r1', params: { id: 'r1' },
+      body: { roomNumber: 'r1', capacity: 4, price_daily: 160, price_monthly: 1100, price_semester: 7000 },
+      user: { id: 'sup1', role: 'supervisor', tenantId: 'A' },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const freeze = updates.find(u => u.table === 'students');
+    expect(freeze).toBeTruthy();
+    // Frozen at the full (pre-discount) price 6000 — NOT the discounted 5400.
+    expect(freeze!.patch.agreed_price).toBe(6000);
+  });
+
   it('does not freeze occupants when the room price is unchanged', async () => {
     store['rooms'] = [{ id: 'r1', tenant_id: 'A', price_daily: 150, price_monthly: 1000, price_semester: 6000 }];
     store['students as s'] = [{

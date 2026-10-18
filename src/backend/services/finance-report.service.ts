@@ -264,6 +264,8 @@ export async function getStudentAccounts(filters: FinanceFilters): Promise<Stude
       's.agreed_price',
       's.billing_cycle',
       's.price_frozen_at',
+      's.discount_type',
+      's.discount_value',
       'r.price_daily',
       'r.price_monthly',
       'r.price_semester',
@@ -275,7 +277,9 @@ export async function getStudentAccounts(filters: FinanceFilters): Promise<Stude
   // The invoice is the same figure the student profile uses (a frozen price
   // agreed at enrollment wins; otherwise the room price wins with agreed_price
   // as the fallback) and `paid` is posted ledger payments only — so this report
-  // and StudentProfile can no longer disagree. The invoice has
+  // and StudentProfile can no longer disagree. An active student discount is
+  // deducted inside invoiceForStudent, so the report totals reflect the same
+  // net invoice the student is actually billed. The invoice has
   // no date/category dimension, so the paid scope deliberately drops those
   // filters: a date/category window must not shrink `paid` against an unfiltered
   // invoice, producing a misleading `remaining`.

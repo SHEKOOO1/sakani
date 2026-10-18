@@ -4,48 +4,19 @@ import { kdb, checkUserPermission } from "../infrastructure/db.ts";
 import { authenticate, authorizePermission, computeUserTenantIds } from "./middleware.ts";
 import { AppPermission } from "../../types/permissions.ts";
 import { includesId } from '../infrastructure/id-match';
+import { isAbsenceTrackingDisabled } from '../services/absenceScheduler.service';
+import { calculateDistance, evaluateGeofence, parseAccuracy } from '../services/geo.ts';
 
 const router = express.Router();
-
-/**
- * Haversine formula to calculate distance between two points in meters
- */
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3;
-  const phi1 = (lat1 * Math.PI) / 180;
-  const phi2 = (lat2 * Math.PI) / 180;
-  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
-  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-/**
- * قرار البوابة الجغرافية مع مراعاة دقة الـ GPS:
- * - بدون دقة (0) → القرار النقطي الكلاسيكي.
- * - مع دقة: نستخدم شريط الخطأ [distance-accuracy, distance+accuracy].
- *   إن وقع بالكامل داخل النطاق → داخل، وبالكامل خارجه → خارج،
- *   وإن قطع الحدود → "غير محسوم" (يُرفض بأمان بدل تمريره).
- */
-function evaluateGeofence(distance: number, radius: number, accuracy: number): 'inside' | 'outside' | 'uncertain' {
-  if (!(accuracy > 0)) return distance <= radius ? 'inside' : 'outside';
-  if (distance + accuracy <= radius) return 'inside';
-  if (distance - accuracy > radius) return 'outside';
-  return 'uncertain';
-}
-
-/** يقبل الدقة كرقم غير سالب؛ أي قيمة أخرى تعتبر 0 (لا هامش). */
-function parseAccuracy(value: unknown): number {
-  const num = Number(value);
-  return Number.isFinite(num) && num >= 0 ? num : 0;
-}
 
 // إشعار أولياء الأمور بالطلاب المتأخرين عن تسجيل الحضور
 router.post("/notify-missing", authenticate, authorizePermission(AppPermission.MANAGE_ATTENDANCE), async (req, res) => {
   const tenantId = req.user.tenantId;
   const now = new Date();
+
+  if (isAbsenceTrackingDisabled()) {
+    return res.status(409).json({ success: false, message: "نظام تسجيل الحضور والغياب موقوف مؤقتًا حاليًا" });
+  }
 
   try {
     const missingStudents = await kdb("students as s")

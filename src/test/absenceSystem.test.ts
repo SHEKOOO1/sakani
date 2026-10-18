@@ -13,6 +13,7 @@ import {
   type PresenceRecord,
 } from '../backend/services/presence.service';
 import { lockDateString, RE_ESCALATE_MINUTES } from '../backend/services/absenceLock.service';
+import { isAbsenceTrackingDisabled } from '../backend/services/absenceScheduler.service';
 
 // ───────────────────────────────────────────────────────────────
 // The absence system is only as trustworthy as its "inside/outside"
@@ -163,5 +164,24 @@ describe('absenceLock: lockDateString & escalation threshold', () => {
 
   it('exposes the 20-minute re-escalation window', () => {
     expect(RE_ESCALATE_MINUTES).toBe(20);
+  });
+});
+
+describe('absence tracking master switch', () => {
+  it('is off unless ABSENCE_SCHEDULER_DISABLED is exactly "1"', () => {
+    const original = process.env.ABSENCE_SCHEDULER_DISABLED;
+    try {
+      delete process.env.ABSENCE_SCHEDULER_DISABLED;
+      expect(isAbsenceTrackingDisabled()).toBe(false);
+
+      process.env.ABSENCE_SCHEDULER_DISABLED = '1';
+      expect(isAbsenceTrackingDisabled()).toBe(true);
+
+      process.env.ABSENCE_SCHEDULER_DISABLED = 'true';
+      expect(isAbsenceTrackingDisabled()).toBe(false);
+    } finally {
+      if (original === undefined) delete process.env.ABSENCE_SCHEDULER_DISABLED;
+      else process.env.ABSENCE_SCHEDULER_DISABLED = original;
+    }
   });
 });

@@ -1331,3 +1331,63 @@ CREATE TABLE student_absence_cases (
 CREATE UNIQUE INDEX UX_absence_cases_per_day ON student_absence_cases (tenant_id, student_id, lock_date);
 CREATE INDEX IX_absence_cases_tenant_state ON student_absence_cases (tenant_id, state, lock_date);
 END
+
+-- Supervisor roll-call (المناداة): human-confirmed night check.
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'roll_calls')
+BEGIN
+CREATE TABLE roll_calls (
+    id NVARCHAR(128) PRIMARY KEY,
+    tenant_id NVARCHAR(128) NOT NULL,
+    lock_date DATE NOT NULL,
+    lock_time NVARCHAR(10) NULL,
+    state NVARCHAR(20) NOT NULL DEFAULT 'open',
+    present_count INT NOT NULL DEFAULT 0,
+    absent_count INT NOT NULL DEFAULT 0,
+    unmarked_count INT NOT NULL DEFAULT 0,
+    excluded_count INT NOT NULL DEFAULT 0,
+    notes NVARCHAR(MAX) NULL,
+    started_by NVARCHAR(128) NULL,
+    started_at DATETIME2 NOT NULL DEFAULT GETDATE(),
+    submitted_by NVARCHAR(128) NULL,
+    submitted_at DATETIME2 NULL,
+    published_at DATETIME2 NULL,
+    created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
+    updated_at DATETIME2 NULL
+);
+CREATE UNIQUE INDEX UX_roll_calls_per_day ON roll_calls (tenant_id, lock_date);
+CREATE INDEX IX_roll_calls_tenant_state ON roll_calls (tenant_id, state, lock_date);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'roll_call_entries')
+BEGIN
+CREATE TABLE roll_call_entries (
+    id NVARCHAR(128) PRIMARY KEY,
+    roll_call_id NVARCHAR(128) NOT NULL,
+    tenant_id NVARCHAR(128) NOT NULL,
+    student_id NVARCHAR(128) NOT NULL,
+    student_name NVARCHAR(255) NULL,
+    mark NVARCHAR(20) NOT NULL DEFAULT 'unmarked',
+    presence_status NVARCHAR(20) NULL,
+    is_traveling BIT NOT NULL DEFAULT 0,
+    evidence_lat DECIMAL(10,7) NULL,
+    evidence_lng DECIMAL(10,7) NULL,
+    evidence_accuracy INT NULL,
+    evidence_at DATETIME2 NULL,
+    note NVARCHAR(MAX) NULL,
+    absence_case_id NVARCHAR(128) NULL,
+    answer_at DATETIME2 NULL,
+    answer_mark NVARCHAR(20) NULL,
+    answer_inside BIT NULL,
+    created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
+    updated_at DATETIME2 NULL
+);
+CREATE UNIQUE INDEX UX_roll_call_entries_student ON roll_call_entries (roll_call_id, student_id);
+CREATE INDEX IX_roll_call_entries_tenant ON roll_call_entries (tenant_id, roll_call_id);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_absence_cases') AND name = 'source')
+ALTER TABLE [dbo].[student_absence_cases] ADD [source] NVARCHAR(20) NULL;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_absence_cases') AND name = 'roll_call_id')
+ALTER TABLE [dbo].[student_absence_cases] ADD [roll_call_id] NVARCHAR(128) NULL;
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_absence_cases_roll_call' AND object_id = OBJECT_ID('student_absence_cases'))
+CREATE INDEX IX_absence_cases_roll_call ON student_absence_cases (roll_call_id);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BellRing, MapPin, X } from 'lucide-react';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { ensureForegroundPermission, isNativeApp } from '../utils/location';
 
 const DISMISS_KEY = 'sakani-perms-dismissed';
 
@@ -31,11 +32,11 @@ export function PermissionsPrompt() {
       try { dismissed = !!localStorage.getItem(DISMISS_KEY); } catch { /* ignore */ }
       if (dismissed) return;
 
-      const geoSupported = typeof navigator !== 'undefined' && 'geolocation' in navigator;
+      const geoSupported = isNativeApp() || (typeof navigator !== 'undefined' && 'geolocation' in navigator);
       let geo: PermissionState | 'unknown' = 'unknown';
       try {
         const anyNav = navigator as any;
-        if (anyNav.permissions?.query) {
+        if (!isNativeApp() && anyNav.permissions?.query) {
           geo = (await anyNav.permissions.query({ name: 'geolocation' })).state;
         }
       } catch { /* query unsupported (e.g. Safari) — treat as unknown */ }
@@ -53,6 +54,10 @@ export function PermissionsPrompt() {
 
   const requestLocation = () =>
     new Promise<void>((resolve) => {
+      if (isNativeApp()) {
+        ensureForegroundPermission().then(() => resolve()).catch(() => resolve());
+        return;
+      }
       if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return resolve();
       navigator.geolocation.getCurrentPosition(
         () => resolve(),

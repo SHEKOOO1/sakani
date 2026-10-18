@@ -1,4 +1,5 @@
 import { useAuth } from './contexts/AuthContext';
+import { useBackgroundTracking } from './hooks/useBackgroundTracking';
 import { LoginPage } from './components/LoginPage';
 import { Layout } from './components/Layout';
 import { AnimatePresence, motion } from 'motion/react';
@@ -6,10 +7,12 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageHelmet } from './components/PageHelmet';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
 import { PermissionsPrompt } from './components/PermissionsPrompt';
+import { RollCallPrompt } from './components/attendance/RollCallPrompt';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
   const { user, isLoading } = useAuth();
+  useBackgroundTracking();
 
   if (isLoading) {
     return (
@@ -58,6 +61,7 @@ export default function App() {
         </div>
       </ErrorBoundary>
       {user && <PermissionsPrompt />}
+      {user && <RollCallPrompt />}
       <PwaInstallPrompt />
     </>
   );

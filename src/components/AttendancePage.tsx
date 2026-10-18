@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useMounted } from '../hooks/useMounted';
 import { useApi } from '../hooks/useApi';
+import { getBestFix, watchFixes, isNativeApp, isTrustworthyFix, MAX_TRUSTWORTHY_ACCURACY_M, GeoError } from '../utils/location';
 import { useAuth } from '../contexts/AuthContext';
 import { AppPermission } from '../types/permissions';
 import { motion } from 'motion/react';
@@ -37,9 +38,10 @@ export function AttendancePage() {
   const [activeTab, setActiveTab] = useState<'main' | 'stats'>('main');
   const [hourlyStats, setHourlyStats] = useState([]);
   
-  const watchId = useRef<number | null>(null);
+  const watchRef = useRef<{ clear: () => void } | null>(null);
   const lastInside = useRef(false);
   const lastPresencePing = useRef(0);
+  const weakFixWarned = useRef(false);
   const [tenantLocation, setTenantLocation] = useState<any>(null);
 
   // Travel state
@@ -57,6 +59,9 @@ export function AttendancePage() {
   const PRESENCE_PING_INTERVAL_MS = 5 * 60 * 1000;
   const sendPresence = useCallback((lat: number, lng: number, accuracy?: number) => {
     if (user?.role?.toLowerCase() !== 'student') return;
+    // Never report a coarse network/IP fix — it can be kilometres off and would
+    // wrongly mark the student as outside. Only GPS-grade readings are sent.
+    if (typeof accuracy !== 'number' || accuracy <= 0 || accuracy > MAX_TRUSTWORTHY_ACCURACY_M) return;
     const now = Date.now();
     if (now - lastPresencePing.current < PRESENCE_PING_INTERVAL_MS) return;
     lastPresencePing.current = now;
@@ -102,7 +107,8 @@ export function AttendancePage() {
 
     loadRef.current();
     return () => {
-      if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
+      watchRef.current?.clear();
+      watchRef.current = null;
     };
   }, []);
 
@@ -120,44 +126,62 @@ export function AttendancePage() {
         radius: tenantLocation.location_radius || 50,
       };
 
-      watchId.current = navigator.geolocation.watchPosition(
-        async (position) => {
-          const { latitude, longitude, accuracy } = position.coords;
-          setCurrentCoords({ lat: latitude, lng: longitude });
-          sendPresence(latitude, longitude, accuracy);
+      watchRef.current = watchFixes(
+        async (fix) => {
+          const { lat, lng, accuracy } = fix;
+
+          // Ignore coarse network/IP fixes — acting on them would wrongly mark
+          // the student as outside. Warn once so they can fix the permission.
+          if (!isTrustworthyFix(fix)) {
+            if (!weakFixWarned.current) {
+              weakFixWarned.current = true;
+              setStatus('error');
+              setMessage('دقة موقعك ضعيفة (تعتمد على الشبكة). فعّل GPS واختر «الموقع الدقيق / Precise» من إعدادات المتصفح.');
+            }
+            return;
+          }
+          if (weakFixWarned.current) {
+            weakFixWarned.current = false;
+            setStatus('checking');
+            setMessage('نظام العبور الذكي نشط.. يرجى إبقاء التطبيق مفتوحاً عند نقاط الدخول/الخروج.');
+          }
+
+          setCurrentCoords({ lat, lng });
+          sendPresence(lat, lng, accuracy);
 
           const crossing = evaluateAutoCrossing({
-            latitude, longitude, center,
+            latitude: lat, longitude: lng, center,
             wasInside: lastInside.current,
           });
 
           // الدخول إلى نطاق السكن → تسجيل حضور تلقائي
           if (crossing.checkIn) {
-            await processAutoCheck('check-in', latitude, longitude, accuracy);
+            await processAutoCheck('check-in', lat, lng, accuracy);
             showSuccess('تم تسجيل دخولك تلقائياً.');
           }
           // الخروج من نطاق السكن → تسجيل انصراف تلقائي (الخادم يتحقق من الموقع فعلياً)
           if (crossing.checkOut) {
-            await processAutoCheck('check-out', latitude, longitude, accuracy);
+            await processAutoCheck('check-out', lat, lng, accuracy);
             showSuccess('تم تسجيل خروجك تلقائياً.');
           }
 
           lastInside.current = crossing.inside;
         },
-        (err) => {
+        () => {
           showError('فشل الوصول إلى موقعك لتفعيل العبور الذكي.');
           setStatus('error');
         },
-        { enableHighAccuracy: true }
+        { highAccuracy: true },
       );
     } else {
       showInfo('تم إيقاف نظام العبور الذكي.');
-      if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
+      watchRef.current?.clear();
+      watchRef.current = null;
     }
 
     return () => {
-      if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
-      watchId.current = null;
+      watchRef.current?.clear();
+      watchRef.current = null;
     };
   }, [isAutoMode, isTraveling, tenantLocation]);
 
@@ -171,8 +195,8 @@ export function AttendancePage() {
     } catch (err: any) { showError(err.message || "فشل التسجيل التلقائي."); console.error("Auto Check Error", err); }
   };
 
-  const handleCheckIn = () => {
-    if (!navigator.geolocation) {
+  const handleCheckIn = async () => {
+    if (!isNativeApp() && (typeof navigator === 'undefined' || !navigator.geolocation)) {
       setStatus('error');
       setMessage('متصفحك لا يدعم خاصية تحديد الموقع.');
       return;
@@ -180,37 +204,47 @@ export function AttendancePage() {
 
     setLoading(true);
     setStatus('checking');
-    setMessage('جاري تحديد موقعك الجغرافي...');
+    setMessage('جاري تحديد موقعك الجغرافي بدقة...');
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude, accuracy } = position.coords;
-        setCurrentCoords({ lat: latitude, lng: longitude });
-        sendPresence(latitude, longitude, accuracy);
-        
-        try {
-          const type = checkType === 'entry' ? 'check-in' : 'check-out';
-          const response = await request('/api/attendance/check-in', {
-            method: 'POST',
-            body: JSON.stringify({ lat: latitude, lng: longitude, type, accuracy })
-          });
-          showSuccess(response.message || `تم تسجيل ${type === 'check-in' ? 'دخولك' : 'خروجك'} بنجاح.`);
-          fetchHistory();
-        } catch (err: any) {
-          showError(err.message || 'فشل تسجيل السجل. تأكد من وجودك في النطاق المحدد.');
-        } finally {
-          setStatus('idle'); // Reset status after manual attempt
-          setMessage('');
-          setLoading(false);
-        }
-      },
-      (error) => {
-        setStatus('error');
-        setMessage('فشل الوصول إلى موقعك. يرجى تفعيل GPS وإعطاء الإذن للمتصفح.');
-        setLoading(false);
-      },
-      { enableHighAccuracy: true }
-    );
+    let fix;
+    try {
+      fix = await getBestFix({ highAccuracy: true });
+    } catch (error) {
+      setStatus('error');
+      setMessage(error instanceof GeoError && error.code === 'PERMISSION_DENIED'
+        ? 'تم رفض إذن الوصول للموقع. يرجى تفعيل الإذن و GPS.'
+        : 'فشل الوصول إلى موقعك. يرجى تفعيل GPS وإعطاء الإذن للمتصفح.');
+      setLoading(false);
+      return;
+    }
+
+    // Coarse (network/IP) fixes can be kilometres off — refuse rather than
+    // send the student on a false "outside" errand.
+    if (!isTrustworthyFix(fix)) {
+      setStatus('error');
+      setMessage('دقة موقعك ضعيفة (تعتمد على الشبكة). فعّل GPS واختر «الموقع الدقيق / Precise»، ثم أعد المحاولة.');
+      setLoading(false);
+      return;
+    }
+
+    setCurrentCoords({ lat: fix.lat, lng: fix.lng });
+    sendPresence(fix.lat, fix.lng, fix.accuracy);
+
+    try {
+      const type = checkType === 'entry' ? 'check-in' : 'check-out';
+      const response = await request('/api/attendance/check-in', {
+        method: 'POST',
+        body: JSON.stringify({ lat: fix.lat, lng: fix.lng, type, accuracy: fix.accuracy })
+      });
+      showSuccess(response.message || `تم تسجيل ${type === 'check-in' ? 'دخولك' : 'خروجك'} بنجاح.`);
+      fetchHistory();
+    } catch (err: any) {
+      showError(err.message || 'فشل تسجيل السجل. تأكد من وجودك في النطاق المحدد.');
+    } finally {
+      setStatus('idle');
+      setMessage('');
+      setLoading(false);
+    }
   };
 
   const handleTravelStart = async () => {

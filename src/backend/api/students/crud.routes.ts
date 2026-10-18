@@ -39,6 +39,9 @@ const SENSITIVE_STUDENT_FIELDS = [
   'national_id', 'id_card_number', 'address', 'phone', 'whatsapp_number',
   'confession_father_phone', 'confession_father_whatsapp',
   'guardian_phone', 'guardian_whatsapp',
+  // سبب الخصم ووثيقته لا تظهر في قائمة الطلاب — يكفي أن شارة الخصم تُظهر أن
+  // الطالب عليه خصم، والتفاصيل تبقى في الحساب المالي لدى أصحاب الصلاحية.
+  'discount_note', 'discount_document_id',
 ];
 
 const sanitizeStudentRow = (row: any) => {
@@ -1089,9 +1092,15 @@ router.get("/:id/files", authenticate, authorizePermission(AppPermission.VIEW_ST
     if (!student || !await canManageStudent(req.user, student.tenant_id)) {
       return res.status(403).json({ success: false, message: "الطالب ليس ضمن سكنك" });
     }
-    const files = await kdb('StudentDocuments')
+    // جواب الخصم ليس جزءاً من مستندات الطالب المعتادة: لا يُدرج في القائمة
+    // إلا لأصحاب الصلاحية (مشرف السكن/الكاهن/الأسقف/المدير).
+    const letterRoles = ['admin', 'bishop', 'priest', 'supervisor'];
+    let files = await kdb('StudentDocuments')
       .where({ student_id: id })
       .orderBy('upload_date', 'desc');
+    if (!letterRoles.includes(req.user.role)) {
+      files = files.filter((f: any) => f.doc_type !== 'discount_letter');
+    }
     res.json({ success: true, data: files });
   } catch (error: any) {
     res.status(500).json({ success: false, message: "حصل خطأ فني. لو سمحت كرر المحاولة." });
@@ -1107,9 +1116,15 @@ router.delete("/:id/files/:fileId", authenticate, authorizePermission(AppPermiss
       return res.status(404).json({ success: false, message: "الطالب غير موجود" });
     }
 
-    const result = await kdb.raw(`SELECT file_path FROM StudentDocuments WHERE id = ? AND student_id = ?`, [fileId, id]);
+    const result = await kdb.raw(`SELECT file_path, doc_type FROM StudentDocuments WHERE id = ? AND student_id = ?`, [fileId, id]);
     const rows = result.recordset || [];
     if (rows.length === 0) return res.status(404).json({ success: false, message: "File not found" });
+
+    // جواب الخصم لا يُحذف من هنا: يبقى كإثبات مرتبط بالخصم، وحذف الخصم نفسه
+    // يتم من صفحة الحساب المالي (مع إلغاء الخمز كاملاً).
+    if (rows[0].doc_type === 'discount_letter') {
+      return res.status(400).json({ success: false, message: "جواب الخصم لا يُحذف إلا مع إلغاء الخصم من الحساب المالي" });
+    }
 
     const filePath = rows[0].file_path;
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}

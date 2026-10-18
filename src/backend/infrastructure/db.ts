@@ -210,6 +210,12 @@ export async function initializeDb() {
     // أعمدة إضافية للحضور، الغياب، الإشعارات
     await kdb.raw(`
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'price_frozen_at') ALTER TABLE [dbo].[students] ADD [price_frozen_at] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'discount_type') ALTER TABLE [dbo].[students] ADD [discount_type] NVARCHAR(20) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'discount_value') ALTER TABLE [dbo].[students] ADD [discount_value] DECIMAL(18,2) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'discount_note') ALTER TABLE [dbo].[students] ADD [discount_note] NVARCHAR(500) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'discount_document_id') ALTER TABLE [dbo].[students] ADD [discount_document_id] INT NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'discount_set_by') ALTER TABLE [dbo].[students] ADD [discount_set_by] NVARCHAR(128) NULL;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('students') AND name = 'discount_set_at') ALTER TABLE [dbo].[students] ADD [discount_set_at] DATETIME2 NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('attendance') AND name = 'location_lat') ALTER TABLE [dbo].[attendance] ADD [location_lat] DECIMAL(10,7) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('attendance') AND name = 'location_lng') ALTER TABLE [dbo].[attendance] ADD [location_lng] DECIMAL(10,7) NULL;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('student_delays') AND name = 'curfew_time') ALTER TABLE [dbo].[student_delays] ADD [curfew_time] NVARCHAR(20) NULL;
@@ -679,6 +685,80 @@ export async function initializeDb() {
         ALTER TABLE [dbo].[students] ADD [travel_end_time] DATETIME2 NULL;
       IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('tenants') AND name = 'notify_guardian_on_exit')
         ALTER TABLE [dbo].[tenants] ADD [notify_guardian_on_exit] BIT NOT NULL CONSTRAINT DF_tenants_notify_guardian_on_exit DEFAULT 0;
+    `);
+
+    // ─── Supervisor roll-call: human-confirmed night check (mirrors migrations/064) ───
+    await kdb.raw(`
+      IF OBJECT_ID('roll_calls') IS NULL
+        CREATE TABLE [dbo].[roll_calls] (
+          [id]             NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [tenant_id]      NVARCHAR(128) NOT NULL,
+          [lock_date]      DATE          NOT NULL,
+          [lock_time]      NVARCHAR(10)  NULL,
+          [state]          NVARCHAR(20)  NOT NULL DEFAULT 'open',
+          [present_count]  INT           NOT NULL DEFAULT 0,
+          [absent_count]   INT           NOT NULL DEFAULT 0,
+          [unmarked_count] INT           NOT NULL DEFAULT 0,
+          [excluded_count] INT           NOT NULL DEFAULT 0,
+          [notes]          NVARCHAR(MAX) NULL,
+          [started_by]     NVARCHAR(128) NULL,
+          [started_at]     DATETIME2     NOT NULL DEFAULT GETDATE(),
+          [submitted_by]   NVARCHAR(128) NULL,
+          [submitted_at]   DATETIME2     NULL,
+          [published_at]   DATETIME2     NULL,
+          [created_at]     DATETIME2     NOT NULL DEFAULT GETDATE(),
+          [updated_at]     DATETIME2     NULL
+        );
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_roll_calls_per_day' AND object_id = OBJECT_ID('roll_calls'))
+        CREATE UNIQUE INDEX [UX_roll_calls_per_day] ON [dbo].[roll_calls] ([tenant_id], [lock_date]);
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_roll_calls_tenant_state' AND object_id = OBJECT_ID('roll_calls'))
+        CREATE INDEX [IX_roll_calls_tenant_state] ON [dbo].[roll_calls] ([tenant_id], [state], [lock_date]);
+
+      IF OBJECT_ID('roll_call_entries') IS NULL
+        CREATE TABLE [dbo].[roll_call_entries] (
+          [id]                NVARCHAR(128) NOT NULL PRIMARY KEY,
+          [roll_call_id]      NVARCHAR(128) NOT NULL,
+          [tenant_id]         NVARCHAR(128) NOT NULL,
+          [student_id]        NVARCHAR(128) NOT NULL,
+          [student_name]      NVARCHAR(255) NULL,
+          [mark]              NVARCHAR(20)  NOT NULL DEFAULT 'unmarked',
+          [presence_status]   NVARCHAR(20)  NULL,
+          [is_traveling]      BIT           NOT NULL DEFAULT 0,
+          [evidence_lat]      DECIMAL(10,7) NULL,
+          [evidence_lng]      DECIMAL(10,7) NULL,
+          [evidence_accuracy] INT           NULL,
+          [evidence_at]       DATETIME2     NULL,
+          [note]              NVARCHAR(MAX) NULL,
+          [absence_case_id]   NVARCHAR(128) NULL,
+          [answer_at]         DATETIME2     NULL,
+          [answer_mark]       NVARCHAR(20)  NULL,
+          [answer_inside]     BIT           NULL,
+          [created_at]        DATETIME2     NOT NULL DEFAULT GETDATE(),
+          [updated_at]        DATETIME2     NULL
+        );
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_roll_call_entries_student' AND object_id = OBJECT_ID('roll_call_entries'))
+        CREATE UNIQUE INDEX [UX_roll_call_entries_student] ON [dbo].[roll_call_entries] ([roll_call_id], [student_id]);
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_roll_call_entries_tenant' AND object_id = OBJECT_ID('roll_call_entries'))
+        CREATE INDEX [IX_roll_call_entries_tenant] ON [dbo].[roll_call_entries] ([tenant_id], [roll_call_id]);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('student_absence_cases') AND name = 'source')
+        ALTER TABLE [dbo].[student_absence_cases] ADD [source] NVARCHAR(20) NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('student_absence_cases') AND name = 'roll_call_id')
+        ALTER TABLE [dbo].[student_absence_cases] ADD [roll_call_id] NVARCHAR(128) NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_absence_cases_roll_call' AND object_id = OBJECT_ID('student_absence_cases'))
+        CREATE INDEX [IX_absence_cases_roll_call] ON [dbo].[student_absence_cases] ([roll_call_id]);
+    `);
+
+    // ─── Roll-call student self-response (mirrors migrations/065) ───
+    await kdb.raw(`
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('roll_calls') AND name = 'published_at')
+        ALTER TABLE [dbo].[roll_calls] ADD [published_at] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('roll_call_entries') AND name = 'answer_at')
+        ALTER TABLE [dbo].[roll_call_entries] ADD [answer_at] DATETIME2 NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('roll_call_entries') AND name = 'answer_mark')
+        ALTER TABLE [dbo].[roll_call_entries] ADD [answer_mark] NVARCHAR(20) NULL;
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('roll_call_entries') AND name = 'answer_inside')
+        ALTER TABLE [dbo].[roll_call_entries] ADD [answer_inside] BIT NULL;
     `);
 
     // ─── Discounts + product images (mirrors migrations/049) ───

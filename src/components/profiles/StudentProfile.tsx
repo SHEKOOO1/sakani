@@ -6,7 +6,7 @@ import { useStudentQr } from '../../hooks/useStudentQr';
 import {
   Home, Mail, Shield, Building, MapPin, Hash, Star,
   AlertTriangle, DollarSign, QrCode, Calendar, Clock,
-  ChevronDown, ChevronUp, AlertCircle, Award, BookOpen, Heart, Zap, Users
+  ChevronDown, ChevronUp, AlertCircle, Award, BookOpen, Heart, Zap, Users, Tag
 } from 'lucide-react';
 import { QRCode } from 'react-qr-code';
 import { RoleBadge, AvatarUpload, InfoRow, SectionCard, SaveButton, PhoneInput } from './ProfileShared';
@@ -213,6 +213,18 @@ export function StudentProfile() {
             <FinStat label="نسبة السداد" value={`${Math.round(finSummary.data.paymentPercent ?? 0)}%`} />
             <FinStat label="المتبقي" value={`${finSummary.data.remaining || 0} ج`} />
           </div>
+          {finSummary.data.hasDiscount && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/25 rounded-2xl">
+              <Tag size={14} className="text-emerald-600 dark:text-emerald-300 shrink-0" />
+              <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-300">
+                خصم {finSummary.data.discountType === 'percent' ? `${finSummary.data.discountValue}%` : `${finSummary.data.discountValue} ج.م`}
+                {' '}على سعر الإقامة — وفّرت {finSummary.data.discountAmount} ج.م
+              </p>
+              <span className="text-[10px] font-bold text-emerald-600/70 dark:text-emerald-400/70">
+                (السعر قبل الخصم: {finSummary.data.grossInvoice} ج)
+              </span>
+            </div>
+          )}
         </SectionCard>
       )}
 

@@ -38,6 +38,10 @@ logs
 # ── End-to-end automation ────────────────────────────────────────
 e2e
 
+# ── Native app projects (Capacitor; not needed to build the web/server image) ──
+android
+ios
+
 # ── OS / editor files ────────────────────────────────────────────
 .DS_Store
 Thumbs.db

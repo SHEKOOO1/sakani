@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Wallet, AlertTriangle, Scale, TrendingUp, TrendingDown, Receipt, PenLine } from 'lucide-react';
+import { Wallet, AlertTriangle, Scale, TrendingUp, TrendingDown, Receipt, PenLine, Tag } from 'lucide-react';
 
 const CYCLE_LABELS: Record<string, string> = {
   daily: 'تحصيل يومي',
@@ -25,6 +25,11 @@ interface FinanceSummaryProps {
     roomPrice?: number;
     source?: 'room' | 'agreed' | 'frozen';
     billingCycle?: string;
+    hasDiscount?: boolean;
+    discountType?: 'percent' | 'amount' | null;
+    discountValue?: number | null;
+    discountAmount?: number;
+    grossInvoice?: number;
     transactions?: any[];
   };
   paymentPercent: number;
@@ -36,6 +41,12 @@ export default function FinanceSummary({ finance, paymentPercent }: FinanceSumma
   const balance = finance.balance ?? (finance.totalInvoice - finance.totalPaid);
   const debtStatus = finance.debtStatus || (balance > 0 ? 'debt' : balance < 0 ? 'credit' : 'paid');
   const creditAmount = finance.creditAmount ?? Math.max(0, -balance);
+  const discountLabel = finance.discountType === 'percent'
+    ? `${finance.discountValue}%`
+    : finance.discountType === 'amount'
+      ? `${Number(finance.discountValue || 0).toLocaleString()} ج.م`
+      : '';
+  const showDiscount = !!finance.hasDiscount && !!discountLabel;
   return (
     <motion.div
       initial="hidden" animate="visible" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
@@ -69,6 +80,19 @@ export default function FinanceSummary({ finance, paymentPercent }: FinanceSumma
           </span>
           <span className="text-lg font-black">{finance.totalInvoice.toLocaleString()} ج.م</span>
         </div>
+        {showDiscount && (
+          <>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-emerald-200 font-medium flex items-center gap-1.5">
+                <Tag size={11} /> خصم {discountLabel} على سعر الإقامة
+              </span>
+              <span className="text-xs font-black text-emerald-200">−{Number(finance.discountAmount || 0).toLocaleString()} ج.م</span>
+            </div>
+            {finance.grossInvoice != null && finance.grossInvoice > 0 && (
+              <p className="text-[9px] text-white/50 font-bold">السعر قبل الخصم: {Number(finance.grossInvoice).toLocaleString()} ج.م</p>
+            )}
+          </>
+        )}
         <div className="flex justify-between items-center">
           <span className="text-xs text-white/70 font-medium">المدفوع</span>
           <span className="font-black text-ocean-200">{finance.totalPaid.toLocaleString()} ج.م</span>

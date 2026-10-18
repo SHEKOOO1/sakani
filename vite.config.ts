@@ -22,6 +22,9 @@ export default defineConfig(({ mode }) => {
       // إعدادات الـ PWA
       VitePWA({
         registerType: 'autoUpdate',
+        // التسجيل يدوي في main.tsx حتى نستطيع تخطّيه داخل غلاف Capacitor الأصلي
+        // (الـService Worker يعترض الطلبات ويمنع تحميل الإضافات الأصلية).
+        injectRegister: false,
         devOptions: {
           enabled: true,
         },

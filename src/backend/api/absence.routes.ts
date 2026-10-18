@@ -6,6 +6,7 @@ import { canAccessTenant, requirePermOrAdmin } from "./attendancePolicy.routes";
 import { AppPermission } from "../../types/permissions";
 import { recordPresence, getTenantPresenceBoard, resolveDormGate } from "../services/presence.service";
 import { runLockCheck, reEscalateUnacked } from "../services/absenceLock.service";
+import { isAbsenceTrackingDisabled } from "../services/absenceScheduler.service";
 import { penaltyLines, postEntry } from "../services/ledger.service";
 import { BehaviorService } from "../services/behavior.service";
 import { isValidCoordinate } from "../services/geo";
@@ -342,6 +343,9 @@ router.post("/tenants/:tenantId/absence-cases/run-check", authenticate, async (r
     const tenantId = req.params.tenantId;
     if (!await canAccessTenant(req, tenantId)) return res.status(403).json({ success: false, message: "غير مصرح بالوصول للسكن" });
     if (!await requirePermOrAdmin(req, res, AppPermission.MANAGE_ATTENDANCE)) return;
+    if (isAbsenceTrackingDisabled()) {
+      return res.status(409).json({ success: false, message: "نظام تسجيل الحضور والغياب موقوف مؤقتًا حاليًا" });
+    }
     const result = await runLockCheck({ tenantId });
     const escalated = await reEscalateUnacked({ tenantId });
     res.json({ success: true, data: { ...result, escalated } });

@@ -102,8 +102,10 @@ import uploadsRoutes from "./src/backend/api/uploads.routes.ts";
 import mediaRoutes from "./src/backend/api/media.routes.ts";
 import devicesRoutes from "./src/backend/api/devices.routes.ts";
 import absenceRoutes from "./src/backend/api/absence.routes.ts";
+import rollCallRoutes from "./src/backend/api/rollCall.routes.ts";
 import { startRadiojarService } from "./src/backend/services/radiojar.service.ts";
 import { startAbsenceScheduler } from "./src/backend/services/absenceScheduler.service.ts";
+import { startRollCallScheduler } from "./src/backend/services/rollCallScheduler.service.ts";
 import { auditLogger, sanitizeInput, authenticate, authorizePermission, resolveSocketUser } from "./src/backend/api/middleware.ts";
 import { AppPermission } from "./src/types/permissions.ts";
 import swaggerUi from "swagger-ui-express";
@@ -503,6 +505,7 @@ async function startServer() {
   app.use("/api/attendance", attendanceRoutes);
   app.use("/api/devices", devicesRoutes);
   app.use("/api", absenceRoutes);
+  app.use("/api", rollCallRoutes);
   app.use("/api/maintenance", maintenanceRoutes);
   app.use("/api/laundry", laundryRoutes);
   app.use("/api/restaurant", restaurantRoutes);
@@ -539,6 +542,9 @@ app.use("/api/items", itemManagersRoutes);
 
   // Start the lock-time absence check (idempotent; disabled under NODE_ENV=test)
   startAbsenceScheduler();
+
+  // Start the automatic night roll-call (independent of ABSENCE_SCHEDULER_DISABLED)
+  startRollCallScheduler();
 
   // Global error handler - يمنع تسريب تفاصيل قاعدة البيانات
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

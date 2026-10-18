@@ -6,6 +6,15 @@
  * and dependency-free so it can be unit-tested directly.
  */
 
+/**
+ * A fix coarser than this is almost always a network/IP fallback (Wi-Fi, cell or
+ * ISP-geolocation) rather than a real GPS lock. Chrome reports these with a
+ * huge `accuracy` (often 1–5 km) and a position that can be hundreds of
+ * kilometres off, so such a reading must NEVER be allowed to confirm that a
+ * student is outside a small dorm fence.
+ */
+export const MAX_TRUSTWORTHY_ACCURACY_M = 200;
+
 /** Haversine distance between two WGS-84 points, in meters. */
 export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
@@ -30,10 +39,13 @@ export type GeofenceVerdict = 'inside' | 'outside' | 'uncertain';
  *    "uncertain" (never treated as a confirmed absence).
  */
 export function evaluateGeofence(distance: number, radius: number, accuracy: number): GeofenceVerdict {
-  if (!(accuracy > 0)) return distance <= radius ? 'inside' : 'outside';
-  if (distance + accuracy <= radius) return 'inside';
-  if (distance - accuracy > radius) return 'outside';
-  return 'uncertain';
+  if (!(accuracy > 0)) return distance <= radius ? "inside" : "outside";
+  // Too coarse to be trusted for a small fence: treat as unknown rather than
+  // confirming an absence (protects students from IP/Wi-Fi "far away" readings).
+  if (accuracy > MAX_TRUSTWORTHY_ACCURACY_M) return "uncertain";
+  if (distance + accuracy <= radius) return "inside";
+  if (distance - accuracy > radius) return "outside";
+  return "uncertain";
 }
 
 /** Accepts a non-negative finite number; anything else becomes 0 (no margin). */

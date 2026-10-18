@@ -62,6 +62,7 @@ const BroadcastTicker = lazy(() => import('./BroadcastTicker').then(m => ({ defa
 const EventAttendanceOperatorPage = lazy(() => import('./events/EventAttendanceOperatorPage').then(m => ({ default: m.EventAttendanceOperatorPage })));
 const AttendanceAdminPage = lazy(() => import('./events/AttendanceAdminPage').then(m => ({ default: m.AttendanceAdminPage })));
 const AbsenceCasesPage = lazy(() => import('./absence/AbsenceCasesPage').then(m => ({ default: m.AbsenceCasesPage })));
+const RollCallPage = lazy(() => import('./absence/RollCallPage').then(m => ({ default: m.RollCallPage })));
 
 export function Layout({ children }: { children?: React.ReactNode }) {
   const { user, logout, hasPermission, refreshPermissions } = useAuth();
@@ -115,6 +116,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     { id: 'users', icon: UserCog, label: 'إدارة المستخدمين', permission: AppPermission.VIEW_USERS, path: '/users', hide: isStudent || isParent },
     { id: 'attendance', icon: MapPin, label: 'تسجيل حضور', permission: AppPermission.CHECKIN_ATTENDANCE, path: '/attendance', hide: false },
     { id: 'absence_cases', icon: ShieldAlert, label: 'حالات الغياب', permission: AppPermission.MANAGE_ATTENDANCE, path: '/absence-cases', hide: !['supervisor', 'assistant_supervisor'].includes(user?.role?.toLowerCase() || '') },
+    { id: 'roll_call', icon: ClipboardCheck, label: 'مناداة الليل', permission: AppPermission.MANAGE_ATTENDANCE, path: '/roll-call', hide: !['supervisor', 'assistant_supervisor'].includes(user?.role?.toLowerCase() || '') },
     { id: 'laundry', icon: Waves, label: 'الغسيل', permission: AppPermission.VIEW_LAUNDRY_QUEUE, path: '/laundry', hide: isParent || services.laundry_enabled === false },
     { id: 'restaurant', icon: UtensilsCrossed, label: 'المطعم', permission: AppPermission.VIEW_RESTAURANT, path: '/restaurant', hide: isParent || services.restaurant_enabled === false },
     { id: 'canteen', icon: Store, label: 'الكانتين', permission: AppPermission.VIEW_CANTEEN, path: '/canteen', hide: isParent || services.canteen_enabled === false },
@@ -187,6 +189,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
     decisions: 'سجل القرارات', events: 'الفعاليات', events_attendance: 'حضور الفعاليات',
     students: 'الطلاب', attendance: 'الحضور', maintenance: 'الصيانة',
     absence_cases: 'حالات الغياب',
+    roll_call: 'مناداة الليل',
     inventory: 'المخزون', reports: 'التقارير', laundry: 'المغسلة',
     restaurant: 'المطعم', canteen: 'الكانتين',
     admin_management: 'إدارة النظام', employees: 'الموظفون', badges_admin: 'الشارات',
@@ -231,6 +234,7 @@ export function Layout({ children }: { children?: React.ReactNode }) {
       case 'students': return hasPermission(AppPermission.VIEW_STUDENT) ? <StudentsPage /> : defaultDashboard;
       case 'attendance': return hasPermission(AppPermission.CHECKIN_ATTENDANCE) ? <AttendancePage /> : defaultDashboard;
       case 'absence_cases': return hasPermission(AppPermission.MANAGE_ATTENDANCE) ? <AbsenceCasesPage /> : defaultDashboard;
+      case 'roll_call': return hasPermission(AppPermission.MANAGE_ATTENDANCE) ? <RollCallPage /> : defaultDashboard;
       case 'maintenance': return (hasPermission(AppPermission.VIEW_MAINTENANCE) || (isStudent && hasPermission(AppPermission.REQUEST_MAINTENANCE))) ? <MaintenancePage /> : defaultDashboard;
       case 'inventory': return hasPermission(AppPermission.VIEW_INVENTORY) ? <div className="p-10 text-center"><p className="text-lg font-bold text-slate-400">لا توجد بيانات متاحة حالياً</p></div> : defaultDashboard;
       case 'reports': return hasPermission(AppPermission.VIEW_REPORTS) ? <div className="p-10 text-center"><p className="text-lg font-bold text-slate-400">لا توجد بيانات متاحة حالياً</p></div> : defaultDashboard;

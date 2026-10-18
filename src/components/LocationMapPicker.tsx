@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPin, Crosshair, Trash2 } from 'lucide-react';
+import { getBestFix } from '../utils/location';
 
 export interface GeoPoint {
   lat: number | null;
@@ -150,19 +151,17 @@ export function LocationMapPicker({ center, onCenterChange }: LocationMapPickerP
     }
   }, [center.lat, center.lng, center.radius, placeMarker, clearVisuals]);
 
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) return;
+  const handleUseMyLocation = async () => {
     setGettingLocation(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        mapInstance.current?.setView([lat, lng], 16);
-        applyPoint(lat, lng);
-        setGettingLocation(false);
-      },
-      () => { setGettingLocation(false); },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    try {
+      const fix = await getBestFix({ highAccuracy: true, timeoutMs: 12000 });
+      mapInstance.current?.setView([fix.lat, fix.lng], 16);
+      applyPoint(fix.lat, fix.lng);
+    } catch {
+      // Ignore — the user can still pick the point manually on the map.
+    } finally {
+      setGettingLocation(false);
+    }
   };
 
   return (

@@ -27,6 +27,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # TEMPORARY: pauses the curfew absence/attendance system. With this set, the
+      # in-process scheduler (absenceScheduler.service.ts) never runs the lock-time
+      # check, so NO automatic absence cases, student warnings, or supervisor/parent
+      # notifications are created after curfew. Manual check-in/out, presence pings,
+      # the presence board and the absence-case pages stay fully functional.
+      # Remove this line (and recreate the container) to re-enable the system.
+      ABSENCE_SCHEDULER_DISABLED: "1"
       # Enables the CSRF middleware's loopback fallback so the app is usable from
       # http://127.0.0.1:3100 during debugging. Safe for production traffic: the
       # fallback still requires the request Host header to be a loopback name

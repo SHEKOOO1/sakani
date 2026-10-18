@@ -14,8 +14,10 @@ import QRCode from 'react-qr-code';
 import { 
   Trophy, Wrench, Waves, AlertTriangle,
   QrCode, RefreshCw, AlertCircle,
-  CheckCircle2, Plus, Sparkles
+  CheckCircle2, Plus, Sparkles, Plane, Home
 } from 'lucide-react';
+import { TravelModal } from './attendance/TravelModal';
+import { useSnackbar } from '../contexts/SnackbarContext';
 
 const cardVariants: any = {
   hidden: { opacity: 0, y: 20 },
@@ -42,6 +44,10 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
   });
   const [refreshing, setRefreshing] = useState(false);
   const [myStudentId, setMyStudentId] = useState<string | null>(null);
+  const { showSuccess, showError, confirm } = useSnackbar();
+  const [travelOpen, setTravelOpen] = useState(false);
+  const [travelForm, setTravelForm] = useState({ destination: '', reason: '' });
+  const [travelLoading, setTravelLoading] = useState(false);
   const { qr: studentQr, refresh: refreshQr } = useStudentQr(myStudentId);
 
   const fetchData = useCallback(async () => {
@@ -83,6 +89,42 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
     setRefreshing(true);
     await fetchData();
     setTimeout(() => setRefreshing(false), 500);
+  };
+
+  const isTraveling = !!dashboardData.roomInfo?.is_traveling;
+
+  const submitTravelStart = async () => {
+    if (!travelForm.destination.trim() || !travelForm.reason.trim()) {
+      showError('من فضلك اكتب الوجهة وسبب السفر');
+      return;
+    }
+    setTravelLoading(true);
+    try {
+      await request('/api/students/travel/start', { method: 'POST', body: JSON.stringify(travelForm) });
+      showSuccess('تم تسجيل سفرك — هتكون معفى من مناداة الليل');
+      setTravelOpen(false);
+      setTravelForm({ destination: '', reason: '' });
+      await fetchData();
+    } catch (err: any) {
+      showError(err?.message || 'تعذّر تسجيل السفر. حاول مرة أخرى.');
+    } finally {
+      setTravelLoading(false);
+    }
+  };
+
+  const endTravel = async () => {
+    const ok = await confirm({ title: 'تأكيد العودة', message: 'هل رجعت فعلاً إلى السكن؟ هيتفعّل عليك الحضور ومناداة الليل تاني.', type: 'warning' });
+    if (!ok) return;
+    setTravelLoading(true);
+    try {
+      await request('/api/students/travel/end', { method: 'POST' });
+      showSuccess('نورت! تم تسجيل عودتك للسكن');
+      await fetchData();
+    } catch (err: any) {
+      showError(err?.message || 'تعذّر تسجيل العودة. حاول مرة أخرى.');
+    } finally {
+      setTravelLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -237,6 +279,46 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
 
       <DailyReadingsCard />
 
+      <motion.div
+        custom={5}
+        initial="hidden"
+        animate="visible"
+        variants={cardVariants}
+        className={`rounded-xl border p-5 shadow-sm ${isTraveling ? 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/10' : 'border-slate-100 bg-white dark:border-white/[0.04] dark:bg-card-dark'}`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isTraveling ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-primary-50 text-primary-600 dark:bg-primary-500/20 dark:text-primary-400'}`}>
+            <Plane size={22} />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-black text-sm text-slate-800 dark:text-white">
+              {isTraveling ? 'أنت مسجّل كمسافر حالياً' : 'مسافر أو خارج السكن؟'}
+            </h3>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-300 mt-0.5">
+              {isTraveling
+                ? `الوجهة: ${dashboardData.roomInfo?.travel_destination || 'غير محددة'} — أنت معفى من الحضور ومناداة الليل لحد ما ترجع.`
+                : 'سجّل سفرك عشان تتخطى مناداة الليل وحضور غلق السكن، ويتم إبلاغ المشرف وولي أمرك.'}
+            </p>
+          </div>
+          {isTraveling ? (
+            <button
+              onClick={endTravel}
+              disabled={travelLoading}
+              className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-emerald-600 text-white font-black text-xs hover:bg-emerald-700 disabled:opacity-60 shadow-lg shadow-emerald-600/20"
+            >
+              <Home size={16} /> رجعت من السفر
+            </button>
+          ) : (
+            <button
+              onClick={() => setTravelOpen(true)}
+              className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-primary-600 text-white font-black text-xs hover:bg-primary-700 shadow-lg shadow-primary-600/20"
+            >
+              <Plane size={16} /> أنا مسافر الآن
+            </button>
+          )}
+        </div>
+      </motion.div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="space-y-5">
           <MessagesSection />
@@ -285,6 +367,17 @@ export function StudentDashboard({ onNavigate }: { onNavigate?: (view: string) =
           </div>
         </div>
       </div>
+
+      <TravelModal
+        open={travelOpen}
+        onClose={() => setTravelOpen(false)}
+        destination={travelForm.destination}
+        reason={travelForm.reason}
+        onDestinationChange={(v) => setTravelForm(f => ({ ...f, destination: v }))}
+        onReasonChange={(v) => setTravelForm(f => ({ ...f, reason: v }))}
+        loading={travelLoading}
+        onSubmit={submitTravelStart}
+      />
     </div>
   );
 }

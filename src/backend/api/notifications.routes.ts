@@ -158,6 +158,7 @@ export const createNotification = async (data: {
   type?: 'info' | 'success' | 'warning' | 'error';
   metadata?: string;
   event_id?: string;
+  url?: string;
 }) => {
   const id = uuidv4();
   let metaJson: string | null = data.metadata || null;
@@ -195,7 +196,7 @@ export const createNotification = async (data: {
       renotify: false,
       vibrate: [200, 100, 200],
       data: {
-        url: '/notifications'
+        url: data.url || '/notifications'
       }
     });
 

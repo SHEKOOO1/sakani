@@ -1,13 +1,33 @@
 import { useState } from 'react';
 import {
   Search, Filter, Building, Trash2, UserCircle, GraduationCap,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Tag
 } from 'lucide-react';
 import { ServiceToggle } from './ServiceToggle';
 import { FilterPanel } from './FilterPanel';
 import { EmptyStudentsState } from './EmptyStudentsState';
 import { ConfirmationModal } from '../ConfirmationModal';
 import { Pagination } from '../Pagination';
+
+function discountLabel(student: any) {
+  if (!student?.discount_type || student.discount_value == null) return '';
+  const value = Number(student.discount_value);
+  return student.discount_type === 'percent' ? `${value}%` : `${value.toLocaleString('en-US')} ج.م`;
+}
+
+/** شارة مصغّرة تُظهر أن على الطالب خصماً على سعر الإقامة — بدون كشف سببه. */
+function DiscountBadge({ student }: { student: any }) {
+  const label = discountLabel(student);
+  if (!label) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-full text-[9px] font-black"
+      title={`خصم مُفعَّل على سعر الإقامة: ${label}`}
+    >
+      <Tag size={11} /> خصم {label}
+    </span>
+  );
+}
 
 interface StudentListViewProps {
   loading: boolean;
@@ -145,6 +165,7 @@ export function StudentListView({
                                     <GraduationCap size={11} /> خريج
                                   </span>
                                 )}
+                                <DiscountBadge student={student} />
                               </p>
                               <p className="text-[10px] text-slate-400 dark:text-slate-300 font-bold mt-1 tracking-wide uppercase">{student.email}</p>
                             </div>
@@ -228,6 +249,7 @@ export function StudentListView({
                               <GraduationCap size={11} /> خريج
                             </span>
                           )}
+                          <DiscountBadge student={student} />
                         </p>
                         <p className="text-[10px] text-slate-400 dark:text-slate-300 font-bold mt-1 tracking-wide uppercase">{student.email}</p>
                       </div>

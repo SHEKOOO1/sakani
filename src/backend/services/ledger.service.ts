@@ -168,25 +168,57 @@ export function resolveFrozenPrice(room: any, cycle: string | null | undefined, 
  * `remaining` = invoiceForStudent(...).invoice - SUM(payment) from
  * getStudentLedgerTotals.
  */
+/**
+ * The discount a student is entitled to on their gross (pre-discount) price.
+ *
+ * `percent` takes a share of the price (capped at 100%), `amount` a flat
+ * reduction (never more than the price itself). Anything else — a missing row,
+ * an unknown type, a non-positive value — yields 0 so a half-written discount
+ * can never invent money or a negative invoice.
+ */
+export function discountAmountFor(gross: number, student: any): number {
+  const base = Number(gross || 0);
+  if (base <= 0) return 0;
+  const type = student?.discount_type;
+  const value = Number(student?.discount_value ?? 0);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (type === 'percent') {
+    const pct = Math.min(100, value);
+    return fromCents(toCents(base * (pct / 100)));
+  }
+  if (type === 'amount') {
+    return fromCents(toCents(Math.min(value, base)));
+  }
+  return 0;
+}
+
 export function invoiceForStudent(student: any): {
   roomPrice: number;
   invoice: number;
+  /** The price before any discount — the base a price edit compares against. */
+  grossInvoice: number;
+  discountAmount: number;
   source: 'room' | 'agreed' | 'frozen';
   billingCycle: string;
 } {
   const billingCycle = student?.billing_cycle || 'semester';
+  const finish = (roomPrice: number, grossInvoice: number, source: 'room' | 'agreed' | 'frozen') => {
+    const discountAmount = discountAmountFor(grossInvoice, student);
+    const invoice = Math.max(0, fromCents(toCents(grossInvoice - discountAmount)));
+    return { roomPrice, invoice, grossInvoice, discountAmount, source, billingCycle };
+  };
   if (student?.price_frozen_at != null && student?.agreed_price != null) {
     const frozenAt = new Date(student.price_frozen_at).getTime();
     // A frozen price applies once its effective date has arrived; a future-dated
     // change stays pending (falls back to legacy pricing) until then.
     if (!Number.isFinite(frozenAt) || frozenAt <= Date.now()) {
       const frozen = Number(student.agreed_price || 0);
-      return { roomPrice: frozen, invoice: frozen, source: 'frozen', billingCycle };
+      return finish(frozen, frozen, 'frozen');
     }
   }
   const roomPrice = roomPriceFor(student, billingCycle);
-  const invoice = roomPrice > 0 ? roomPrice : Number(student?.agreed_price || 0);
-  return { roomPrice, invoice, source: roomPrice > 0 ? 'room' : 'agreed', billingCycle };
+  const grossInvoice = roomPrice > 0 ? roomPrice : Number(student?.agreed_price || 0);
+  return finish(roomPrice, grossInvoice, roomPrice > 0 ? 'room' : 'agreed');
 }
 
 export function paymentLines(amount: number): JournalLineInput[] {
