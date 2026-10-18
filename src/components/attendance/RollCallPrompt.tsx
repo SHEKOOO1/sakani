@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, CheckCircle2, XCircle, Loader2, BellRing } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApi } from '../../hooks/useApi';
-import { getBestFix, isNativeApp } from '../../utils/location';
+import { getBestFix, isNativeApp, isTrustworthyFix } from '../../utils/location';
 
 interface RollCallCard {
   rollCall: { id: string; lock_date: string; lock_time: string | null; state: string; notes: string | null };
@@ -94,6 +94,9 @@ export function RollCallPrompt() {
       try {
         const fix = await getBestFix({ highAccuracy: true, timeoutMs: 10000, maximumAgeMs: 30_000 });
         if (cancelled) return;
+        // A coarse network/IP fix is unusable for a dorm fence — report unknown
+        // rather than telling the student they are somewhere they are not.
+        if (!isTrustworthyFix(fix)) { setGeo('unknown'); return; }
         coordsRef.current = { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy };
         const res = await request('/api/attendance/presence', {
           method: 'POST',
