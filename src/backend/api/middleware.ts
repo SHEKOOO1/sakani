@@ -400,17 +400,24 @@ function stripXSS(value: string): string {
     .replace(/<style\b/g, '');
 }
 
-function sanitizeValue(value: any): any {
+// كلمات المرور لا تُنظَّف إطلاقاً: تُخزَّن وتُقارَن كما هي. تنضيفها كان يمزق
+// أي باسورد يحتوي < أو > (يُحفظ مُنقّحاً عند الإنشاء ثم لا يُطابق عند الدخول)،
+// فيتحول تنضيف المدخلات إلى قفل دائم على الحساب. نستثنيها هنا بالاسم.
+const PASSWORD_FIELDS = new Set(['password', 'newPassword', 'currentPassword', 'new_password', 'current_password', 'confirmPassword']);
+
+function sanitizeValue(value: any, key?: string): any {
+  // حقول كلمات المرور لا تُلمَس مطلقًا (كما هي من غير أي strip)
+  if (typeof key === 'string' && PASSWORD_FIELDS.has(key)) return value;
   if (typeof value === 'string') {
     return stripXSS(value);
   }
   if (Array.isArray(value)) {
-    return value.map(sanitizeValue);
+    return value.map((item) => sanitizeValue(item));
   }
   if (value && typeof value === 'object') {
     const sanitized: Record<string, any> = {};
     for (const [key, val] of Object.entries(value)) {
-      sanitized[key] = sanitizeValue(val);
+      sanitized[key] = sanitizeValue(val, key);
     }
     return sanitized;
   }

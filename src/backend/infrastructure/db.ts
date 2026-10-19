@@ -126,6 +126,8 @@ export async function initializeDb() {
       ALTER TABLE [dbo].[users] ADD [photo_url] NVARCHAR(MAX);
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'token_version')
       ALTER TABLE [dbo].[users] ADD [token_version] INT NOT NULL DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'must_change_password')
+      ALTER TABLE [dbo].[users] ADD [must_change_password] BIT NOT NULL DEFAULT 0;
     `);
 
     // Email verification was removed (2026-10): accounts are activated

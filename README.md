@@ -351,7 +351,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ### سكربتات مساعدة في `scripts/`
 - **تشغيل/ترحيل**: `migrate.ts`, `reset-db.ts`, `cleanup-uploads.ts`, `backfill-ledger.ts`, `verify-ledger-idempotency.ts`, `price-freeze-report.ts`, `verify-ledger-scope-sql.ts`.
-- **إدارة قاعدة البيانات**: `init_mssql.ts`, `check-db.ts`, `test-db-conn.ts`, `verify_mssql_setup.ts`, `20240514_UpdateDormMasterSchema.sql`.
+- **إدارة قاعدة البيانات**: `init_mssql.ts`, `verify_mssql_setup.ts`, `20240514_UpdateDormMasterSchema.sql`.
 - **الحسابات الإدارية**: `seed-admin.ts`, `seed-admin-lib.ts`, `set-passwords.ts` (env-driven + fail-closed + prod guard). تُشغَّل يدويًا وليست مرتبطة في `package.json`.
 - **نسخ احتياطي**: `backup.sh`.
 - **`ops/`**: `verify-ledger.sql`, `backup-preledger.sql`.

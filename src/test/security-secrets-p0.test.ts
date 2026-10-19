@@ -137,7 +137,6 @@ describe('p0: server startup & signing wiring', () => {
       'src/backend/api/auth.routes.ts',
       'src/backend/api/user.routes.ts',
       'src/backend/api/middleware.ts',
-      'scripts/test-endpoints.ts',
     ]) {
       const src = readRepoFile(rel);
       expect(src).toContain('process.env.JWT_SECRET');

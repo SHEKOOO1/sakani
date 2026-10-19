@@ -64,7 +64,6 @@ export const MAX_TRUSTWORTHY_ACCURACY_M = 200;
 export function isTrustworthyFix(fix: Pick<GeoFix, 'accuracy'>, maxM: number = MAX_TRUSTWORTHY_ACCURACY_M): boolean {
   return Number.isFinite(fix.accuracy) && fix.accuracy <= maxM;
 }
-}
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_DESIRED_ACCURACY_M = 30;

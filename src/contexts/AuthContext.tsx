@@ -11,6 +11,8 @@ interface User {
   custom_role_id?: string | null;
   daily_readings_enabled?: boolean;
   radio_514_enabled?: boolean;
+  /** true when the account still uses the shared default password. */
+  must_change_password?: boolean;
 }
 
 // Mirroring the backend logic in frontend for UI toggling

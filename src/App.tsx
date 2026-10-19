@@ -8,6 +8,7 @@ import { PageHelmet } from './components/PageHelmet';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
 import { PermissionsPrompt } from './components/PermissionsPrompt';
 import { RollCallPrompt } from './components/attendance/RollCallPrompt';
+import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -51,6 +52,10 @@ export default function App() {
             {!user ? (
               <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <LoginPage />
+              </motion.div>
+            ) : user.must_change_password ? (
+              <motion.div key="force-password" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <ForcePasswordChange />
               </motion.div>
             ) : (
               <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

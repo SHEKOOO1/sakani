@@ -794,7 +794,7 @@ router.post("/:id/import", authenticate, authorize([UserRole.Admin, UserRole.Bis
           if (!existingUser) {
             userId = userId || uuidv4();
             await trx('users').insert({
-                id: userId, tenant_id: id, email: std.email, password: defaultPassword, role: requestedRole, name: std.name, activated_at: new Date()
+                id: userId, tenant_id: id, email: std.email, password: defaultPassword, role: requestedRole, name: std.name, activated_at: new Date(), must_change_password: 1
             });
           } else {
             userId = existingUser.id;

@@ -219,12 +219,4 @@ describe('p0-4: runtime DB config is production-safe', () => {
     expect(migrateSrc).toContain('assertProductionDbConfig');
     expect(migrateSrc).not.toMatch(/trustServerCertificate:\s*true/);
   });
-
-  it('diagnostic scripts no longer contain hardcoded sa/123 credentials', () => {
-    for (const rel of ['scripts/check-db.ts', 'scripts/test-db-conn.ts']) {
-      const src = readRepoFile(rel);
-      expect(src).not.toContain("user: 'sa'");
-      expect(src).not.toContain("password: '123'");
-    }
-  });
 });

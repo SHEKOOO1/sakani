@@ -212,7 +212,8 @@ router.post("/", authenticate, authorizePermission(AppPermission.MANAGE_USERS), 
         password: hashedPassword,
         role,
         name,
-        activated_at: activatedAt
+        activated_at: activatedAt,
+        must_change_password: resolvedPassword.usedDefault ? 1 : 0
       });
 
       if (tenantId) {
@@ -354,8 +355,11 @@ router.put("/me/password", changePasswordLimiter, authenticate, async (req, res)
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     const nextVersion = (Number(user.token_version) || 0) + 1;
-    await kdb("users").where({ id: user.id }).update({ password: hashedPassword, token_version: nextVersion });
+    await kdb("users").where({ id: user.id }).update({ password: hashedPassword, token_version: nextVersion, must_change_password: 0 });
     invalidateUserPermissionCache(user.id);
+
+    // Reflect the cleared flag in the response (the row was read before update).
+    user.must_change_password = 0;
 
     // إصدار جلسة جديدة فقط للجلسة الحالية (كل الجلسات القديمة أُلغيت برفع token_version)
     const token = jwt.sign(

@@ -272,7 +272,8 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
           custom_permissions: effectiveCustomPermissions.length > 0 ? JSON.stringify(effectiveCustomPermissions) : null,
           custom_role_id: user.custom_role_id || null,
           daily_readings_enabled: dailyReadingsEnabled,
-          radio_514_enabled: radio514Enabled
+          radio_514_enabled: radio514Enabled,
+          must_change_password: user.must_change_password === true || Number(user.must_change_password) === 1
         }
       }
     });
@@ -328,6 +329,7 @@ router.get("/me", authenticate, async (req, res) => {
           custom_role_id: user.custom_role_id || null,
           daily_readings_enabled: user.daily_readings_enabled != 0,
           radio_514_enabled: user.radio_514_enabled != 0,
+          must_change_password: user.must_change_password === true || Number(user.must_change_password) === 1
         }
       }
     });

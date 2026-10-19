@@ -111,9 +111,13 @@ router.get("/:path(*)", async (req, res) => {
     if (!absPath) return res.status(400).json({ success: false, message: "مسار غير صالح" });
 
     const baseName = path.basename(absPath);
+    // StudentDocuments.file_path is stored as `/uploads/documents/<filename>`
+    // (see student.service.ts). Match it EXACTLY instead of a trailing LIKE so
+    // a file can never be authorized by a different row whose path merely ends
+    // with the same basename.
     const row = await kdb("StudentDocuments")
       .select("student_id", "file_path", "doc_type")
-      .where("file_path", "like", `%${baseName}`)
+      .where("file_path", `/uploads/documents/${baseName}`)
       .first();
 
     if (row) {
@@ -150,6 +154,7 @@ router.get("/:path(*)", async (req, res) => {
     if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
       return res.status(404).json({ success: false, message: "الملف غير موجود" });
     }
+    res.setHeader('Cache-Control', 'private, no-store');
     res.sendFile(absPath);
   } catch (error: any) {
     res.status(500).json({ success: false, message: "فشل تحميل الملف" });

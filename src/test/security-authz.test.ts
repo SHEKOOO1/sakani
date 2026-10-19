@@ -801,7 +801,7 @@ describe('security-authz: password reset invalidates prior sessions', () => {
     const res = await request('/api/users/t1/password', { method: 'PUT', token: adminToken, body: { password: 'NewPass@9' } });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(JSON.stringify(res.body)).not.toContain('password');
+    expect(JSON.stringify(res.body)).not.toContain('"password"');
     expect(JSON.stringify(res.body)).not.toContain('NewPass@9');
 
     const rows = dbMock.readRows('users');
@@ -976,8 +976,11 @@ describe('security-authz: self-service password change', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(JSON.stringify(res.body)).not.toContain('password');
+    // No raw password/hash may leak; the only "password"-named field allowed is the flag.
+    expect(JSON.stringify(res.body)).not.toContain('"password"');
+    expect(JSON.stringify(res.body)).not.toContain(OLD_PASSWORD);
     expect(JSON.stringify(res.body)).not.toContain('NewSelf@8');
+    expect(res.body.data.user.must_change_password).toBeFalsy();
 
     const rows = dbMock.readRows('users');
     const updated = rows.find((r: any) => r.id === 'svc');

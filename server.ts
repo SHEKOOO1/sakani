@@ -111,31 +111,6 @@ import { AppPermission } from "./src/types/permissions.ts";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./src/backend/infrastructure/swagger.ts";
 
-// Periodic upload cleanup (every 6 hours)
-setInterval(() => {
-  const uploadDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadDir)) return;
-  const now = Date.now();
-  const maxAge = 30 * 24 * 60 * 60 * 1000;
-  for (const sub of fs.readdirSync(uploadDir)) {
-    // صور الملفات الشخصية/الوجبات/المنتجات دائمة ومرتبطة بسجلات — لا تُحذف بالتنظيف الدوري
-    if (sub === 'images') continue;
-    const subPath = path.join(uploadDir, sub);
-    try {
-      if (fs.statSync(subPath).isDirectory()) {
-        for (const file of fs.readdirSync(subPath)) {
-          const filePath = path.join(subPath, file);
-          const age = now - fs.statSync(filePath).mtimeMs;
-          if (age > maxAge) {
-            fs.unlinkSync(filePath);
-            console.log(`Cleaned up old upload: ${filePath}`);
-          }
-        }
-      }
-    } catch {}
-  }
-}, 6 * 60 * 60 * 1000);
-
 // Validate required environment variables (fail closed; the value is never logged)
 const jwtValidation = validateJwtSecret(process.env.JWT_SECRET);
 if (!jwtValidation.ok) {
@@ -214,6 +189,13 @@ try {
 
 async function startServer() {
   const app = express();
+  // Behind exactly one reverse proxy (Nginx Proxy Manager). Without this,
+  // express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every
+  // request that carries X-Forwarded-For (which NPM always sets in production),
+  // turning login and other rate-limited endpoints into 500s. It also lets
+  // req.ip / req.protocol reflect the real client instead of the proxy, and
+  // stops a direct client from spoofing its IP via a forged header.
+  app.set('trust proxy', 1);
   // لا نكشف محرك الخادم (X-Powered-By) للمهاجم
   app.disable('x-powered-by');
   // معرف لكل طلب — يُرسل في الترويسة ويُستخدم في المعالجات والسجلّات لترابط
@@ -251,12 +233,6 @@ async function startServer() {
     }
     next();
   });
-  // Behind exactly one reverse proxy (Nginx Proxy Manager). Without this,
-  // express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every
-  // request that carries X-Forwarded-For (which NPM always sets in production),
-  // turning login and other rate-limited endpoints into 500s. It also lets
-  // req.ip / req.protocol reflect the real client instead of the proxy.
-  app.set('trust proxy', 1);
   const httpServer = createServer(app);
   activeHttpServer = httpServer;
   const io = new Server(httpServer, {

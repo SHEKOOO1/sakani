@@ -65,6 +65,17 @@ describe('geo: evaluateGeofence (accuracy-aware tri-state)', () => {
   it('huge accuracy that swallows the circle → uncertain', () => {
     expect(evaluateGeofence(20, 50, 100)).toBe('uncertain');
   });
+
+  it('coarse network/IP fix far away → uncertain, never a false "outside"', () => {
+    // ~327 km away with a 5 km accuracy is a network/IP fallback, not GPS.
+    expect(evaluateGeofence(326_630, 20, 5000)).toBe('uncertain');
+    // Just past the trust threshold: still uncertain.
+    expect(evaluateGeofence(1_000_000, 50, 201)).toBe('uncertain');
+  });
+
+  it('GPS-grade fix far away → outside (still trustworthy)', () => {
+    expect(evaluateGeofence(300, 50, 20)).toBe('outside');
+  });
 });
 
 describe('geo: parseAccuracy & isValidCoordinate', () => {

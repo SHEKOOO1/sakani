@@ -59,6 +59,9 @@ CREATE TABLE users (
     gender NVARCHAR(10) DEFAULT 'male',
     daily_readings_enabled BIT DEFAULT 1,
     token_version INT NOT NULL DEFAULT 0,
+    -- 1 = the account still uses the shared DEFAULT_USER_PASSWORD and must be
+    -- changed before the app is usable (set at creation, cleared on change).
+    must_change_password BIT NOT NULL DEFAULT 0,
     created_at DATETIME2 DEFAULT GETDATE(),
     -- Account activation: NULL = pending (login refused until the emailed link is opened).
     activated_at DATETIME2,

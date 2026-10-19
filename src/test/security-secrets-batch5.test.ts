@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 // ═══════════════════════════════════════════════════════════════
-// SECURITY_FIX_BATCH5 — أسرار/بيئة (scripts/seed-admin, test-endpoints, …)
+// SECURITY_FIX_BATCH5 — أسرار/بيئة (scripts/seed-admin, set-passwords, …)
 //
 // التغطية:
 //   1. وحدة: scripts/seed-admin-lib.ts (FAIL-CLOSED للتحقق والسلامة والنسخ
@@ -93,16 +93,6 @@ describe('batch5: no hardcoded secrets remain in admin scripts (source scan)', (
     expect(/bcrypt\.hash\(\s*['"]/.test(src)).toBe(false);
     expect(src.toLowerCase()).not.toContain('admin123');
     expect(src).not.toContain('123456');
-  });
-
-  it('test-endpoints.ts reads JWT_SECRET from env and contains no inline secret', () => {
-    const src = readRepoFile('scripts/test-endpoints.ts');
-    expect(src).toContain('process.env.JWT_SECRET');
-    // المفتاح المضمّن السابق زال نهائياً
-    expect(src).not.toContain(LEGACY_JWT_PREFIX);
-    expect(/jwt\.sign\([^)]*,\s*['"]/.test(src)).toBe(false);
-    // فشل آمن عند غياب المفتاح
-    expect(src.toLowerCase()).toContain('jwt_secret غير مضبوط');
   });
 
   it('set-passwords.ts is env-driven (no DB password / user password literals) and bumps token_version', () => {

@@ -159,10 +159,11 @@ export class StudentService {
                 .input('password', mssql.NVarChar(255), hashedPassword)
                 .input('role', mssql.NVarChar(50), 'student')
                 .input('name', mssql.NVarChar(255), name)
-            .input('daily_readings_enabled', mssql.Bit, 1)
-            .input('activated_at', mssql.DateTime2, new Date())
-            .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, daily_readings_enabled, activated_at) 
-                        VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @daily_readings_enabled, @activated_at)`);
+                .input('daily_readings_enabled', mssql.Bit, 1)
+                .input('activated_at', mssql.DateTime2, new Date())
+                .input('must_change_password', mssql.Bit, resolvedStudentPassword.usedDefault ? 1 : 0)
+            .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, daily_readings_enabled, activated_at, must_change_password) 
+                        VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @daily_readings_enabled, @activated_at, @must_change_password)`);
 
             // 1. إدراج بيانات الطالب الأساسية
             await transaction.request()
@@ -254,8 +255,9 @@ export class StudentService {
                         .input('role', mssql.NVarChar(50), 'parent')
                         .input('name', mssql.NVarChar(255), parentFullName)
                         .input('activated_at', mssql.DateTime2, new Date())
-                        .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, activated_at) 
-                                VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @activated_at)`);
+                        .input('must_change_password', mssql.Bit, resolvedParentPassword.usedDefault ? 1 : 0)
+                        .query(`INSERT INTO users (id, tenant_id, email, username, password, role, name, activated_at, must_change_password) 
+                                VALUES (@id, @tenant_id, @email, @username, @password, @role, @name, @activated_at, @must_change_password)`);
 
                     const guardianId = uuidv4();
                     await transaction.request()
